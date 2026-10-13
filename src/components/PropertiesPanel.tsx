@@ -13,12 +13,14 @@ interface PropertiesPanelProps {
   dispatch: Dispatch<EditorAction>;
   onDelete: (id: string) => void;
   onSelect: (selection: Selection) => void;
+  /** While a layout is previewed, editing is paused. */
+  inert?: boolean;
 }
 
 /** Desktop right-hand panel. On smaller screens the same editor opens in a modal. */
-export function PropertiesPanel({ project, selection, conflicts, dispatch, onDelete, onSelect }: PropertiesPanelProps) {
+export function PropertiesPanel({ project, selection, conflicts, dispatch, onDelete, onSelect, inert }: PropertiesPanelProps) {
   return (
-    <aside className="panel properties-panel" aria-label="Selected object properties">
+    <aside className="panel properties-panel" aria-label="Selected object properties" inert={inert}>
       {selection ? (
         <SelectionEditor project={project} selection={selection} conflicts={conflicts} dispatch={dispatch} onDelete={onDelete} onSelect={onSelect} />
       ) : (

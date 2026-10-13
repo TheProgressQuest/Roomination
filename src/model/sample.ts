@@ -1,4 +1,5 @@
 import { featureDefaults } from './features';
+import { DEFAULT_OPTIMIZER } from './furnitureKinds';
 import { DEFAULT_STAIR_WIDTH, stairPreset } from './stairs';
 import type { FeatureKind, FloorStyle, Furniture, Placement, Project, Room, RoomFeature, Staircase } from './types';
 import { CURRENT_SCHEMA_VERSION } from './types';
@@ -33,6 +34,9 @@ export function createFurniture(fields: Partial<Furniture> & Pick<Furniture, 'x'
     rotation: 0,
     color: FURNITURE_COLORS[0].value,
     texture: 'plain',
+    kind: 'custom',
+    locked: false,
+    preferences: [],
     ...fields,
   };
 }
@@ -76,6 +80,9 @@ export function createEmptyProject(room: Room = createRectangularRoom(400, 350),
     furniture: [],
     features: [],
     stairs: [],
+    relationships: [],
+    optimizer: DEFAULT_OPTIMIZER,
+    savedLayouts: [],
     acceptedOverlaps: [],
   };
 }
@@ -88,6 +95,11 @@ export function createSampleProject(): Project {
   const wall = (start: { id: string }, offset: number): Placement => ({ type: 'wall', wallId: start.id, offset });
   const free = (x: number, y: number, rotation = 0): Placement => ({ type: 'free', x, y, rotation });
 
+  // Fronts face the way the piece is used: the sofa (rotated 180°) faces up towards the TV.
+  const sofa = createFurniture({ name: 'Sofa', kind: 'sofa', x: 240, y: 330, width: 220, depth: 90, height: 85, rotation: 180, color: '#e9a178' });
+  const coffeeTable = createFurniture({ name: 'Coffee table', kind: 'coffeeTable', x: 240, y: 220, width: 110, depth: 60, height: 45, color: '#f2c879' });
+  const tv = createFurniture({ name: 'TV console', kind: 'television', x: 240, y: 25, width: 160, depth: 40, height: 55, color: '#9bb7d4' });
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     name: 'Sample living room',
@@ -95,13 +107,19 @@ export function createSampleProject(): Project {
     room,
     furniture: [
       createFurniture({ name: 'Rug', category: 'floorCovering', x: 240, y: 220, width: 200, depth: 140, height: 1, color: '#c9a7d8', texture: 'bordered' }),
-      createFurniture({ name: 'Sofa', x: 240, y: 330, width: 220, depth: 90, height: 85, color: '#e9a178' }),
-      createFurniture({ name: 'Coffee table', x: 240, y: 220, width: 110, depth: 60, height: 45, color: '#f2c879' }),
-      createFurniture({ name: 'TV console', x: 240, y: 25, width: 160, depth: 40, height: 55, color: '#9bb7d4' }),
-      createFurniture({ name: 'Armchair', x: 70, y: 200, width: 80, depth: 80, height: 90, rotation: 90, color: '#8fb996' }),
-      createFurniture({ name: 'Bookshelf', x: 455, y: 150, width: 100, depth: 35, height: 180, rotation: 90, color: '#c9a7d8' }),
-      createFurniture({ name: 'Plant', category: 'decoration', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#8fb996' }),
+      sofa,
+      coffeeTable,
+      tv,
+      createFurniture({ name: 'Armchair', kind: 'armchair', x: 70, y: 200, width: 80, depth: 80, height: 90, rotation: 270, color: '#8fb996' }),
+      createFurniture({ name: 'Bookshelf', kind: 'bookshelf', x: 455, y: 150, width: 100, depth: 35, height: 180, rotation: 90, color: '#c9a7d8', preferences: ['againstWall'] }),
+      createFurniture({ name: 'Plant', kind: 'decor', category: 'decoration', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#8fb996' }),
     ],
+    relationships: [
+      { id: createId(), type: 'inFrontOf', a: sofa.id, b: coffeeTable.id },
+      { id: createId(), type: 'faces', a: sofa.id, b: tv.id },
+    ],
+    optimizer: DEFAULT_OPTIMIZER,
+    savedLayouts: [],
     features: [
       createFeature('door', wall(left, 60), room, { name: 'Front door', hinge: 'left' }),
       createFeature('window', wall(top, 90), room, { width: 120 }),

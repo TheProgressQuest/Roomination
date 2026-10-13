@@ -17,7 +17,9 @@ describe('parseProject', () => {
     const result = parseProject(phase1Save);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.project.schemaVersion).toBe(3);
+    expect(result.project.schemaVersion).toBe(4);
+    expect(result.project.furniture[0]).toMatchObject({ kind: 'sofa', locked: false, preferences: [] });
+    expect(result.project.relationships).toEqual([]);
     expect(result.project.furniture[0]).toMatchObject({ name: 'Sofa', category: 'furniture', texture: 'plain' });
     expect(result.project.features).toEqual([]);
     expect(result.project.room.floor.preset).toBe('plain');
@@ -127,5 +129,16 @@ describe('older saves', () => {
   it('refuses a door wider than every wall instead of leaving it floating', () => {
     const door = { kind: 'door', name: 'Barn door', placement: { type: 'free', x: 100, y: 100, rotation: 0 }, width: 900, depth: 0, height: 200, elevation: 0, clearance: 0 };
     expect(parseProject({ ...phase1Save, schemaVersion: 2, features: [door] })).toMatchObject({ ok: false, error: expect.stringMatching(/long enough/) });
+  });
+});
+
+describe('saved layouts in files', () => {
+  it('gives duplicate layout ids fresh ones', () => {
+    const project = createSampleProject();
+    const positions = [{ id: project.furniture[1].id, x: 100, y: 100, rotation: 0 }];
+    const file = serializeProject({ ...project, savedLayouts: [{ id: 'same', name: 'A', createdAt: 1, positions }, { id: 'same', name: 'B', createdAt: 2, positions }] });
+    const result = parseProjectFile(file);
+    if (!result.ok) throw new Error(result.error);
+    expect(new Set(result.project.savedLayouts.map((l) => l.id)).size).toBe(2);
   });
 });

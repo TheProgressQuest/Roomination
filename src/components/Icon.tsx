@@ -34,6 +34,10 @@ const PATHS = {
   drawRoom: 'M4 20V6h8v6h8v8ZM4 6h0M12 12h0',
   drawWall: 'M3 18 9 8l6 6 6-10',
   magnet: 'M6 3v8a6 6 0 0 0 12 0V3M6 7h4M14 7h4',
+  // Planning
+  lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
+  unlock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 7.5-2',
+  sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8ZM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

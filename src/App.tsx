@@ -6,6 +6,8 @@ import { Dialog } from './components/Dialog';
 import { Header, type SaveStatus } from './components/Header';
 import { Icon } from './components/Icon';
 import { FloorPlan } from './components/plan/FloorPlan';
+import { OptimizerDialog } from './components/OptimizerDialog';
+import { PreviewBar } from './components/PreviewBar';
 import { ProjectsDialog } from './components/ProjectsDialog';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SelectionBar } from './components/SelectionBar';
@@ -13,14 +15,16 @@ import { SelectionEditor } from './components/StructureEditors';
 import { Toast } from './components/Toast';
 import { ToolsPanel } from './components/ToolsPanel';
 import { findConflicts } from './model/conflicts';
+import { withPoses } from './optimizer/search';
 import { allowedPlacement, findFreeWallSpot } from './model/features';
 import { createEmptyProject, createFeature, createFurniture, createId, createSampleProject, createStaircase } from './model/sample';
-import type { FeatureKind, Placement, Point, Project, RoomFeature } from './model/types';
+import type { FeatureKind, Placement, Point, Project, RoomFeature, SavedLayout } from './model/types';
 import { DEFAULT_WALL_THICKNESS, findSegment, outlineSegments, roomBounds, wallLabel } from './model/walls';
 import { CM_PER_INCH } from './model/units';
 import { canvasPalette, luminance } from './render/palette';
 import { canRedo, canUndo, createEditorState, editorReducer, type EditorAction } from './state/editor';
 import { objectId, type Selection, type ToolMode } from './state/selection';
+import { useOptimizer } from './state/useOptimizer';
 import { useMediaQuery, usePreferences, useResolvedTheme, type BoardPreferences, type ResolvedTheme } from './state/preferences';
 import { MAX_IMPORT_BYTES, parseProjectFile, serializeProject } from './storage/projectFile';
 import {
@@ -65,6 +69,10 @@ export function App() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [optimizerOpen, setOptimizerOpen] = useState(false);
+  const optimizer = useOptimizer();
+  /** A layout shown on the plan without changing the project (non-destructive preview). */
+  const [preview, setPreview] = useState<{ title: string; positions: SavedLayout['positions'] } | null>(null);
   const [projectList, setProjectList] = useState<ProjectSummary[]>([]);
   const [importMessage, setImportMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
 
@@ -87,7 +95,11 @@ export function App() {
     setSelection(null);
     setMode('select');
     setDraft([]);
-  }, []);
+    setPreview(null);
+    setOptimizerOpen(false);
+    // Results belong to the project they were made for.
+    optimizer.reset();
+  }, [setDraft, optimizer.reset]);
 
   // Restore the last project from this device. First-time visitors get the sample room.
   useEffect(() => {
@@ -297,6 +309,35 @@ export function App() {
     if (action.type === 'walls/addPartition') setSelection({ kind: 'wall', id: nodes[0].id });
   }
 
+  function openOptimizer() {
+    if (mode !== 'select') cancelDrawing();
+    setPreview(null);
+    setEditorOpen(false);
+    setOptimizerOpen(true);
+  }
+
+  /** The project as shown while previewing a layout (never saved), with its own conflict marks. */
+  const previewProject = useMemo(() => (preview ? withPoses(project, new Map(preview.positions.map((p) => [p.id, p]))) : null), [preview, project]);
+  const previewConflicts = useMemo(() => (previewProject ? findConflicts(previewProject) : null), [previewProject]);
+
+  /** Applies a layout as one undoable step, after checking the editor would accept it. */
+  function applyLayout(title: string, positions: SavedLayout['positions']) {
+    const action: EditorAction = { type: 'layout/apply', positions };
+    const result = editorReducer(state, action);
+    if (result.notice !== state.notice && result.notice) {
+      dispatch(action); // refused: shows the reason (e.g. a piece is now locked)
+      return;
+    }
+    if (result.present === state.present) {
+      dispatch({ type: 'notice/show', message: `${title} matches your current layout, so nothing changed.` });
+    } else {
+      dispatch(action);
+      dispatch({ type: 'notice/show', message: `Applied ${title}. Press Undo to go back to your previous layout.` });
+    }
+    setPreview(null);
+    setOptimizerOpen(false);
+  }
+
   /** A point placed on the plan. Tapping the first corner again closes the room. */
   function addDraftPoint(point: Point) {
     const current = draftRef.current;
@@ -358,6 +399,12 @@ export function App() {
     if (isTypingTarget(e.target) || document.querySelector('dialog[open]')) return;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+
+    // While previewing a suggestion the plan is read-only: Escape returns to the real layout.
+    if (preview) {
+      if (key === 'escape') setPreview(null);
+      return;
+    }
 
     if (mode !== 'select') {
       if (key === 'escape') cancelDrawing();
@@ -441,8 +488,8 @@ export function App() {
       <Header
         projectName={project.name}
         saveStatus={saveStatus}
-        canUndo={canUndo(state)}
-        canRedo={canRedo(state)}
+        canUndo={canUndo(state) && !preview}
+        canRedo={canRedo(state) && !preview}
         theme={preferences.theme}
         onUndo={() => dispatch({ type: 'history/undo' })}
         onRedo={() => dispatch({ type: 'history/redo' })}
@@ -451,6 +498,7 @@ export function App() {
           setProjectsOpen(true);
         }}
         onTheme={(value) => updatePreferences({ theme: value })}
+        onOptimize={openOptimizer}
       />
 
       {activeId ? (
@@ -469,6 +517,7 @@ export function App() {
               onStartDrawing={startDrawing}
               onSelect={select}
               onCollapse={isTablet ? () => setToolsCollapsed(true) : undefined}
+              inert={preview !== null}
             />
           ) : (
             <div className="tools-rail">
@@ -482,6 +531,17 @@ export function App() {
           )}
 
           <div className="canvas-column">
+            {preview && (
+              <PreviewBar
+                title={preview.title}
+                onApply={() => applyLayout(preview.title, preview.positions)}
+                onBack={() => {
+                  setPreview(null);
+                  setOptimizerOpen(true);
+                }}
+                onExit={() => setPreview(null)}
+              />
+            )}
             {mode !== 'select' && (
               <DrawingBar
                 mode={mode}
@@ -509,8 +569,9 @@ export function App() {
               }
             >
               <FloorPlan
-                project={project}
-                conflicts={conflicts}
+                project={previewProject ?? project}
+                readOnly={previewProject !== null}
+                conflicts={previewConflicts ?? conflicts}
                 selection={selection}
                 palette={palette}
                 showMeasurementGrid={preferences.showMeasurementGrid}
@@ -528,7 +589,7 @@ export function App() {
                 onDraftPoint={addDraftPoint}
               />
             </section>
-            {!isDesktop && mode === 'select' && (
+            {!isDesktop && mode === 'select' && !preview && (
               <SelectionBar
                 selectedName={selectedName}
                 canRotate={selectedFurniture !== null || selectedStair !== null || selectedFeature?.placement.type === 'free'}
@@ -536,12 +597,13 @@ export function App() {
                 onRotate={() => rotateSelected(1)}
                 onDelete={deleteSelection}
                 onAdd={() => setAddOpen(true)}
+                onOptimize={openOptimizer}
               />
             )}
           </div>
 
           {isDesktop && (
-            <PropertiesPanel {...editorProps} selection={selection} />
+            <PropertiesPanel {...editorProps} selection={selection} inert={preview !== null} />
           )}
         </main>
       ) : (
@@ -594,6 +656,22 @@ export function App() {
           onDelete={(id) => void removeProject(id)}
         />
       )}
+
+      <OptimizerDialog
+        open={optimizerOpen}
+        onClose={() => setOptimizerOpen(false)}
+        project={project}
+        dispatch={dispatch}
+        run={optimizer.state}
+        onStart={(ids) => optimizer.start(project, ids)}
+        onCancel={optimizer.cancel}
+        onPreview={(title, positions) => {
+          setSelection(null);
+          setPreview({ title, positions });
+          setOptimizerOpen(false);
+        }}
+        onApply={applyLayout}
+      />
 
       <ConflictBanner
         prompt={state.prompt}

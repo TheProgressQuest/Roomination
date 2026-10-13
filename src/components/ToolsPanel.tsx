@@ -29,6 +29,8 @@ interface ToolsPanelProps {
   onSelect: (selection: Selection) => void;
   /** Tablet layout: lets the panel fold away to give the plan more room. */
   onCollapse?: () => void;
+  /** While a layout is previewed, the panel can't be used (it would change the real project). */
+  inert?: boolean;
 }
 
 export function ToolsPanel(props: ToolsPanelProps) {
@@ -42,7 +44,7 @@ export function ToolsPanel(props: ToolsPanelProps) {
   const openChecks = conflicts.filter((c) => !c.accepted).length;
 
   return (
-    <aside className="panel tools-panel" aria-label="Room and furniture tools">
+    <aside className="panel tools-panel" aria-label="Room and furniture tools" inert={props.inert}>
       {props.onCollapse && (
         <div className="panel-toolbar">
           <button type="button" className="icon-button" onClick={props.onCollapse} aria-label="Hide tools panel">

@@ -1,11 +1,14 @@
 import { memo, useState } from 'react';
-import { Circle, Group, Line, Rect, Text } from 'react-konva';
+import { Circle, Group, Line, Path, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
 import type { Furniture } from '../../model/types';
 import { readableText, shade, type CanvasPalette } from '../../render/palette';
 import { PX_PER_CM, rugTexture } from '../../render/textures';
 import { FONT_FAMILY } from './RoomShell';
 import { interactionEvents, sameDataProps, type ConflictStatus, type InteractionProps } from './shared';
+
+/** Same padlock as the interface icon (24×24 viewBox). */
+const LOCK_PATH = 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4';
 
 interface FurnitureShapeProps extends InteractionProps {
   item: Furniture;
@@ -102,6 +105,13 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           ellipsis
           listening={false}
         />
+      )}
+      {item.locked && (
+        // Lock badge in the top-left corner, kept upright.
+        <Group x={-w / 2} y={-h / 2} rotation={-item.rotation} listening={false}>
+          <Circle radius={9} fill={palette.featureInk} stroke="#ffffff" strokeWidth={1.5} />
+          <Path data={LOCK_PATH} stroke="#ffffff" strokeWidth={2} lineCap="round" lineJoin="round" scaleX={0.5} scaleY={0.5} offsetX={12} offsetY={13} />
+        </Group>
       )}
       {status === 'warning' && (
         <Group x={w / 2} y={-h / 2} rotation={-item.rotation} listening={false}>

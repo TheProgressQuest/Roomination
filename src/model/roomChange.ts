@@ -50,6 +50,7 @@ export function applyRoomChange(project: Project, room: Room, orphans: OrphanPol
   for (const item of project.furniture) {
     const placed = clampFurnitureToRoom(item, room);
     if (!placed) return `“${item.name}” wouldn’t fit in the room’s new shape. Move or shrink it first.`;
+    if (item.locked && (placed.x !== item.x || placed.y !== item.y)) return `“${item.name}” is locked and would have to move. Unlock it first.`;
     furniture.push(placed);
   }
 

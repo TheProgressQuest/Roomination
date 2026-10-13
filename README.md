@@ -66,6 +66,66 @@ Find these under **Walls** in the left panel (or **Add → Walls** on a phone).
 - Roomination shows rise per step and tread depth as planning estimates only. **It does not check
   building codes or stair safety.**
 
+### Optimize Layout (Phase 3A)
+Click **Optimize** in the header (or the ✨ button on a phone). Roomination tries many
+arrangements **on your device** and suggests up to three genuinely different layouts.
+
+- **Emphasis:**
+  - **Functional:** clear doorways and walkways, reachable stairs, vents and outlets, and furniture
+    you can actually use.
+  - **Aesthetic:** alignment, balance, tidy spacing, seating and TV facing each other.
+  - **Balanced:** a slider sets how much each counts, e.g. 70% function / 30% aesthetics.
+- **Hard rules always apply, whatever the emphasis:** pieces stay inside the room's real outline,
+  never overlap furniture, walls, columns or radiators, and stay off stairs and out of door swings.
+  Overlaps you previously allowed only apply to the exact positions you approved.
+- **Your control:**
+  - **Lock position:** set it on any piece, or use the lock buttons and *Lock all* in the dialog.
+    Locked pieces can't be dragged or moved by the optimizer until you unlock them.
+  - **Choose pieces:** decide which pieces the optimizer may move. Rugs are left alone unless you
+    include them.
+  - **Walls, doors, windows and stairs never move.**
+- **Tell it what matters** in each piece's properties, under *Layout planning*:
+  - **What it is:** desk, sofa, bed, TV and so on.
+  - **Placement preferences:** e.g. near a window, near an outlet, against a wall, facing the TV,
+    bed reachable from both sides.
+  - **Relationships between specific pieces:** e.g. chair in front of desk, sofa faces TV,
+    bedside table beside bed.
+
+  Nothing is assumed from names or categories.
+- **Each suggestion shows:**
+  - a floor-plan preview (moved pieces dashed);
+  - overall, functional, aesthetic* and preference scores;
+  - *why it's suggested*, *trade-offs* and *still to look at*;
+  - a full **score breakdown** with the measurement behind each number.
+
+  Every explanation comes from a measured difference, e.g. "Moved the Desk 1.8 m closer to an
+  outlet". *Aesthetic scores are a matter of taste and are labelled as such.
+- **Non-destructive:**
+  - **Preview on plan** shows a suggestion without changing anything.
+  - **Apply layout** changes only positions and rotations, as one undo step.
+  - **Save as layout** keeps it with the project to apply later.
+- **Reproducible:** the same room, settings and **seed** always give the same suggestions.
+  **New** tries a different seed.
+- **Honest when it can't help:** if the furniture can't fit (for example, too much for the floor),
+  it explains why instead of inventing a layout. If fewer than three distinct layouts exist, it
+  says so.
+- **Walkway width** (75 cm by default) is your comfort preference for this plan. **It is not a
+  building-code or accessibility check**, and Roomination doesn't verify regulatory compliance.
+
+How it works: a greedy placement (anchors first, at wall-hugging and relationship-based spots)
+followed by seeded **simulated annealing**, run in a **Web Worker** so the page stays responsive.
+Progress shows as it runs, and **Cancel** stops it at once.
+
+- **Walking space:** measured on a grid with a distance transform and flood fill from each door,
+  not just as a percentage of empty floor.
+- **Scoring rules, algorithm, measured timings and limitations:** see
+  [ADR-0002](docs/adr/0002-layout-optimizer.md).
+
+Typical times on a laptop:
+- **Quick:** 0.1–0.4 s.
+- **Standard:** 0.6–1.7 s.
+- **Thorough:** 2–5.5 s (rooms with up to 11 movable pieces).
+
 ### Smart overlaps
 - Items have categories: **furniture**, **rugs & mats** (floor coverings) and **décor**.
 - Rugs sit underneath furniture and may overlap anything.
@@ -145,8 +205,9 @@ configuration. GitHub Pages is free for public repositories.
 | Folder | What lives there |
 | --- | --- |
 | `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
-| `src/state/` | `editor.ts`, the single reducer every change goes through (validation, overlap prompts, undo history), plus selection and display preferences. |
-| `src/storage/` | IndexedDB persistence (Dexie) and import/export validation and migration (schema v1–v3). |
+| `src/state/` | `editor.ts`, the single reducer every change goes through (validation, overlap prompts, undo history), plus selection, display preferences and the optimizer run state. |
+| `src/optimizer/` | The layout optimizer. Main modules: walking-space grid (`circulation.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations (`explain.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
+| `src/storage/` | IndexedDB persistence (Dexie) and import/export validation and migration (schema v1–v4). |
 | `src/render/` | Canvas colours per theme and the locally generated floor/rug textures. |
 | `src/components/` | The interface. `plan/` holds the floor plan canvas (React Konva). |
 | `e2e/` | Browser tests (Playwright). |
@@ -161,12 +222,30 @@ configuration. GitHub Pages is free for public repositories.
   move with it.
 - **Pixels:** exist only inside `components/plan/`.
 
-Projects saved by earlier versions (rectangles with named walls) are converted automatically.
+Projects saved by earlier versions (rectangles with named walls, no furniture types or locks) are
+converted automatically. Older pieces get a type guessed from their name, are unlocked, and have no
+preferences.
 
 ## Privacy
 
 Roomination makes no network requests of its own. Project data leaves your device only when you
-export a file yourself.
+export a file yourself. The layout optimizer runs entirely in your browser (in a bundled Web
+Worker), with no AI service, API or account.
+
+## Known limitations
+
+- **Optimizer — what it changes:** it moves and turns furniture, but never adds, removes or
+  resizes it.
+- **Optimizer — rotations:** it considers rotations square to the room's walls. Pieces at other
+  angles keep their angle only if they aren't moved.
+- **Optimizer — rugs:** they aren't arranged unless included, and nothing lines them up with the
+  furniture above them.
+- **Optimizer — taste:** aesthetic measures encode common conventions (pieces square to walls,
+  storage against walls, seating facing the TV). They are a guide, not objective facts.
+- **Optimizer — large plans:** very large plans (30+ movable pieces) take proportionally longer.
+- **Testing coverage:** browser tests run in Chromium, including simulated phones and tablets.
+  Safari, Firefox and real touch devices haven't been tested automatically, and screen readers
+  haven't been tested with real assistive software.
 
 ## Licence
 

@@ -32,6 +32,8 @@ interface FloorPlanProps {
   snap: SnapSettings;
   /** Touch screens: items must be selected before they can be dragged. */
   touch: boolean;
+  /** Previewing a layout: show it, but nothing can be selected or moved. */
+  readOnly?: boolean;
   onSelect: (selection: Selection) => void;
   onOpenEditor: (id: string) => void;
   onChangeFurniture: (id: string, changes: Partial<Furniture>) => void;
@@ -54,6 +56,8 @@ export function FloorPlan(props: FloorPlanProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(containerRef);
   const drawing = mode !== 'select';
+  /** Pieces, walls and corners respond to the pointer only when not drawing or previewing. */
+  const interactive = !drawing && !props.readOnly;
 
   // While a corner is being dragged, show the reshaped room live.
   const [cornerDrag, setCornerDrag] = useState<{ id: string; to: Point } | null>(null);
@@ -76,7 +80,7 @@ export function FloorPlan(props: FloorPlanProps) {
     const drawn = boundingBox(draft);
     return { minX: Math.min(view.minX, drawn.minX), minY: Math.min(view.minY, drawn.minY), maxX: Math.max(view.maxX, drawn.maxX), maxY: Math.max(view.maxY, drawn.maxY) };
   }, [project.room, draft, drawing]);
-  const showCorners = !drawing && (selection?.kind === 'wall' || selection?.kind === 'corner');
+  const showCorners = interactive && (selection?.kind === 'wall' || selection?.kind === 'corner');
   // Per-wall lengths: while editing walls, and for irregular rooms where width × length isn't enough.
   const showWallLengths = drawing || showCorners || asRectangle(room) === null;
   const labelRoom = showWallLengths ? WALL_LABEL_SPACE : 0;
@@ -145,14 +149,14 @@ export function FloorPlan(props: FloorPlanProps) {
   const selectedFeature = features.find((f) => f.id === selectedObjectId);
   const rotatable =
     selectedObjectId !== null &&
-    (furniture.some((f) => f.id === selectedObjectId) || stairs.some((s) => s.id === selectedObjectId) || (selectedFeature !== undefined && canRotate(selectedFeature)));
+    (furniture.some((f) => f.id === selectedObjectId && !f.locked) || stairs.some((s) => s.id === selectedObjectId) || (selectedFeature !== undefined && canRotate(selectedFeature)));
   useEffect(() => {
     const transformer = transformerRef.current;
     if (!transformer) return;
     const node = rotatable && selectedObjectId ? nodeRefs.current.get(selectedObjectId) : undefined;
-    transformer.nodes(node && !drawing ? [node] : []);
+    transformer.nodes(node && interactive ? [node] : []);
     transformer.getLayer()?.batchDraw();
-  }, [selectedObjectId, rotatable, project, drawing]);
+  }, [selectedObjectId, rotatable, project, interactive]);
 
   /** Where the piece being dragged last fitted, so it slides along walls instead of jumping. */
   const lastGood = useRef<Point | null>(null);
@@ -196,7 +200,8 @@ export function FloorPlan(props: FloorPlanProps) {
   }
 
   const screenFrame = (frame: Frame): Frame => screenFrameOf(frame, viewport);
-  const canDrag = (id: string) => !drawing && (!props.touch || id === selectedObjectId);
+  const lockedIds = new Set(furniture.filter((f) => f.locked).map((f) => f.id));
+  const canDrag = (id: string) => interactive && !lockedIds.has(id) && (!props.touch || id === selectedObjectId);
   const ceilingFeatures = features.filter((f) => f.kind === 'light' || (f.kind === 'vent' && f.ventMount === 'ceiling'));
   const floorFeatures = features.filter((f) => FLOOR_FEATURES.has(f.kind) || (f.kind === 'vent' && f.ventMount === 'floor'));
   const wallFeatures = features.filter((f) => !ceilingFeatures.includes(f) && !floorFeatures.includes(f));
@@ -355,13 +360,13 @@ export function FloorPlan(props: FloorPlanProps) {
       role="img"
       aria-label={`Floor plan of ${project.name}: about ${formatLength(roomBox.maxX - roomBox.minX, project.units)} by ${formatLength(roomBox.maxY - roomBox.minY, project.units)}, with ${room.outline.length} outer walls, ${furniture.length} items, ${features.length} room features and ${stairs.length} staircases.`}
       // On phones, swiping over an unselected plan scrolls the page instead of grabbing things.
-      style={{ touchAction: props.touch && !drawing && !selection ? 'pan-y' : 'none' }}
+      style={{ touchAction: props.touch && (props.readOnly || (!drawing && !selection)) ? 'pan-y' : 'none' }}
     >
       <Stage
         width={size.width}
         height={size.height}
-        onMouseDown={(e) => !drawing && isEmptySpace(e.target) && onSelect(null)}
-        onTouchStart={(e) => !drawing && isEmptySpace(e.target) && onSelect(null)}
+        onMouseDown={(e) => interactive && isEmptySpace(e.target) && onSelect(null)}
+        onTouchStart={(e) => interactive && isEmptySpace(e.target) && onSelect(null)}
         onMouseMove={(e) => {
           if (!drawing) return;
           const pointer = e.target.getStage()?.getPointerPosition();
@@ -376,7 +381,7 @@ export function FloorPlan(props: FloorPlanProps) {
           <RoomFloor project={shown} viewport={viewport} palette={palette} showGrid={props.showMeasurementGrid} bounds={roomBox} />
           <DimensionLabels project={shown} viewport={viewport} palette={palette} bounds={roomBox} clearance={labelRoom} />
         </Layer>
-        <Layer listening={!drawing} opacity={mode === 'drawRoom' ? 0.45 : 1}>
+        <Layer listening={interactive} opacity={mode === 'drawRoom' ? 0.45 : 1}>
           {/* Bottom to top: rugs, floor features, stairs, furniture, walls & wall features, ceiling. */}
           {furniture.filter((f) => !isSolid(f)).map(renderFurniture)}
           {floorFeatures.map(renderFeature)}
@@ -387,7 +392,7 @@ export function FloorPlan(props: FloorPlanProps) {
             viewport={viewport}
             palette={palette}
             selectedWallId={selection?.kind === 'wall' ? selection.id : null}
-            interactive={!drawing}
+            interactive={interactive}
             onSelectWall={(id) => onSelect({ kind: 'wall', id })}
           />
           {wallFeatures.map(renderFeature)}

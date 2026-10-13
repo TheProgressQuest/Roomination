@@ -429,3 +429,94 @@ describe('code review regressions', () => {
     expect(next.present).toBe(added.present);
   });
 });
+
+describe('locking, relationships and layouts (Phase 3A)', () => {
+  function twoPieces() {
+    const { state, id } = setup(); // table 120×80 at (200,150)
+    const chair = createFurniture({ name: 'Chair', kind: 'chair', x: 60, y: 60, width: 50, depth: 50, color: '#123456', texture: 'striped' });
+    return { state: run(state, { type: 'furniture/add', furniture: chair }), tableId: id, chairId: chair.id };
+  }
+
+  it('locked pieces refuse to move or turn, but other edits still work', () => {
+    const { state, tableId } = twoPieces();
+    const locked = run(state, { type: 'furniture/lock', ids: [tableId], locked: true });
+    expect(run(locked, { type: 'furniture/update', id: tableId, changes: { x: 100 } }).notice?.message).toMatch(/locked/);
+    expect(run(locked, { type: 'furniture/update', id: tableId, changes: { rotation: 90 } }).notice?.message).toMatch(/locked/);
+    expect(run(locked, { type: 'furniture/update', id: tableId, changes: { name: 'Big table' } }).present.furniture[0].name).toBe('Big table');
+    const unlocked = run(locked, { type: 'furniture/lock', ids: [tableId], locked: false }, { type: 'furniture/update', id: tableId, changes: { x: 100 } });
+    expect(unlocked.present.furniture[0].x).toBe(100);
+  });
+
+  it('locks several pieces at once, as one undo step', () => {
+    const { state, tableId, chairId } = twoPieces();
+    const locked = run(state, { type: 'furniture/lock', ids: [tableId, chairId], locked: true });
+    expect(locked.present.furniture.every((f) => f.locked)).toBe(true);
+    expect(run(locked, { type: 'history/undo' }).present.furniture.some((f) => f.locked)).toBe(false);
+  });
+
+  it('a wall change that would push a locked piece is refused', () => {
+    const { state, tableId } = twoPieces();
+    const locked = run(state, { type: 'furniture/update', id: tableId, changes: { x: 330 } }, { type: 'furniture/lock', ids: [tableId], locked: true });
+    expect(run(locked, { type: 'room/resize', width: 300, length: 300 }).notice?.message).toMatch(/locked and would have to move/);
+  });
+
+  it('adds and removes relationships; deleting a piece removes its relationships', () => {
+    const { state, tableId, chairId } = twoPieces();
+    const rel = { id: 'r1', type: 'inFrontOf' as const, a: tableId, b: chairId };
+    const added = run(state, { type: 'relationship/add', relationship: rel });
+    expect(added.present.relationships).toEqual([rel]);
+    expect(run(added, { type: 'relationship/add', relationship: { ...rel, id: 'r2', b: tableId } }).notice?.message).toMatch(/two different pieces/);
+    expect(run(added, { type: 'relationship/remove', id: 'r1' }).present.relationships).toEqual([]);
+    expect(run(added, { type: 'furniture/delete', id: chairId }).present.relationships).toEqual([]);
+  });
+
+  it('applying a layout changes only positions and rotations, in one undo step', () => {
+    const { state, tableId, chairId } = twoPieces();
+    const before = state.present.furniture.find((f) => f.id === chairId)!;
+    const applied = run(state, { type: 'layout/apply', positions: [{ id: chairId, x: 300, y: 250, rotation: 90 }, { id: tableId, x: 150, y: 100, rotation: 0 }] });
+    const after = applied.present.furniture.find((f) => f.id === chairId)!;
+    expect(after).toEqual({ ...before, x: 300, y: 250, rotation: 90 });
+    expect(applied.past).toHaveLength(state.past.length + 1);
+    expect(run(applied, { type: 'history/undo' }).present).toBe(state.present);
+  });
+
+  it('refuses to apply a layout that would move a locked piece', () => {
+    const { state, chairId } = twoPieces();
+    const locked = run(state, { type: 'furniture/lock', ids: [chairId], locked: true });
+    expect(run(locked, { type: 'layout/apply', positions: [{ id: chairId, x: 300, y: 250, rotation: 0 }] }).notice?.message).toMatch(/locked/);
+  });
+
+  it('saves and deletes layout alternatives', () => {
+    const { state, chairId } = twoPieces();
+    const layout = { id: 'L1', name: 'Layout B', createdAt: 1, positions: [{ id: chairId, x: 100, y: 100, rotation: 0 }] };
+    const saved = run(state, { type: 'layouts/save', layout });
+    expect(saved.present.savedLayouts).toEqual([layout]);
+    expect(run(saved, { type: 'layouts/delete', id: 'L1' }).present.savedLayouts).toEqual([]);
+  });
+
+  it('optimizer settings are remembered but never become undo steps', () => {
+    const { state, tableId } = twoPieces();
+    const moved = run(state, { type: 'furniture/update', id: tableId, changes: { x: 100 } });
+    const tuned = run(moved, { type: 'optimizer/settings', changes: { functionWeight: 0.8, mode: 'functional' } });
+    expect(tuned.past).toBe(moved.past);
+    const undone = run(tuned, { type: 'history/undo' });
+    expect(undone.present.furniture[0].x).toBe(200);
+    expect(undone.present.optimizer.mode).toBe('functional'); // the setting survives undo
+  });
+});
+
+describe('Phase 3A review regressions', () => {
+  it('a layout that leaves a locked piece exactly in place can still be applied', () => {
+    const { state, id } = setup();
+    const table = state.present.furniture[0];
+    const locked = run(state, { type: 'furniture/lock', ids: [id], locked: true });
+    const applied = run(locked, { type: 'layout/apply', positions: [{ id, x: table.x, y: table.y, rotation: table.rotation }] });
+    expect(applied.notice).toBeNull();
+  });
+
+  it('explains when a locked piece would need to shift because of a size change', () => {
+    const { state, id } = setup();
+    const atWall = run(state, { type: 'furniture/update', id, changes: { x: 340 } }, { type: 'furniture/lock', ids: [id], locked: true });
+    expect(run(atWall, { type: 'furniture/update', id, changes: { width: 200 } }).notice?.message).toMatch(/that size would need it to shift/);
+  });
+});

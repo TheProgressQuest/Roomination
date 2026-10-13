@@ -1,12 +1,19 @@
 import { allowedPlacement, clampFeatureToRoom, convertPlacement, findOverlappingOpening } from '../model/features';
 import { normalizeRotation } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
+import { DEFAULT_OPTIMIZER, FURNITURE_KIND_LABELS, PREFERENCE_LABELS, guessKind } from '../model/furnitureKinds';
 import { DEFAULT_FLOOR, createId } from '../model/sample';
 import {
   CURRENT_SCHEMA_VERSION,
   type FloorStyle,
   type Furniture,
+  type FurnitureKind,
+  type OptimizerSettings,
   type Partition,
+  type PlacementPreference,
+  type Relationship,
+  type RelationshipType,
+  type SavedLayout,
   type Placement,
   type Project,
   type Room,
@@ -39,6 +46,9 @@ const FLOOR_PRESETS = ['plain', 'hardwood', 'lightOak', 'darkWalnut', 'tile', 'c
 const CATEGORIES = ['furniture', 'floorCovering', 'decoration'] as const;
 const TEXTURES = ['plain', 'striped', 'checked', 'bordered', 'woven'] as const;
 const FEATURE_KINDS = ['door', 'window', 'vent', 'outlet', 'switch', 'light', 'radiator', 'column'] as const;
+const KINDS = Object.keys(FURNITURE_KIND_LABELS) as FurnitureKind[];
+const PREFERENCES = Object.keys(PREFERENCE_LABELS) as PlacementPreference[];
+const RELATIONSHIP_TYPES: RelationshipType[] = ['inFrontOf', 'faces', 'beside', 'near'];
 /**
  * Versions 1–2 stored rectangles with named walls. They become a clockwise outline whose
  * node ids are fixed, so legacy `{ wall: 'top', offset }` placements can be converted.
@@ -88,7 +98,7 @@ function parseUnsafe(data: unknown): ParseResult {
   if (version > CURRENT_SCHEMA_VERSION) {
     return { ok: false, error: 'This project was made with a newer version of Roomination. Please update the app.' };
   }
-  if (version !== 1 && version !== 2 && version !== 3) return { ok: false, error: 'That project format isn’t recognised.' };
+  if (![1, 2, 3, 4].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
 
   try {
     return { ok: true, project: buildProject(data, version) };
@@ -149,7 +159,72 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     ? data.acceptedOverlaps.filter((key): key is string => typeof key === 'string' && key.length < 300).slice(0, MAX_ITEMS)
     : [];
 
-  return { schemaVersion: CURRENT_SCHEMA_VERSION, name, units, room, furniture, features, stairs, acceptedOverlaps };
+  const ids = new Set(furniture.map((f) => f.id));
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    name,
+    units,
+    room,
+    furniture,
+    features,
+    stairs,
+    relationships: parseRelationships(data.relationships, ids),
+    optimizer: parseOptimizer(data.optimizer),
+    savedLayouts: parseSavedLayouts(data.savedLayouts, ids),
+    acceptedOverlaps,
+  };
+}
+
+/** Relationships between pieces that exist; anything else is dropped (they're optional). */
+function parseRelationships(raw: unknown, ids: Set<string>): Relationship[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw.slice(0, MAX_ITEMS).flatMap((r): Relationship[] => {
+    if (!isRecord(r)) return [];
+    const type = oneOf(r.type, RELATIONSHIP_TYPES, null);
+    const a = typeof r.a === 'string' ? r.a : '';
+    const b = typeof r.b === 'string' ? r.b : '';
+    if (!type || !ids.has(a) || !ids.has(b) || a === b) return [];
+    const id = typeof r.id === 'string' && r.id.length <= 100 && !seen.has(r.id) ? r.id : createId();
+    seen.add(id);
+    return [{ id, type, a, b }];
+  });
+}
+
+/** Optimizer settings: a broken value isn't worth rejecting a project — use the default. */
+function parseOptimizer(raw: unknown): OptimizerSettings {
+  if (!isRecord(raw)) return DEFAULT_OPTIMIZER;
+  const d = DEFAULT_OPTIMIZER;
+  return {
+    mode: oneOf(raw.mode, ['functional', 'balanced', 'aesthetic'] as const, d.mode),
+    functionWeight: finite(raw.functionWeight) && raw.functionWeight >= 0 && raw.functionWeight <= 1 ? raw.functionWeight : d.functionWeight,
+    walkwayWidth: finite(raw.walkwayWidth) && raw.walkwayWidth >= 40 && raw.walkwayWidth <= 200 ? raw.walkwayWidth : d.walkwayWidth,
+    effort: oneOf(raw.effort, ['quick', 'standard', 'thorough'] as const, d.effort),
+    seed: finite(raw.seed) && Number.isInteger(raw.seed) && raw.seed >= 0 && raw.seed < 2 ** 31 ? raw.seed : d.seed,
+  };
+}
+
+/** Saved arrangements keep only entries for pieces that still exist. */
+function parseSavedLayouts(raw: unknown, ids: Set<string>): SavedLayout[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw.slice(0, 100).flatMap((l): SavedLayout[] => {
+    if (!isRecord(l) || !Array.isArray(l.positions)) return [];
+    const positions = l.positions.flatMap((p) =>
+      isRecord(p) && typeof p.id === 'string' && ids.has(p.id) && [p.x, p.y, p.rotation].every(finite)
+        ? [{ id: p.id, x: p.x as number, y: p.y as number, rotation: normalizeRotation(p.rotation as number) }]
+        : [],
+    );
+    if (positions.length === 0) return [];
+    const id = typeof l.id === 'string' && l.id.length <= 100 && !seen.has(l.id) ? l.id : createId();
+    seen.add(id);
+    return [{
+      id,
+      name: typeof l.name === 'string' ? l.name.slice(0, MAX_NAME_LENGTH) : 'Saved layout',
+      createdAt: finite(l.createdAt) ? l.createdAt : 0,
+      positions,
+    }];
+  });
 }
 
 /** Versions 1–2: a width × length rectangle becomes a 4-wall clockwise outline. */
@@ -215,6 +290,10 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
     rotation: normalizeRotation(raw.rotation as number),
     color: color(raw.color, '#e9a178'),
     texture: oneOf(raw.texture, TEXTURES, 'plain'),
+    // Older projects had no kinds: make a conservative guess from the name.
+    kind: oneOf(raw.kind, KINDS, null) ?? guessKind(typeof raw.name === 'string' ? raw.name : ''),
+    locked: raw.locked === true,
+    preferences: Array.isArray(raw.preferences) ? [...new Set(raw.preferences.filter((p): p is PlacementPreference => PREFERENCES.includes(p)))] : [],
   };
 }
 

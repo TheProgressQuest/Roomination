@@ -1,4 +1,5 @@
 import type { FloorPreset, FloorStyle, FurnitureTexture } from '../model/types';
+import { seededRandom } from '../model/random';
 import { shade } from './palette';
 
 /**
@@ -129,18 +130,6 @@ function draw(widthCm: number, heightCm: number, paint: (ctx: CanvasRenderingCon
  */
 function wrapped(w: number, h: number, paint: (dx: number, dy: number) => void) {
   for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) paint(dx, dy);
-}
-
-/** Small deterministic random generator, so textures look identical on every render. */
-function seededRandom(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 /** Parallel planks of varying length and tone, with subtle grain. */

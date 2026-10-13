@@ -8,7 +8,7 @@ import {
 import { MIN_FURNITURE_SIZE, MIN_ROOM_SIZE, normalizeRotation, roundLength } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { applyRoomChange } from '../model/roomChange';
-import type { FloorStyle, Furniture, Partition, Placement, Point, Project, Room, RoomFeature, Staircase, UnitSystem, WallNode } from '../model/types';
+import type { FloorStyle, Furniture, OptimizerSettings, Partition, Placement, Point, Project, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
   MAX_ROOM_SPAN,
   deleteWall,
@@ -91,6 +91,16 @@ export type EditorAction =
   | { type: 'stairs/add'; stair: Staircase }
   | { type: 'stairs/update'; id: string; changes: Partial<Omit<Staircase, 'id'>> }
   | { type: 'stairs/delete'; id: string }
+  /** Lock or unlock several pieces at once. */
+  | { type: 'furniture/lock'; ids: string[]; locked: boolean }
+  | { type: 'relationship/add'; relationship: Relationship }
+  | { type: 'relationship/remove'; id: string }
+  /** Optimizer settings are remembered with the project but aren't undo steps. */
+  | { type: 'optimizer/settings'; changes: Partial<OptimizerSettings> }
+  /** Moves pieces to new positions/rotations in one undoable step (e.g. an optimizer suggestion). */
+  | { type: 'layout/apply'; positions: SavedLayout['positions'] }
+  | { type: 'layouts/save'; layout: SavedLayout }
+  | { type: 'layouts/delete'; id: string }
   | { type: 'floor/set'; floor: Partial<FloorStyle>; mergeKey?: string }
   | { type: 'furniture/add'; furniture: Furniture }
   | { type: 'furniture/update'; id: string; changes: Partial<Omit<Furniture, 'id'>>; mergeKey?: string }
@@ -111,7 +121,7 @@ export type EditorAction =
 
 type EditAction = Exclude<
   EditorAction,
-  { type: 'history/undo' | 'history/redo' | 'project/replace' | 'conflict/dismiss' | 'conflict/revert' | 'notice/show' }
+  { type: 'history/undo' | 'history/redo' | 'project/replace' | 'conflict/dismiss' | 'conflict/revert' | 'notice/show' | 'optimizer/settings' }
 >;
 
 export function createEditorState(project: Project): EditorState {
@@ -133,7 +143,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (!canUndo(state)) return { ...state, prompt: null };
       return {
         past: state.past.slice(0, -1),
-        present: state.past[state.past.length - 1],
+        present: keepSettings(state.past[state.past.length - 1], state.present),
         future: [state.present, ...state.future],
         notice: null,
         prompt: null,
@@ -144,7 +154,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (!canRedo(state)) return state;
       return {
         past: [...state.past, state.present],
-        present: state.future[0],
+        present: keepSettings(state.future[0], state.present),
         future: state.future.slice(1),
         notice: null,
         prompt: null,
@@ -153,6 +163,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'conflict/dismiss':
       return state.prompt ? { ...state, prompt: null } : state;
+    case 'optimizer/settings': {
+      // Not an undo step: tweaking a slider shouldn't push the user's layout history around.
+      const optimizer = { ...state.present.optimizer, ...action.changes };
+      optimizer.functionWeight = clampNumber(optimizer.functionWeight, 0, 1);
+      optimizer.walkwayWidth = clampNumber(optimizer.walkwayWidth, 40, 200);
+      optimizer.seed = Math.max(0, Math.floor(clampNumber(optimizer.seed, 0, 2 ** 31 - 1)));
+      return { ...state, present: { ...state.present, optimizer } };
+    }
     case 'notice/show':
       return { ...state, notice: { id: (state.notice?.id ?? 0) + 1, message: action.message } };
     case 'project/replace': {
@@ -277,6 +295,58 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       return { ...project, stairs: project.stairs.map((s) => (s.id === current.id ? placed : s)) };
     }
 
+    case 'furniture/lock': {
+      const ids = new Set(action.ids);
+      if (!project.furniture.some((f) => ids.has(f.id) && f.locked !== action.locked)) return project;
+      return { ...project, furniture: project.furniture.map((f) => (ids.has(f.id) ? { ...f, locked: action.locked } : f)) };
+    }
+
+    case 'relationship/add': {
+      const { a, b, type } = action.relationship;
+      const ids = new Set(project.furniture.map((f) => f.id));
+      if (!ids.has(a) || !ids.has(b) || a === b) return 'A relationship needs two different pieces.';
+      if (project.relationships.some((r) => r.type === type && r.a === a && r.b === b)) return project;
+      return { ...project, relationships: [...project.relationships, action.relationship] };
+    }
+
+    case 'relationship/remove': {
+      if (!project.relationships.some((r) => r.id === action.id)) return project;
+      return { ...project, relationships: project.relationships.filter((r) => r.id !== action.id) };
+    }
+
+    case 'layout/apply': {
+      const byId = new Map(action.positions.map((p) => [p.id, p]));
+      // Locked pieces may appear in a layout only if it leaves them exactly where they are.
+      const locked = project.furniture.find((f) => {
+        const pose = byId.get(f.id);
+        return f.locked && pose && (pose.x !== f.x || pose.y !== f.y || normalizeRotation(pose.rotation) !== f.rotation);
+      });
+      if (locked) return `“${locked.name}” is locked, so this layout can’t be applied. Unlock it first.`;
+      const furniture: Furniture[] = [];
+      for (const item of project.furniture) {
+        const pose = byId.get(item.id);
+        if (!pose) {
+          furniture.push(item);
+          continue;
+        }
+        if (![pose.x, pose.y, pose.rotation].every(Number.isFinite)) return 'That layout is damaged.';
+        // Only position and rotation change; everything else about the piece is kept.
+        const moved = { ...item, x: pose.x, y: pose.y, rotation: normalizeRotation(pose.rotation) };
+        const placed = clampFurnitureToRoom(moved, project.room);
+        if (!placed) return `“${item.name}” doesn’t fit in the room in that layout.`;
+        furniture.push(placed);
+      }
+      return { ...project, furniture };
+    }
+
+    case 'layouts/save':
+      return { ...project, savedLayouts: [...project.savedLayouts, action.layout] };
+
+    case 'layouts/delete': {
+      if (!project.savedLayouts.some((l) => l.id === action.id)) return project;
+      return { ...project, savedLayouts: project.savedLayouts.filter((l) => l.id !== action.id) };
+    }
+
     case 'stairs/delete': {
       if (!project.stairs.some((s) => s.id === action.id)) return project;
       return { ...project, stairs: project.stairs.filter((s) => s.id !== action.id) };
@@ -309,13 +379,24 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       // Starting from where it last fitted lets it slide along walls instead of jumping.
       const placed = clampFurnitureToRoom(merged, project.room, { x: current.x, y: current.y });
       if (!placed) return `“${current.name}” wouldn't fit in the room like that.`;
+      if (current.locked && (placed.x !== current.x || placed.y !== current.y || placed.rotation !== current.rotation)) {
+        const asked = ['x', 'y', 'rotation'].some((k) => k in action.changes);
+        return asked
+          ? `“${current.name}” is locked. Unlock it to move or turn it.`
+          : `“${current.name}” is locked, and that size would need it to shift to stay inside the room. Unlock it first.`;
+      }
       if (sameValues(placed, current)) return project;
       return { ...project, furniture: project.furniture.map((f) => (f.id === current.id ? placed : f)) };
     }
 
     case 'furniture/delete': {
       if (!project.furniture.some((f) => f.id === action.id)) return project;
-      return { ...project, furniture: project.furniture.filter((f) => f.id !== action.id) };
+      return {
+        ...project,
+        furniture: project.furniture.filter((f) => f.id !== action.id),
+        relationships: project.relationships.filter((r) => r.a !== action.id && r.b !== action.id),
+        savedLayouts: project.savedLayouts.map((l) => ({ ...l, positions: l.positions.filter((p) => p.id !== action.id) })),
+      };
     }
 
     case 'feature/add': {
@@ -467,6 +548,11 @@ function sameData(a: unknown, b: unknown): boolean {
   const keysA = Object.keys(a);
   if (keysA.length !== Object.keys(b).length) return false;
   return keysA.every((key) => sameData((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+}
+
+/** Undo/redo restore the layout, but keep the optimizer settings the user has now. */
+function keepSettings(restored: Project, current: Project): Project {
+  return restored.optimizer === current.optimizer ? restored : { ...restored, optimizer: current.optimizer };
 }
 
 function clampNumber(value: number, min: number, max: number): number {

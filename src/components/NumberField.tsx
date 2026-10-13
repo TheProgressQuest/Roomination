@@ -10,6 +10,7 @@ interface NumberFieldProps {
   min?: number;
   /** Called with the parsed number when the user presses Enter or leaves the field. */
   onCommit: (value: number) => void;
+  disabled?: boolean;
 }
 
 /**
@@ -18,7 +19,7 @@ interface NumberFieldProps {
  * When not editing it always shows the real value, so drags, undo and rejected
  * edits are reflected immediately.
  */
-export function NumberField({ label, value, suffix, step = 1, min, onCommit }: NumberFieldProps) {
+export function NumberField({ label, value, suffix, step = 1, min, onCommit, disabled }: NumberFieldProps) {
   const id = useId();
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ export function NumberField({ label, value, suffix, step = 1, min, onCommit }: N
           step={step}
           min={min}
           value={draft ?? String(value)}
+          disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {

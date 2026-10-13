@@ -80,6 +80,48 @@ export type FurnitureCategory = 'furniture' | 'floorCovering' | 'decoration';
 
 export type FurnitureTexture = 'plain' | 'striped' | 'checked' | 'bordered' | 'woven';
 
+/**
+ * What a piece is *for*. Used by the layout optimizer (e.g. a desk wants a chair in front
+ * of it). Independent of `category`, which controls layering and collisions.
+ */
+export type FurnitureKind =
+  | 'desk'
+  | 'chair'
+  | 'sofa'
+  | 'armchair'
+  | 'bed'
+  | 'bedsideTable'
+  | 'table'
+  | 'diningTable'
+  | 'coffeeTable'
+  | 'bookshelf'
+  | 'cabinet'
+  | 'storage'
+  | 'television'
+  | 'decor'
+  | 'custom';
+
+/**
+ * Optional, per-piece placement wishes for the optimizer. A piece's "front" is the side
+ * you use (a sofa's seat, a desk's chair side, a bed's foot) — local +y, where the front
+ * line is drawn on the plan.
+ */
+export type PlacementPreference =
+  | 'againstWall'
+  | 'nearWindow'
+  | 'nearOutlet'
+  /** You face the wall while using it (desk against a wall). */
+  | 'facingWall'
+  /** You face into the room while using it (desk with your back to the wall). */
+  | 'facingRoom'
+  | 'facingTelevision'
+  | 'nearCoffeeTable'
+  | 'nearSeating'
+  /** Bed: both long sides reachable. */
+  | 'accessBothSides'
+  /** Bed: at least one long side reachable. */
+  | 'accessOneSide';
+
 export interface Furniture {
   id: string;
   name: string;
@@ -97,6 +139,27 @@ export interface Furniture {
   color: string;
   /** Surface pattern. Shown on floor coverings. */
   texture: FurnitureTexture;
+  /** What the piece is for (optimizer). */
+  kind: FurnitureKind;
+  /** Locked pieces can't be dragged, nudged or moved by the optimizer until unlocked. */
+  locked: boolean;
+  preferences: PlacementPreference[];
+}
+
+/**
+ * How two specific pieces belong together (never inferred from categories):
+ *   - inFrontOf: `b` sits in front of `a` (chair at a desk, coffee table before a sofa)
+ *   - faces:     `a` faces `b` (sofa facing a TV)
+ *   - beside:    `b` stands beside `a` (bedside table next to a bed)
+ *   - near:      the two stay close (dining chairs around a table)
+ */
+export type RelationshipType = 'inFrontOf' | 'faces' | 'beside' | 'near';
+
+export interface Relationship {
+  id: string;
+  type: RelationshipType;
+  a: string;
+  b: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +279,33 @@ export interface Staircase {
 // Project
 // ---------------------------------------------------------------------------
 
-export const CURRENT_SCHEMA_VERSION = 3;
+// ---------------------------------------------------------------------------
+// Layout optimizer
+// ---------------------------------------------------------------------------
+
+export type OptimizerMode = 'functional' | 'balanced' | 'aesthetic';
+export type OptimizerEffort = 'quick' | 'standard' | 'thorough';
+
+export interface OptimizerSettings {
+  mode: OptimizerMode;
+  /** 0–1: how much function counts versus aesthetics in Balanced mode. */
+  functionWeight: number;
+  /** Comfortable walking width to keep clear, in cm. A personal preference, not a building standard. */
+  walkwayWidth: number;
+  effort: OptimizerEffort;
+  /** Same project + settings + seed ⇒ same suggestions. */
+  seed: number;
+}
+
+/** A remembered arrangement: only positions and rotations, keyed by furniture id. */
+export interface SavedLayout {
+  id: string;
+  name: string;
+  createdAt: number;
+  positions: { id: string; x: number; y: number; rotation: number }[];
+}
+
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /** Everything that makes up one saved design. */
 export interface Project {
@@ -228,6 +317,9 @@ export interface Project {
   furniture: Furniture[];
   features: RoomFeature[];
   stairs: Staircase[];
+  relationships: Relationship[];
+  optimizer: OptimizerSettings;
+  savedLayouts: SavedLayout[];
   /**
    * Overlaps the user has explicitly accepted. Each key names one specific pair of
    * objects and one kind of constraint (see `conflictKey`), never a global switch.

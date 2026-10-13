@@ -6,6 +6,7 @@ import type { Furniture, FurnitureCategory, FurnitureTexture, Project, RoomFeatu
 import { cmToInput, formatLength, inputToCm, inputUnitLabel } from '../model/units';
 import { wallLabel, wallSegments } from '../model/walls';
 import type { EditorAction } from '../state/editor';
+import { LockToggle, PlanningFields } from './FurniturePlanning';
 import { Icon } from './Icon';
 import { NumberField } from './NumberField';
 import { SegmentedControl } from './SegmentedControl';
@@ -57,7 +58,8 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
     <div className="object-editor">
       <Section>
         <NameField key={`${item.id}:${item.name}`} value={item.name} onCommit={(name) => change({ name })} />
-        <SegmentedControl label="Type" value={item.category} options={CATEGORY_OPTIONS} onChange={(category) => change({ category })} />
+        <LockToggle item={item} dispatch={dispatch} />
+        <SegmentedControl label="Layer" value={item.category} options={CATEGORY_OPTIONS} onChange={(category) => change({ category })} />
         {item.category === 'floorCovering' && <p className="hint">Rugs and mats sit underneath furniture and never count as overlapping.</p>}
       </Section>
 
@@ -69,15 +71,15 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
         </div>
       </Section>
 
-      <Section title="Position" hint="Centre of the piece, measured from the room’s top-left corner.">
+      <Section title="Position" hint={item.locked ? 'Locked. Unlock the piece to move or turn it.' : 'Centre of the piece, measured from the room’s top-left corner.'}>
         <div className="field-grid two">
-          <NumberField label="From left" suffix={unit} value={length(item.x)} onCommit={(v) => change({ x: toCm(v) })} />
-          <NumberField label="From top" suffix={unit} value={length(item.y)} onCommit={(v) => change({ y: toCm(v) })} />
+          <NumberField label="From left" suffix={unit} value={length(item.x)} onCommit={(v) => change({ x: toCm(v) })} disabled={item.locked} />
+          <NumberField label="From top" suffix={unit} value={length(item.y)} onCommit={(v) => change({ y: toCm(v) })} disabled={item.locked} />
         </div>
       </Section>
 
       <Section title="Rotation">
-        <RotationField rotation={item.rotation} onChange={(rotation) => change({ rotation })} />
+        <RotationField rotation={item.rotation} onChange={(rotation) => change({ rotation })} disabled={item.locked} />
       </Section>
 
       <Section title="Colour">
@@ -89,6 +91,8 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
           <SegmentedControl label="Texture" hideLabel value={item.texture} options={TEXTURE_OPTIONS} onChange={(texture) => change({ texture })} />
         </Section>
       )}
+
+      {item.category !== 'floorCovering' && <PlanningFields key={item.id} project={project} item={item} dispatch={dispatch} />}
 
       <ConflictList objectId={item.id} project={project} conflicts={conflicts} dispatch={dispatch} />
 
@@ -430,15 +434,15 @@ export function NameField({ value, onCommit }: { value: string; onCommit: (name:
   );
 }
 
-export function RotationField({ rotation, onChange }: { rotation: number; onChange: (rotation: number) => void }) {
+export function RotationField({ rotation, onChange, disabled }: { rotation: number; onChange: (rotation: number) => void; disabled?: boolean }) {
   return (
     <div className="rotation-row">
-      <NumberField label="Angle" suffix="°" value={Math.round(rotation * 10) / 10} onCommit={onChange} />
+      <NumberField label="Angle" suffix="°" value={Math.round(rotation * 10) / 10} onCommit={onChange} disabled={disabled} />
       <div className="button-row tight">
-        <button type="button" className="icon-button" aria-label="Rotate 90° anticlockwise" onClick={() => onChange(rotation - 90)}>
+        <button type="button" className="icon-button" aria-label="Rotate 90° anticlockwise" onClick={() => onChange(rotation - 90)} disabled={disabled}>
           <Icon name="rotateLeft" />
         </button>
-        <button type="button" className="icon-button" aria-label="Rotate 90° clockwise" onClick={() => onChange(rotation + 90)}>
+        <button type="button" className="icon-button" aria-label="Rotate 90° clockwise" onClick={() => onChange(rotation + 90)} disabled={disabled}>
           <Icon name="rotateRight" />
         </button>
       </div>
