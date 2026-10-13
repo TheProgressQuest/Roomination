@@ -23,8 +23,9 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 900 },
-    // Software WebGL, so the 3D view can be tested on machines (and CI) without a GPU.
-    launchOptions: { executablePath, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] },
+    // Lets WebGL fall back to software rendering where there's no GPU (as on CI), so the 3D view
+    // can be tested there. It doesn't force software rendering on machines that have a GPU.
+    launchOptions: { executablePath, args: ['--enable-unsafe-swiftshader'] },
   },
   projects: [
     { name: 'dev', use: { baseURL: 'http://localhost:5173/' } },

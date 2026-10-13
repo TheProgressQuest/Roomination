@@ -316,8 +316,8 @@ bundled Three.js, with no external textures, models or services.
   scenes.
 - **Testing coverage:** browser tests run in Chromium, including simulated phones and tablets.
   Safari, Firefox and real touch devices haven't been tested automatically, and screen readers
-  haven't been tested with real assistive software. The 3D tests use software WebGL, so they check
-  behaviour and accuracy rather than real-device speed.
+  haven't been tested with real assistive software. On CI (which has no GPU) the 3D tests use software
+  WebGL, so they check behaviour and accuracy rather than real-device speed.
 
 ## Licence
 
