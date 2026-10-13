@@ -8,12 +8,9 @@ import {
   CylinderGeometry,
   DirectionalLight,
   DoubleSide,
-  EdgesGeometry,
   Group,
   HemisphereLight,
   InstancedMesh,
-  LineBasicMaterial,
-  LineSegments,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
@@ -30,7 +27,6 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
-  type Material,
   type Texture,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -42,6 +38,8 @@ import type { CameraPreset, WallMode } from '../../state/preferences';
 import { CM_PER_SCENE_UNIT, toScene, type Block, type Cylinder, type OpeningMaterial, type FloorHole, type RoomModel, type SceneFurniture, type SceneWall } from '../model';
 import type { ViewerStats } from '../diagnostics';
 import { faceShapes } from '../wallFaces';
+import { FurnitureLayer } from './furnitureLayer';
+import { FurnitureMaterials } from './furnitureMaterials';
 
 /**
  * Draws a SceneModel with Three.js. Everything here is presentation: the project is
@@ -69,7 +67,6 @@ const MAX_PIXEL_RATIO = 2;
 const TRANSITION_MS = 450;
 /** Scenes with more parts than this skip shadows on touch devices. */
 const TOUCH_SHADOW_PART_LIMIT = 400;
-const HIGHLIGHT = new Color('#d9643a');
 
 const m = (cm: number) => cm / CM_PER_SCENE_UNIT;
 
@@ -90,19 +87,13 @@ export class RoomViewer {
   /** Walls, floor, stairs and fixtures: rebuilt (and disposed) whenever the room changes. */
   private roomContent = new Group();
   private roomMaterials: MaterialSet | null = null;
-  /** One material for every piece of furniture (colours are per instance), kept for the viewer's lifetime. */
-  private readonly furnitureMaterial = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+  private readonly furnitureMaterials = new FurnitureMaterials();
+  /** Every piece of furniture: instanced boxes, plus extruded drawn and photo-textured pieces. */
+  private readonly furniture = new FurnitureLayer(this.unitBox, this.furnitureMaterials, () => this.requestRender());
   private wallGroups: { group: Group; outer: boolean; outward: Point; centre: Point }[] = [];
-  private furnitureMesh: InstancedMesh | null = null;
-  /** Instance index → furniture id, and each piece's instance range and base colours. */
-  private instanceOwner: string[] = [];
-  private pieces = new Map<string, { start: number; count: number; colors: Color[]; footprint: SceneFurniture }>();
-  private furniturePartCount = 0;
-  private outline: LineSegments | null = null;
   private room: RoomModel | null = null;
   /** Whether shadows are currently drawn (null until the first room arrives). */
   private shadowsOn: boolean | null = null;
-  private selectedId: string | null = null;
   private wallMode: WallMode = 'dollhouse';
   private shadows: boolean;
 
@@ -140,7 +131,7 @@ export class RoomViewer {
     this.controls.addEventListener('start', this.cancelTransition);
 
     this.sun.castShadow = true;
-    this.scene.add(this.hemisphere, this.ambient, this.sun, this.sun.target, this.roomContent);
+    this.scene.add(this.hemisphere, this.ambient, this.sun, this.sun.target, this.roomContent, this.furniture.group);
 
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointerup', this.onPointerUp);
@@ -172,17 +163,14 @@ export class RoomViewer {
   /** Replaces the furniture only (moving or recolouring a piece leaves the room untouched). */
   setFurniture(furniture: SceneFurniture[]) {
     const started = performance.now();
-    this.clearFurniture();
-    this.buildFurniture(furniture);
-    this.applySelection();
+    this.furniture.build(furniture);
     this.updateShadows();
     this.furnitureBuildMs = performance.now() - started;
     this.requestRender();
   }
 
   setSelection(id: string | null) {
-    this.selectedId = id;
-    this.applySelection();
+    this.furniture.setSelection(id);
     this.requestRender();
   }
 
@@ -243,8 +231,8 @@ export class RoomViewer {
 
   /** Where a piece's centre appears on screen (CSS px relative to the canvas), or null. */
   pointOnScreen(id: string): { x: number; y: number } | null {
-    const piece = this.pieces.get(id);
-    return piece ? this.projectPoint(piece.footprint, piece.footprint.height / 2) : null;
+    const piece = this.furniture.footprintOf(id);
+    return piece ? this.projectPoint(piece, piece.height / 2) : null;
   }
 
   /** Where a plan point (cm) at a height (cm) appears on screen, in CSS px relative to the canvas. */
@@ -281,8 +269,8 @@ export class RoomViewer {
     this.controls.removeEventListener('start', this.cancelTransition);
     this.controls.dispose();
     this.clearRoom();
-    this.clearFurniture();
-    this.furnitureMaterial.dispose();
+    this.furniture.dispose();
+    this.furnitureMaterials.dispose();
     this.unitBox.dispose();
     this.unitCylinder.dispose();
     this.sun.shadow.map?.dispose();
@@ -346,34 +334,6 @@ export class RoomViewer {
     }
   }
 
-  /** Every part of every piece in one instanced mesh (one draw call). */
-  private buildFurniture(furniture: SceneFurniture[]) {
-    this.instanceOwner = [];
-    this.pieces.clear();
-    this.furniturePartCount = furniture.reduce((sum, f) => sum + f.parts.length, 0);
-    if (this.furniturePartCount === 0) return;
-    const mesh = new InstancedMesh(this.unitBox, this.furnitureMaterial, this.furniturePartCount);
-    let index = 0;
-    for (const piece of furniture) {
-      const colors: Color[] = [];
-      piece.parts.forEach((part) => {
-        mesh.setMatrixAt(index + colors.length, blockMatrix(part));
-        const color = new Color(part.color);
-        mesh.setColorAt(index + colors.length, color);
-        colors.push(color);
-        this.instanceOwner.push(piece.id);
-      });
-      this.pieces.set(piece.id, { start: index, count: colors.length, colors, footprint: piece });
-      index += colors.length;
-    }
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.computeBoundingSphere();
-    mesh.name = 'furniture';
-    this.furnitureMesh = mesh;
-    this.scene.add(mesh);
-  }
-
   private clearRoom() {
     this.roomContent.traverse((object) => {
       // The shared unit shapes outlive individual rooms.
@@ -388,48 +348,11 @@ export class RoomViewer {
     this.wallGroups = [];
   }
 
-  private clearFurniture() {
-    this.cancelOutline();
-    if (!this.furnitureMesh) return;
-    this.scene.remove(this.furnitureMesh);
-    this.furnitureMesh.dispose();
-    this.furnitureMesh = null;
-  }
-
-  private applySelection() {
-    const mesh = this.furnitureMesh;
-    if (!mesh) return;
-    for (const [id, piece] of this.pieces) {
-      const selected = id === this.selectedId;
-      piece.colors.forEach((color, i) => mesh.setColorAt(piece.start + i, selected ? color.clone().lerp(HIGHLIGHT, 0.35) : color));
-    }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
-    this.cancelOutline();
-    const piece = this.selectedId ? this.pieces.get(this.selectedId) : undefined;
-    if (!piece) return;
-    const f = piece.footprint;
-    const edges = new EdgesGeometry(this.unitBox);
-    const outline = new LineSegments(edges, new LineBasicMaterial({ color: HIGHLIGHT, depthTest: false, transparent: true, opacity: 0.9 }));
-    outline.renderOrder = 10;
-    outline.applyMatrix4(blockMatrix({ ...f, z: 0, height: Math.max(f.height, 1), width: f.width + 2, depth: f.depth + 2, color: '' }));
-    this.outline = outline;
-    this.scene.add(outline);
-  }
-
-  private cancelOutline() {
-    if (!this.outline) return;
-    this.scene.remove(this.outline);
-    this.outline.geometry.dispose();
-    (this.outline.material as Material).dispose();
-    this.outline = null;
-  }
-
   /** Points the sun at the room and turns shadows on or off (limited on touch devices). */
   private updateShadows() {
     const room = this.room;
     if (!room) return;
-    const enabled = this.shadows && !(this.options.touch && this.furniturePartCount > TOUCH_SHADOW_PART_LIMIT);
+    const enabled = this.shadows && !(this.options.touch && this.furniture.partCount > TOUCH_SHADOW_PART_LIMIT);
     const { minX, minY, maxX, maxY } = room.bounds;
     const centre = toScene({ x: (minX + maxX) / 2, y: (minY + maxY) / 2 });
     const radius = m(Math.hypot(maxX - minX, maxY - minY) / 2) + 0.5;
@@ -607,11 +530,10 @@ export class RoomViewer {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const pointer = new Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(pointer, this.camera);
-    const targets: Object3D[] = [];
-    if (this.furnitureMesh) targets.push(this.furnitureMesh);
+    const targets: Object3D[] = this.furniture.hitTargets();
     for (const wall of this.wallGroups) if (wall.group.visible) targets.push(...wall.group.children.filter((c) => c.userData.blocksSelection));
     const hit = this.raycaster.intersectObjects(targets, false)[0];
-    const id = hit && hit.object === this.furnitureMesh && hit.instanceId !== undefined ? this.instanceOwner[hit.instanceId] : null;
+    const id = hit ? this.furniture.ownerOf(hit) : null;
     this.options.onSelect(id ?? null);
   };
 

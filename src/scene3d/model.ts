@@ -2,7 +2,8 @@ import { isSolid } from '../model/conflicts';
 import { doorLeaves, featureFrame, toRoom, type Frame } from '../model/features';
 import { boundingBox, pointInPolygon, signedArea2, type Box, type Polygon } from '../model/polygon';
 import { layoutStair, stairToRoom, totalSteps } from '../model/stairs';
-import type { FloorStyle, Furniture, Point, Project, RoomFeature, Staircase } from '../model/types';
+import { localFootprint } from '../model/shape';
+import type { FloorStyle, Furniture, MaterialKind, Point, Project, RoomFeature, Staircase, SurfaceFinish } from '../model/types';
 import { wallBodies, wallDirection, wallOutward } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
 import { shade } from '../render/palette';
@@ -98,7 +99,17 @@ export interface SceneFurniture {
   depth: number;
   height: number;
   rotation: number;
+  /** Boxes for standard pieces (empty when `extruded` is set). */
   parts: Block[];
+  /**
+   * Drawn outlines and photo-textured pieces: the footprint (local cm, the same outline the
+   * plan and collision checks use), extruded to the piece's height.
+   */
+  extruded?: { outline: Polygon; height: number; color: string };
+  material: MaterialKind | null;
+  finish: SurfaceFinish;
+  /** Photo textures by surface (asset ids). */
+  textures: { top?: string; front?: string; side?: string };
 }
 
 export interface SceneStair {
@@ -362,7 +373,26 @@ function furnitureBlocks(item: Furniture): SceneFurniture {
     rotation: item.rotation,
     color: part.color ?? (part.shade ? shade(item.color, part.shade) : item.color),
   }));
-  return { id: item.id, name: item.name, x: item.x, y: item.y, width: item.width, depth: item.depth, height: isSolid(item) ? item.height : Math.min(item.height, 1.5), rotation: item.rotation, parts };
+  const height = isSolid(item) ? item.height : Math.min(item.height, 1.5);
+  const textures = item.appearance?.textures ?? {};
+  // Drawn shapes keep their true outline; photo textures need real surfaces to sit on, so a
+  // textured rectangle is extruded too (its outline is simply the rectangle).
+  const extrude = item.shape !== undefined || Object.keys(textures).length > 0;
+  return {
+    id: item.id,
+    name: item.name,
+    x: item.x,
+    y: item.y,
+    width: item.width,
+    depth: item.depth,
+    height,
+    rotation: item.rotation,
+    parts: extrude ? [] : parts,
+    ...(extrude ? { extruded: { outline: localFootprint(item).outline, height, color: item.color } } : {}),
+    material: item.appearance?.material ?? null,
+    finish: item.appearance?.finish ?? 'satin',
+    textures,
+  };
 }
 
 // ---------------------------------------------------------------------------

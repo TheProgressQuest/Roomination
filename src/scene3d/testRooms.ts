@@ -1,7 +1,8 @@
 import { FURNITURE_KIND_LABELS } from '../model/furnitureKinds';
 import { createEmptyProject, createFeature, createFurniture, createRectangularRoom, createSampleProject, createStaircase, FURNITURE_COLORS } from '../model/sample';
-import type { FurnitureKind, Project, Room, WallNode } from '../model/types';
-import { lShapedStudio, multipleDoors } from '../optimizer/testRooms';
+import type { FurnitureAppearance, FurnitureKind, Project, Room, WallNode } from '../model/types';
+import { customShapes, lShapedStudio, multipleDoors } from '../optimizer/testRooms';
+import { normaliseShape, shapeTemplate } from '../model/shape';
 
 /**
  * Rooms for checking the 3D view (unit, browser and performance tests only). Each one
@@ -156,8 +157,25 @@ export function customFloor(): Project {
   };
 }
 
+/** 11. Drawn furniture: an L-desk, a curved sofa, a kidney table and an angled loveseat, with materials. */
+export function customFurniture(): Project {
+  const base = customShapes();
+  const materials: FurnitureAppearance['material'][] = ['wood', 'fabric', 'leather', 'metal'];
+  return {
+    ...base,
+    name: 'Custom furniture',
+    furniture: [
+      ...base.furniture.map((f, i) => ({ ...f, appearance: { material: materials[i % materials.length], finish: 'satin' as const } })),
+      (() => {
+        const { shape, width, depth } = normaliseShape(shapeTemplate('curvedSofa'));
+        return createFurniture({ name: 'Curved sofa', kind: 'sofa', x: 470, y: 230, width, depth, height: 80, rotation: 180, shape, color: '#9bb7d4' });
+      })(),
+    ],
+  };
+}
+
 /** The 3D rooms tested in the browser (an 11th, "optimized layout", is made by running the optimizer). */
-export const ROOMS_3D = { rectangle, lShaped, uShaped, angledWalls, partitions, manyDoors, windows, stairs, furnitureTypes, customFloor };
+export const ROOMS_3D = { rectangle, lShaped, uShaped, angledWalls, partitions, manyDoors, windows, stairs, furnitureTypes, customFloor, customFurniture };
 
 /**
  * A deliberately heavy project for performance checks: 40 walls (a zig-zag top wall),

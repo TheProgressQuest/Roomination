@@ -1,6 +1,6 @@
-import Dexie, { type EntityTable } from 'dexie';
 import { createId } from '../model/sample';
 import type { Project } from '../model/types';
+import { db } from './db';
 import { parseProject } from './projectFile';
 
 /**
@@ -11,13 +11,6 @@ import { parseProject } from './projectFile';
  * it is still read like any other project (and migrated to the new format on load).
  */
 
-interface StoredProject {
-  id: string;
-  savedAt: number;
-  /** Stored as written; validated and migrated every time it is read. */
-  project: unknown;
-}
-
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -26,14 +19,6 @@ export interface ProjectSummary {
   /** False when the record couldn't be read; it is listed (never silently deleted) but can't be opened. */
   readable: boolean;
 }
-
-const db = new Dexie('roomination') as Dexie & {
-  projects: EntityTable<StoredProject, 'id'>;
-};
-
-db.version(1).stores({
-  projects: 'id, savedAt',
-});
 
 const ACTIVE_PROJECT_KEY = 'roomination.activeProjectId';
 

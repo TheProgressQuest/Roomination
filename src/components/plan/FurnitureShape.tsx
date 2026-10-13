@@ -1,7 +1,10 @@
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Circle, Group, Line, Path, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
-import type { Furniture } from '../../model/types';
+import { polygonArea } from '../../model/polygon';
+import { localFootprint } from '../../model/shape';
+import type { Furniture, Point } from '../../model/types';
+import { useAssetImage } from '../useAssetImage';
 import { readableText, shade, type CanvasPalette } from '../../render/palette';
 import { PX_PER_CM, rugTexture } from '../../render/textures';
 import { FONT_FAMILY } from './RoomShell';
@@ -40,9 +43,47 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
   const showLabel = w > 30 && h > fontSize + 6;
   // Keep labels readable: flip them when the piece is upside-down.
   const upsideDown = item.rotation > 90 && item.rotation < 270;
+  const outline = useMemo(() => (item.shape ? drawnOutline(item) : null), [item]);
+  // A top photo (photo-assisted furniture) is shown as the piece's surface, stretched to its size.
+  const photo = useAssetImage(item.appearance?.textures?.top);
+  const photoFill = photo
+    ? {
+        fillPriority: 'pattern' as const,
+        fillPatternImage: photo,
+        fillPatternRepeat: 'no-repeat',
+        fillPatternScale: { x: w / photo.naturalWidth, y: h / photo.naturalHeight },
+        fillPatternOffset: { x: photo.naturalWidth / 2, y: photo.naturalHeight / 2 },
+      }
+    : null;
+  const labelAt = outline ? { x: outline.label.x * scale, y: outline.label.y * scale } : { x: 0, y: 0 };
 
   return (
     <Group ref={props.registerNode} name="object" x={x} y={y} rotation={item.rotation} {...interactionEvents(props, setHovered)} onTransformEnd={(e) => props.onTransformEnd(e.currentTarget)}>
+      {outline ? (
+        // A drawn outline: exactly the footprint used for collisions (curves flattened to 0.5 cm).
+        <>
+          <Line
+            points={outline.points.flatMap((p) => [p.x * scale, p.y * scale])}
+            closed
+            fill={item.color}
+            {...photoFill}
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+            dash={status === 'accepted' ? [6, 4] : undefined}
+            lineJoin="round"
+            shadowColor={palette.shadow}
+            shadowOpacity={lifted ? 0.28 : 0.14}
+            shadowBlur={lifted ? 12 : 4}
+            shadowOffsetY={lifted ? 4 : 2}
+            shadowForStrokeEnabled={false}
+            perfectDrawEnabled={false}
+          />
+          {outline.front.map(([a, b], i) => (
+            // Edges facing the front are drawn darker, to show which way the piece faces.
+            <Line key={i} points={[a.x * scale, a.y * scale, b.x * scale, b.y * scale]} stroke={shade(item.color, -0.4)} strokeWidth={2.5} lineCap="round" listening={false} />
+          ))}
+        </>
+      ) : (
       <Rect
         width={w}
         height={h}
@@ -65,7 +106,9 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
         // Konva performance: draw the shadow once (fill only) and skip the extra buffer canvas.
         shadowForStrokeEnabled={false}
         perfectDrawEnabled={false}
+        {...photoFill}
       />
+      )}
       {isRug && item.texture === 'bordered' && (
         <Rect
           width={Math.max(0, w - 2 * Math.min(10 * scale, w / 6))}
@@ -78,7 +121,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           listening={false}
         />
       )}
-      {!isRug && (
+      {!isRug && !outline && (
         // A line along the front edge shows which way the piece faces.
         <Line
           points={[-w / 2 + 4, h / 2 - 3, w / 2 - 4, h / 2 - 3]}
@@ -91,6 +134,8 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
       {showLabel && (
         <Text
           text={item.name}
+          x={labelAt.x}
+          y={labelAt.y}
           width={w - 8}
           offsetX={(w - 8) / 2}
           offsetY={fontSize / 2}
@@ -122,3 +167,22 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
     </Group>
   );
 }, sameDataProps);
+
+/**
+ * The flattened outline in local cm, the edges facing the front (+y), and a point well
+ * inside the shape for the label (the bounding-box centre may fall outside an L or U shape).
+ */
+function drawnOutline(item: Furniture): { points: Point[]; front: [Point, Point][]; label: Point } {
+  const { outline, parts } = localFootprint(item);
+  const front: [Point, Point][] = [];
+  outline.forEach((a, i) => {
+    const b = outline[(i + 1) % outline.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    // Outlines are clockwise on screen, so the outward normal is (dy, −dx) / length.
+    if (len > 0 && -(b.x - a.x) / len > 0.7) front.push([a, b]);
+  });
+  // The average of a convex piece's corners is always inside it.
+  const biggest = parts.reduce((best, p) => (polygonArea(p) > polygonArea(best) ? p : best), parts[0]);
+  const label = { x: biggest.reduce((s, p) => s + p.x, 0) / biggest.length, y: biggest.reduce((s, p) => s + p.y, 0) / biggest.length };
+  return { points: outline, front, label };
+}

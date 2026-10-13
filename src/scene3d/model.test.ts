@@ -5,6 +5,7 @@ import { createEmptyProject, createFeature, createFurniture, createRectangularRo
 import { stairPolygons } from '../model/stairs';
 import type { FurnitureKind, Point, Project, Room, WallNode } from '../model/types';
 import { furnitureParts } from './furnitureParts';
+import { localFootprint, normaliseShape, shapeTemplate } from '../model/shape';
 import { parseProjectFile, serializeProject } from '../storage/projectFile';
 import { buildSceneModel, rectilinearOutlines, toScene, wallSolidAt, type Block } from './model';
 import { ROOMS_3D, stressProject } from './testRooms';
@@ -208,6 +209,22 @@ describe('furniture', () => {
     const sofa = createFurniture({ kind: 'sofa', x: 0, y: 0, width: 200, depth: 90, height: 85, rotation: 0 });
     const back = furnitureParts(sofa).find((p) => p.width === 200)!;
     expect(back.y).toBeLessThan(0);
+  });
+
+  it('extrudes drawn furniture from exactly the outline used for collisions', () => {
+    const { shape, width, depth } = normaliseShape(shapeTemplate('lDesk'));
+    const desk = createFurniture({ x: 200, y: 150, rotation: 30, width, depth, height: 75, shape, color: '#123456', appearance: { material: 'wood', finish: 'gloss' } });
+    const [piece] = buildSceneModel({ ...createEmptyProject(createRectangularRoom(500, 400)), furniture: [desk] }).furniture;
+    expect(piece.parts).toEqual([]);
+    expect(piece.extruded).toEqual({ outline: localFootprint(desk).outline, height: 75, color: '#123456' });
+    expect(piece).toMatchObject({ x: 200, y: 150, rotation: 30, material: 'wood', finish: 'gloss' });
+  });
+
+  it('extrudes a photo-textured rectangle so the photo has real surfaces', () => {
+    const cabinet = createFurniture({ x: 100, y: 100, width: 80, depth: 40, appearance: { material: 'wood', finish: 'matte', textures: { front: 'a'.repeat(64) } } });
+    const [piece] = buildSceneModel({ ...createEmptyProject(), furniture: [cabinet] }).furniture;
+    expect(piece.extruded?.outline).toEqual(localFootprint(cabinet).outline);
+    expect(piece.textures.front).toBe('a'.repeat(64));
   });
 
   it('draws rugs as flat slabs', () => {

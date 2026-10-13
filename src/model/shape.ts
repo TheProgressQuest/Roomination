@@ -329,12 +329,12 @@ export function shapeTemplate(template: ShapeTemplate): FurnitureShape {
         ],
       };
     case 'kidneyTable':
+      // A bean: one smooth curve along the back, two rounded ends, and a gentle dip at the front.
       return {
         points: [
-          { x: -55, y: 0, c1: { x: -55, y: -40 }, c2: { x: -15, y: -40 } },
-          { x: 0, y: -30, c1: { x: 15, y: -40 }, c2: { x: 55, y: -40 } },
-          { x: 55, y: 0, c1: { x: 55, y: 40 }, c2: { x: 15, y: 40 } },
-          { x: 0, y: 15, c1: { x: -15, y: 40 }, c2: { x: -55, y: 40 } },
+          { x: -60, y: 10, c1: { x: -60, y: -55 }, c2: { x: 60, y: -55 } },
+          { x: 60, y: 10, c1: { x: 60, y: 50 }, c2: { x: 25, y: 22 } },
+          { x: 0, y: 22, c1: { x: -25, y: 22 }, c2: { x: -60, y: 50 } },
         ],
       };
   }

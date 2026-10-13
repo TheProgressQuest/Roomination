@@ -320,6 +320,20 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   return withShape(item, parseShape(raw.shape, label));
 }
 
+/** A reusable piece: everything about it except where it stands and how it's linked. */
+export type FurnitureTemplate = Omit<Furniture, 'id' | 'x' | 'y' | 'rotation' | 'locked' | 'preferences'>;
+
+/** Validates a saved library template with the same rules as project furniture; null if unusable. */
+export function parseFurnitureTemplate(raw: unknown): FurnitureTemplate | null {
+  if (!isRecord(raw)) return null;
+  try {
+    const { id: _id, x: _x, y: _y, rotation: _r, locked: _l, preferences: _p, ...template } = parseFurniture({ ...raw, id: 'template', x: 0, y: 0, rotation: 0 }, 0, (id) => String(id));
+    return template;
+  } catch {
+    return null;
+  }
+}
+
 /** Attaches a shape, keeping width/depth equal to its outline and the piece exactly where it was. */
 function withShape(item: Furniture, shape: FurnitureShape): Furniture {
   const normal = normaliseShape(shape);
