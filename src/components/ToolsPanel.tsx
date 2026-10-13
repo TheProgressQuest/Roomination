@@ -11,6 +11,8 @@ import { FeatureButtons, FurnitureButtons, StairButtons, StructureButtons, type 
 import { SnapOptions } from './DrawingBar';
 import { BoardSettings, FloorSettings } from './AppearanceSettings';
 import { ChecksList } from './ChecksList';
+import { CustomFurniturePanel } from './library/LibraryPanel';
+import type { FurnitureTemplate } from '../storage/projectFile';
 import { Icon } from './Icon';
 import { NumberField } from './NumberField';
 import { SegmentedControl } from './SegmentedControl';
@@ -23,6 +25,8 @@ interface ToolsPanelProps {
   preferences: Preferences;
   onPreferences: (changes: Partial<Preferences>) => void;
   onAddFurniture: (preset: FurniturePreset) => void;
+  /** Adds a custom or library piece. */
+  onPlaceTemplate: (template: FurnitureTemplate) => void;
   onAddFeature: (kind: FeatureKind) => void;
   onAddStairs: (shape: 'straight' | 'L' | 'U' | 'custom') => void;
   onStartDrawing: (mode: 'drawRoom' | 'drawWall') => void;
@@ -99,6 +103,7 @@ export function ToolsPanel(props: ToolsPanelProps) {
       </Collapsible>
 
       <Collapsible title="Add furniture" defaultOpen>
+        <CustomFurniturePanel units={units} onPlace={props.onPlaceTemplate} />
         <FurnitureButtons onAdd={props.onAddFurniture} />
       </Collapsible>
 

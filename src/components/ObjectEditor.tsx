@@ -8,6 +8,9 @@ import { wallLabel, wallSegments } from '../model/walls';
 import type { EditorAction } from '../state/editor';
 import { LockToggle, PlanningFields } from './FurniturePlanning';
 import { Icon } from './Icon';
+import { libraryChanged } from './library/useLibrary';
+import { useOpenStudio } from './studio/studioContext';
+import { furnitureOrigin, ORIGIN_LABELS, saveToLibrary, toTemplate } from '../storage/library';
 import { NumberField } from './NumberField';
 import { SegmentedControl } from './SegmentedControl';
 
@@ -71,6 +74,8 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
         </div>
       </Section>
 
+      <ShapeAndLook item={item} dispatch={dispatch} />
+
       <Section title="Position" hint={item.locked ? 'Locked. Unlock the piece to move or turn it.' : 'Centre of the piece, measured from the room’s top-left corner.'}>
         <div className="field-grid two">
           <NumberField label="From left" suffix={unit} value={length(item.x)} onCommit={(v) => change({ x: toCm(v) })} disabled={item.locked} />
@@ -102,6 +107,43 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
         </button>
       </Section>
     </div>
+  );
+}
+
+/** Custom outline, materials and photos (edited in the furniture studio), and saving to the library. */
+function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<EditorAction> }) {
+  const openStudio = useOpenStudio();
+  const origin = furnitureOrigin(item);
+  return (
+    <Section
+      title="Shape & look"
+      hint={item.shape ? 'Drawn outline: collisions and the 3D view use its exact shape.' : 'A plain rectangle. Draw a custom outline, add a material or use photos.'}
+    >
+      <p className="object-meta">
+        <span className={`origin-badge is-${origin}`}>{ORIGIN_LABELS[origin]}</span>
+        {item.appearance && ` · ${item.appearance.material} · ${item.appearance.finish}`}
+      </p>
+      <div className="button-row">
+        <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'edit', furnitureId: item.id })}>
+          <Icon name="edit" size={14} /> Edit shape & look
+        </button>
+        <button
+          type="button"
+          className="secondary small"
+          onClick={async () => {
+            try {
+              await saveToLibrary(toTemplate(item));
+              libraryChanged();
+              dispatch({ type: 'notice/show', message: `Saved “${item.name}” to your furniture library.` });
+            } catch {
+              dispatch({ type: 'notice/show', message: 'The furniture library couldn’t be saved. Browser storage may be full or blocked.' });
+            }
+          }}
+        >
+          <Icon name="download" size={14} /> Save to my library
+        </button>
+      </div>
+    </Section>
   );
 }
 

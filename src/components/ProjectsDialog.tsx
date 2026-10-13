@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import type { ProjectSummary } from '../storage/projectStore';
 import { Dialog } from './Dialog';
 import { Icon } from './Icon';
+import { StorageSection } from './StorageSection';
 
 interface ProjectsDialogProps {
   open: boolean;
@@ -55,7 +56,7 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
             <Icon name="download" size={16} /> Export file
           </button>
         </div>
-        <p className="hint">Duplicate to try variations (Layout A, B, C…) without losing the original.</p>
+        <p className="hint">Duplicate to try variations (Layout A, B, C…) without losing the original. Projects with photos export as a .zip that includes them.</p>
       </section>
 
       <section className="dialog-section">
@@ -129,7 +130,7 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
           <input
             ref={fileInput}
             type="file"
-            accept=".json,application/json"
+            accept=".json,.zip,application/json,application/zip"
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -145,6 +146,8 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
         )}
         <p className="hint">Imports are always added as a new project — nothing existing is overwritten.</p>
       </section>
+
+      <StorageSection />
     </Dialog>
   );
 }

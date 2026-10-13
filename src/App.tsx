@@ -14,11 +14,19 @@ import { SelectionBar } from './components/SelectionBar';
 import { SelectionEditor } from './components/StructureEditors';
 import { Toast } from './components/Toast';
 import { ToolsPanel } from './components/ToolsPanel';
+import { LoadBoundary } from './components/LoadBoundary';
+import { CustomFurniturePanel } from './components/library/LibraryPanel';
+import { libraryChanged } from './components/library/useLibrary';
+import type { StudioResult } from './components/studio/FurnitureStudio';
+import { StudioContext, type StudioRequest } from './components/studio/studioContext';
+import { normaliseShape, shapeTemplate, SHAPE_TEMPLATE_LABELS, type ShapeTemplate } from './model/shape';
+import { listLibraryRecords, saveToLibrary, toTemplate } from './storage/library';
+import type { FurnitureTemplate } from './storage/projectFile';
 import { View3DBoundary } from './components/view3d/View3DBoundary';
 import { findConflicts } from './model/conflicts';
 import { withPoses } from './optimizer/search';
 import { allowedPlacement, findFreeWallSpot } from './model/features';
-import { createEmptyProject, createFeature, createFurniture, createId, createSampleProject, createStaircase } from './model/sample';
+import { FURNITURE_COLORS, createEmptyProject, createFeature, createFurniture, createId, createSampleProject, createStaircase } from './model/sample';
 import type { FeatureKind, Placement, Point, Project, RoomFeature, SavedLayout } from './model/types';
 import { DEFAULT_WALL_THICKNESS, findSegment, outlineSegments, roomBounds, wallLabel } from './model/walls';
 import { CM_PER_INCH } from './model/units';
@@ -27,7 +35,8 @@ import { canRedo, canUndo, createEditorState, editorReducer, type EditorAction }
 import { objectId, type Selection, type ToolMode } from './state/selection';
 import { useOptimizer } from './state/useOptimizer';
 import { useMediaQuery, usePreferences, useResolvedTheme, type BoardPreferences, type ResolvedTheme } from './state/preferences';
-import { MAX_IMPORT_BYTES, parseProjectFile, serializeProject } from './storage/projectFile';
+import { StorageFullError } from './storage/assets';
+import { exportProjectFile, importProjectFile, type ImportResult } from './storage/projectPackage';
 import {
   deleteProject,
   getActiveProjectId,
@@ -44,6 +53,13 @@ const AUTOSAVE_DELAY_MS = 400;
 
 /** The 3D view (and Three.js) only downloads the first time someone opens it. */
 const View3D = lazy(() => import('./components/view3d/View3D'));
+/** So do the furniture studio and its photo tools. */
+const FurnitureStudio = lazy(() => import('./components/studio/FurnitureStudio'));
+
+interface StudioSession {
+  request: StudioRequest;
+  initial: FurnitureTemplate;
+}
 
 export function App() {
   const [state, dispatch] = useReducer(editorReducer, null, () => createEditorState(createSampleProject()));
@@ -76,6 +92,7 @@ export function App() {
   const [addOpen, setAddOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
+  const [studio, setStudio] = useState<StudioSession | null>(null);
   const optimizer = useOptimizer();
   /** A layout shown on the plan without changing the project (non-destructive preview). */
   const [preview, setPreview] = useState<{ title: string; positions: SavedLayout['positions'] } | null>(null);
@@ -192,29 +209,37 @@ export function App() {
     await refreshProjectList();
   }
 
-  function exportProject() {
-    const blob = new Blob([serializeProject(project)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${project.name.replace(/[^\w\- ]+/g, '').trim() || 'room'}.roomination.json`;
-    link.click();
-    // Give the browser a moment to start the download before releasing the file.
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  /** Downloads the project: plain JSON, or a ZIP with its photos when it has any. */
+  async function exportProject() {
+    try {
+      const { blob, filename, missing } = await exportProjectFile(project);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      // Give the browser a moment to start the download before releasing the file.
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (missing > 0) dispatch({ type: 'notice/show', message: `${missing} photo${missing === 1 ? ' was' : 's were'} no longer on this device, so the export leaves ${missing === 1 ? 'it' : 'them'} out.` });
+    } catch {
+      dispatch({ type: 'notice/show', message: 'The project couldn’t be exported. Browser storage may be blocked.' });
+    }
   }
 
   async function importProject(file: File) {
-    if (file.size > MAX_IMPORT_BYTES) {
-      setImportMessage({ kind: 'error', text: 'That file is too large to be a Roomination project.' });
+    let result: ImportResult;
+    try {
+      result = await importProjectFile(file);
+    } catch (error) {
+      setImportMessage({ kind: 'error', text: error instanceof StorageFullError ? error.message : 'That file couldn’t be imported.' });
       return;
     }
-    const result = parseProjectFile(await file.text());
     if (!result.ok) {
       setImportMessage({ kind: 'error', text: result.error });
       return;
     }
     const name = await startProject(result.project);
-    setImportMessage({ kind: 'success', text: `Imported “${name}” as a new project.` });
+    setImportMessage({ kind: 'success', text: [`Imported “${name}” as a new project.`, ...result.warnings].join(' ') });
   }
 
   // ---------------------------------------------------------------------------
@@ -255,6 +280,63 @@ export function App() {
     dispatch({ type: 'furniture/add', furniture });
     setSelection({ kind: 'object', id: furniture.id });
     setAddOpen(false);
+  }
+
+  /** Adds a piece made from a template (the studio or the library) near the room's centre. */
+  function placeTemplate(template: FurnitureTemplate) {
+    const cascade = (project.furniture.length % 5) * 15;
+    const centre = roomCentre(project);
+    const furniture = createFurniture({ ...template, x: centre.x + cascade, y: centre.y + cascade });
+    dispatch({ type: 'furniture/add', furniture });
+    setSelection({ kind: 'object', id: furniture.id });
+    setAddOpen(false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Furniture studio (custom shapes, photos, library)
+  // ---------------------------------------------------------------------------
+
+  const openStudio = useCallback(
+    async (request: StudioRequest) => {
+      let initial: FurnitureTemplate | null = null;
+      if (request.mode === 'edit') {
+        const piece = project.furniture.find((f) => f.id === request.furnitureId);
+        initial = piece ? toTemplate(piece) : null;
+      } else if (request.mode === 'library') {
+        initial = (await listLibraryRecords()).find((i) => i.id === request.libraryId)?.template ?? null;
+      } else {
+        initial = newFurnitureTemplate(request.mode === 'new' ? request.template : undefined);
+      }
+      if (!initial) return;
+      setAddOpen(false);
+      setEditorOpen(false);
+      setStudio({ request, initial });
+    },
+    [project.furniture],
+  );
+
+  async function saveStudio({ template, saveToLibrary: alsoLibrary }: StudioResult) {
+    const session = studio;
+    if (!session) return;
+    setStudio(null);
+    const { request } = session;
+    try {
+      if (request.mode === 'edit') {
+        const { name, kind, category, height, color, shape, clearance, appearance } = template;
+        dispatch({ type: 'furniture/update', id: request.furnitureId, changes: { name, kind, category, height, color, shape, clearance, appearance } });
+      } else if (request.mode === 'library') {
+        await saveToLibrary(template, request.libraryId);
+      } else {
+        placeTemplate(template);
+      }
+      if (alsoLibrary && request.mode !== 'library') await saveToLibrary(template);
+      if (alsoLibrary || request.mode === 'library') {
+        libraryChanged();
+        dispatch({ type: 'notice/show', message: `Saved “${template.name}” to your furniture library.` });
+      }
+    } catch {
+      dispatch({ type: 'notice/show', message: 'The furniture library couldn’t be saved. Browser storage may be full or blocked.' });
+    }
   }
 
   function addStairs(shape: 'straight' | 'L' | 'U' | 'custom') {
@@ -491,239 +573,265 @@ export function App() {
   const showTools = isDesktop || !toolsCollapsed || !isTablet;
 
   return (
-    <div className={`app ${isDesktop ? 'is-desktop' : isTablet ? 'is-tablet' : 'is-phone'}`}>
-      <Header
-        projectName={project.name}
-        saveStatus={saveStatus}
-        canUndo={canUndo(state) && !preview}
-        canRedo={canRedo(state) && !preview}
-        theme={preferences.theme}
-        onUndo={() => dispatch({ type: 'history/undo' })}
-        onRedo={() => dispatch({ type: 'history/redo' })}
-        onOpenProjects={() => {
-          setImportMessage(null);
-          setProjectsOpen(true);
-        }}
-        onTheme={(value) => updatePreferences({ theme: value })}
-        onOptimize={openOptimizer}
-      />
+    <StudioContext.Provider value={(request) => void openStudio(request)}>
+      <div className={`app ${isDesktop ? 'is-desktop' : isTablet ? 'is-tablet' : 'is-phone'}`}>
+        <Header
+          projectName={project.name}
+          saveStatus={saveStatus}
+          canUndo={canUndo(state) && !preview}
+          canRedo={canRedo(state) && !preview}
+          theme={preferences.theme}
+          onUndo={() => dispatch({ type: 'history/undo' })}
+          onRedo={() => dispatch({ type: 'history/redo' })}
+          onOpenProjects={() => {
+            setImportMessage(null);
+            setProjectsOpen(true);
+          }}
+          onTheme={(value) => updatePreferences({ theme: value })}
+          onOptimize={openOptimizer}
+        />
 
-      {activeId ? (
-        <main className={`workspace ${isTablet && toolsCollapsed ? 'tools-collapsed' : ''}`}>
-          {showTools ? (
-            <ToolsPanel
-              project={project}
-              selection={selection}
-              conflicts={conflicts}
-              dispatch={dispatch}
-              preferences={preferences}
-              onPreferences={updatePreferences}
-              onAddFurniture={addFurniture}
-              onAddFeature={addFeature}
-              onAddStairs={addStairs}
-              onStartDrawing={startDrawing}
-              onSelect={select}
-              onCollapse={isTablet ? () => setToolsCollapsed(true) : undefined}
-              inert={preview !== null}
-            />
-          ) : (
-            <div className="tools-rail">
-              <button type="button" className="icon-button" onClick={() => setToolsCollapsed(false)} aria-label="Show tools panel">
-                <Icon name="panelLeft" />
-              </button>
-              <button type="button" className="icon-button" onClick={() => setAddOpen(true)} aria-label="Add an item">
-                <Icon name="plus" />
-              </button>
-            </div>
-          )}
-
-          <div className="canvas-column">
-            <div className="segmented view-switch" role="radiogroup" aria-label="View">
-              {(['2d', '3d'] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={view === value}
-                  className={view === value ? 'is-active' : ''}
-                  onClick={() => {
-                    if (value === '3d' && mode !== 'select') cancelDrawing();
-                    setView(value);
-                  }}
-                >
-                  <Icon name={value === '2d' ? 'floorPlan' : 'cube'} size={16} />
-                  {value === '2d' ? '2D Plan' : '3D View'}
-                </button>
-              ))}
-            </div>
-            {preview && (
-              <PreviewBar
-                title={preview.title}
-                onApply={() => applyLayout(preview.title, preview.positions)}
-                onBack={() => {
-                  setPreview(null);
-                  setOptimizerOpen(true);
-                }}
-                onExit={() => setPreview(null)}
+        {activeId ? (
+          <main className={`workspace ${isTablet && toolsCollapsed ? 'tools-collapsed' : ''}`}>
+            {showTools ? (
+              <ToolsPanel
+                project={project}
+                selection={selection}
+                conflicts={conflicts}
+                dispatch={dispatch}
+                preferences={preferences}
+                onPreferences={updatePreferences}
+                onAddFurniture={addFurniture}
+                onPlaceTemplate={placeTemplate}
+                onAddFeature={addFeature}
+                onAddStairs={addStairs}
+                onStartDrawing={startDrawing}
+                onSelect={select}
+                onCollapse={isTablet ? () => setToolsCollapsed(true) : undefined}
+                inert={preview !== null}
               />
-            )}
-            {mode !== 'select' && (
-              <DrawingBar
-                mode={mode}
-                draft={draft}
-                units={project.units}
-                snap={preferences.snap}
-                onSnap={(snap) => updatePreferences({ snap })}
-                onStartAt={(point) => setDraft([point])}
-                onAddWall={addDraftWall}
-                onUndoPoint={() => setDraft((d) => d.slice(0, -1))}
-                onFinish={finishDrawing}
-                onCancel={cancelDrawing}
-                compact={!isTablet && !isDesktop}
-              />
-            )}
-            {view === '3d' ? (
-              <View3DBoundary onExit={() => setView('2d')}>
-                <Suspense fallback={<section className="canvas-panel view3d-loading" aria-label="3D view" aria-busy="true">Loading the 3D view…</section>}>
-                  <View3D
-                    project={previewProject ?? project}
-                    selectedId={selectedId}
-                    theme={theme}
-                    preferences={preferences.view3d}
-                    touch={isTouch}
-                    onPreferences={(changes) => updatePreferences({ view3d: { ...preferences.view3d, ...changes } })}
-                    onSelect={(id) => setSelection(id ? { kind: 'object', id } : null)}
-                    onExit={() => setView('2d')}
-                  />
-                </Suspense>
-              </View3DBoundary>
             ) : (
-              <section
-                className="canvas-panel"
-                aria-label="Floor plan"
-                style={
-                  {
-                    ...board.style,
-                    // Phones size the plan to the room's shape (plus room for labels).
-                    '--room-aspect': `${roomBox.maxX - roomBox.minX + 90} / ${roomBox.maxY - roomBox.minY + 90}`,
-                  } as CSSProperties
-                }
-              >
-                <FloorPlan
-                  project={previewProject ?? project}
-                  readOnly={previewProject !== null}
-                  conflicts={previewConflicts ?? conflicts}
-                  selection={selection}
-                  palette={palette}
-                  showMeasurementGrid={preferences.showMeasurementGrid}
-                  showClearances={preferences.showClearances}
+              <div className="tools-rail">
+                <button type="button" className="icon-button" onClick={() => setToolsCollapsed(false)} aria-label="Show tools panel">
+                  <Icon name="panelLeft" />
+                </button>
+                <button type="button" className="icon-button" onClick={() => setAddOpen(true)} aria-label="Add an item">
+                  <Icon name="plus" />
+                </button>
+              </div>
+            )}
+
+            <div className="canvas-column">
+              <div className="segmented view-switch" role="radiogroup" aria-label="View">
+                {(['2d', '3d'] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={view === value}
+                    className={view === value ? 'is-active' : ''}
+                    onClick={() => {
+                      if (value === '3d' && mode !== 'select') cancelDrawing();
+                      setView(value);
+                    }}
+                  >
+                    <Icon name={value === '2d' ? 'floorPlan' : 'cube'} size={16} />
+                    {value === '2d' ? '2D Plan' : '3D View'}
+                  </button>
+                ))}
+              </div>
+              {preview && (
+                <PreviewBar
+                  title={preview.title}
+                  onApply={() => applyLayout(preview.title, preview.positions)}
+                  onBack={() => {
+                    setPreview(null);
+                    setOptimizerOpen(true);
+                  }}
+                  onExit={() => setPreview(null)}
+                />
+              )}
+              {mode !== 'select' && (
+                <DrawingBar
                   mode={mode}
                   draft={draft}
+                  units={project.units}
                   snap={preferences.snap}
-                  touch={isTouch}
-                  onSelect={select}
-                  onOpenEditor={openEditor}
-                  onChangeFurniture={(id, changes) => dispatch({ type: 'furniture/update', id, changes })}
-                  onChangeFeature={(id, changes) => dispatch({ type: 'feature/update', id, changes })}
-                  onChangeStair={(id, changes) => dispatch({ type: 'stairs/update', id, changes })}
-                  onMoveCorner={(nodeId, to) => dispatch({ type: 'walls/moveNode', nodeId, to })}
-                  onDraftPoint={addDraftPoint}
+                  onSnap={(snap) => updatePreferences({ snap })}
+                  onStartAt={(point) => setDraft([point])}
+                  onAddWall={addDraftWall}
+                  onUndoPoint={() => setDraft((d) => d.slice(0, -1))}
+                  onFinish={finishDrawing}
+                  onCancel={cancelDrawing}
+                  compact={!isTablet && !isDesktop}
                 />
-              </section>
+              )}
+              {view === '3d' ? (
+                <View3DBoundary onExit={() => setView('2d')}>
+                  <Suspense fallback={<section className="canvas-panel view3d-loading" aria-label="3D view" aria-busy="true">Loading the 3D view…</section>}>
+                    <View3D
+                      project={previewProject ?? project}
+                      selectedId={selectedId}
+                      theme={theme}
+                      preferences={preferences.view3d}
+                      touch={isTouch}
+                      onPreferences={(changes) => updatePreferences({ view3d: { ...preferences.view3d, ...changes } })}
+                      onSelect={(id) => setSelection(id ? { kind: 'object', id } : null)}
+                      onExit={() => setView('2d')}
+                    />
+                  </Suspense>
+                </View3DBoundary>
+              ) : (
+                <section
+                  className="canvas-panel"
+                  aria-label="Floor plan"
+                  style={
+                    {
+                      ...board.style,
+                      // Phones size the plan to the room's shape (plus room for labels).
+                      '--room-aspect': `${roomBox.maxX - roomBox.minX + 90} / ${roomBox.maxY - roomBox.minY + 90}`,
+                    } as CSSProperties
+                  }
+                >
+                  <FloorPlan
+                    project={previewProject ?? project}
+                    readOnly={previewProject !== null}
+                    conflicts={previewConflicts ?? conflicts}
+                    selection={selection}
+                    palette={palette}
+                    showMeasurementGrid={preferences.showMeasurementGrid}
+                    showClearances={preferences.showClearances}
+                    mode={mode}
+                    draft={draft}
+                    snap={preferences.snap}
+                    touch={isTouch}
+                    onSelect={select}
+                    onOpenEditor={openEditor}
+                    onChangeFurniture={(id, changes) => dispatch({ type: 'furniture/update', id, changes })}
+                    onChangeFeature={(id, changes) => dispatch({ type: 'feature/update', id, changes })}
+                    onChangeStair={(id, changes) => dispatch({ type: 'stairs/update', id, changes })}
+                    onMoveCorner={(nodeId, to) => dispatch({ type: 'walls/moveNode', nodeId, to })}
+                    onDraftPoint={addDraftPoint}
+                  />
+                </section>
+              )}
+              {!isDesktop && mode === 'select' && !preview && (
+                <SelectionBar
+                  selectedName={selectedName}
+                  canRotate={selectedFurniture !== null || selectedStair !== null || selectedFeature?.placement.type === 'free'}
+                  onEdit={() => setEditorOpen(true)}
+                  onRotate={() => rotateSelected(1)}
+                  onDelete={deleteSelection}
+                  onAdd={() => setAddOpen(true)}
+                  onOptimize={openOptimizer}
+                />
+              )}
+            </div>
+
+            {isDesktop && (
+              <PropertiesPanel {...editorProps} selection={selection} inert={preview !== null} />
             )}
-            {!isDesktop && mode === 'select' && !preview && (
-              <SelectionBar
-                selectedName={selectedName}
-                canRotate={selectedFurniture !== null || selectedStair !== null || selectedFeature?.placement.type === 'free'}
-                onEdit={() => setEditorOpen(true)}
-                onRotate={() => rotateSelected(1)}
-                onDelete={deleteSelection}
-                onAdd={() => setAddOpen(true)}
-                onOptimize={openOptimizer}
+          </main>
+        ) : (
+          <main className="loading" aria-busy="true">
+            Unpacking your room…
+          </main>
+        )}
+
+        <Dialog open={editorOpen && selection !== null} title={selectedName ? `Edit ${selectedName}` : 'Edit'} onClose={() => setEditorOpen(false)} className="editor-dialog">
+          {selection && <SelectionEditor {...editorProps} selection={selection} />}
+        </Dialog>
+
+        <Dialog open={addOpen} title="Add to the room" onClose={() => setAddOpen(false)}>
+          <section className="dialog-section">
+            <h3>Walls</h3>
+            <StructureButtons
+              onDraw={(next) => {
+                setAddOpen(false);
+                startDrawing(next);
+              }}
+            />
+          </section>
+          <section className="dialog-section">
+            <h3>Stairs</h3>
+            <StairButtons onAdd={addStairs} />
+          </section>
+          <section className="dialog-section">
+            <h3>Room features</h3>
+            <FeatureButtons onAdd={addFeature} />
+          </section>
+          <section className="dialog-section">
+            <h3>Custom furniture</h3>
+            <CustomFurniturePanel units={project.units} onPlace={placeTemplate} />
+          </section>
+          <section className="dialog-section">
+            <FurnitureButtons onAdd={addFurniture} />
+          </section>
+        </Dialog>
+
+        {studio && (
+          <LoadBoundary title="Furniture studio" onClose={() => setStudio(null)}>
+            <Suspense fallback={null}>
+              <FurnitureStudio
+                title={studioTitle(studio)}
+                initial={studio.initial}
+                startDrawing={studio.request.mode === 'new' && !studio.request.template}
+                startWithPhotos={studio.request.mode === 'photos'}
+                units={project.units}
+                touch={isTouch}
+                offerLibrary={studio.request.mode !== 'library'}
+                saveLabel={studio.request.mode === 'edit' ? 'Save changes' : studio.request.mode === 'library' ? 'Save to library' : 'Add to room'}
+                onSave={(result) => void saveStudio(result)}
+                onCancel={() => setStudio(null)}
               />
-            )}
-          </div>
+            </Suspense>
+          </LoadBoundary>
+        )}
 
-          {isDesktop && (
-            <PropertiesPanel {...editorProps} selection={selection} inert={preview !== null} />
-          )}
-        </main>
-      ) : (
-        <main className="loading" aria-busy="true">
-          Unpacking your room…
-        </main>
-      )}
-
-      <Dialog open={editorOpen && selection !== null} title={selectedName ? `Edit ${selectedName}` : 'Edit'} onClose={() => setEditorOpen(false)} className="editor-dialog">
-        {selection && <SelectionEditor {...editorProps} selection={selection} />}
-      </Dialog>
-
-      <Dialog open={addOpen} title="Add to the room" onClose={() => setAddOpen(false)}>
-        <section className="dialog-section">
-          <h3>Walls</h3>
-          <StructureButtons
-            onDraw={(next) => {
-              setAddOpen(false);
-              startDrawing(next);
-            }}
+        {activeId && (
+          <ProjectsDialog
+            open={projectsOpen}
+            onClose={() => setProjectsOpen(false)}
+            activeId={activeId}
+            activeName={project.name}
+            projects={projectList}
+            importMessage={importMessage}
+            onOpenProject={(id) => void openProject(id)}
+            onRename={(name) => dispatch({ type: 'project/rename', name })}
+            onNew={(kind) => void startProject(kind === 'sample' ? createSampleProject() : createEmptyProject())}
+            onDuplicate={() => void startProject({ ...project, name: `${project.name} (copy)` })}
+            onExport={exportProject}
+            onImport={(file) => void importProject(file)}
+            onDelete={(id) => void removeProject(id)}
           />
-        </section>
-        <section className="dialog-section">
-          <h3>Stairs</h3>
-          <StairButtons onAdd={addStairs} />
-        </section>
-        <section className="dialog-section">
-          <h3>Room features</h3>
-          <FeatureButtons onAdd={addFeature} />
-        </section>
-        <section className="dialog-section">
-          <FurnitureButtons onAdd={addFurniture} />
-        </section>
-      </Dialog>
+        )}
 
-      {activeId && (
-        <ProjectsDialog
-          open={projectsOpen}
-          onClose={() => setProjectsOpen(false)}
-          activeId={activeId}
-          activeName={project.name}
-          projects={projectList}
-          importMessage={importMessage}
-          onOpenProject={(id) => void openProject(id)}
-          onRename={(name) => dispatch({ type: 'project/rename', name })}
-          onNew={(kind) => void startProject(kind === 'sample' ? createSampleProject() : createEmptyProject())}
-          onDuplicate={() => void startProject({ ...project, name: `${project.name} (copy)` })}
-          onExport={exportProject}
-          onImport={(file) => void importProject(file)}
-          onDelete={(id) => void removeProject(id)}
+        <OptimizerDialog
+          open={optimizerOpen}
+          onClose={() => setOptimizerOpen(false)}
+          project={project}
+          dispatch={dispatch}
+          run={optimizer.state}
+          onStart={(ids) => optimizer.start(project, ids)}
+          onCancel={optimizer.cancel}
+          onPreview={(title, positions) => {
+            setSelection(null);
+            setPreview({ title, positions });
+            setOptimizerOpen(false);
+          }}
+          onApply={applyLayout}
         />
-      )}
 
-      <OptimizerDialog
-        open={optimizerOpen}
-        onClose={() => setOptimizerOpen(false)}
-        project={project}
-        dispatch={dispatch}
-        run={optimizer.state}
-        onStart={(ids) => optimizer.start(project, ids)}
-        onCancel={optimizer.cancel}
-        onPreview={(title, positions) => {
-          setSelection(null);
-          setPreview({ title, positions });
-          setOptimizerOpen(false);
-        }}
-        onApply={applyLayout}
-      />
-
-      <ConflictBanner
-        prompt={state.prompt}
-        project={project}
-        onRevert={() => dispatch({ type: 'conflict/revert' })}
-        onAllow={() => state.prompt && dispatch({ type: 'overlap/accept', keys: state.prompt.conflicts.map((c) => c.key) })}
-        onDismiss={() => dispatch({ type: 'conflict/dismiss' })}
-      />
-      <Toast notice={state.notice} />
-    </div>
+        <ConflictBanner
+          prompt={state.prompt}
+          project={project}
+          onRevert={() => dispatch({ type: 'conflict/revert' })}
+          onAllow={() => state.prompt && dispatch({ type: 'overlap/accept', keys: state.prompt.conflicts.map((c) => c.key) })}
+          onDismiss={() => dispatch({ type: 'conflict/dismiss' })}
+        />
+        <Toast notice={state.notice} />
+      </div>
+    </StudioContext.Provider>
   );
 }
 
@@ -808,4 +916,25 @@ function boardAppearance(board: BoardPreferences, theme: ResolvedTheme): { style
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+}
+
+/** Starting point for a new custom piece: a template shape, or nothing (draw from scratch). */
+function newFurnitureTemplate(template?: ShapeTemplate): FurnitureTemplate {
+  const base: FurnitureTemplate = { name: 'Custom piece', category: 'furniture', kind: 'custom', width: 120, depth: 80, height: 75, color: FURNITURE_COLORS[2].value, texture: 'plain' };
+  if (!template) return base;
+  const { shape, width, depth } = normaliseShape(shapeTemplate(template));
+  return { ...base, name: SHAPE_TEMPLATE_LABELS[template], shape, width, depth };
+}
+
+function studioTitle({ request, initial }: StudioSession): string {
+  switch (request.mode) {
+    case 'new':
+      return 'Draw custom furniture';
+    case 'photos':
+      return 'Create furniture from photos';
+    case 'edit':
+      return `Edit ${initial.name}`;
+    case 'library':
+      return `Edit ${initial.name} (library)`;
+  }
 }

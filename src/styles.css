@@ -2059,10 +2059,573 @@ select {
   }
 }
 
+/* ---------- Dialog footer ---------- */
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.form-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+/* ---------- Furniture studio ---------- */
+.studio-dialog,
+.photo-editor-dialog {
+  width: min(1180px, calc(100vw - 24px));
+  height: calc(100dvh - 24px);
+}
+
+.studio-dialog .dialog-frame,
+.photo-editor-dialog .dialog-frame {
+  height: 100%;
+}
+
+.studio-dialog .dialog-body,
+.photo-editor-dialog .dialog-body {
+  flex: 1;
+}
+
+.studio-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.studio,
+.photo-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  height: 100%;
+  min-height: 0;
+}
+
+.studio-stage,
+.photo-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-sunk);
+}
+
+.studio-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.studio-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.studio-select select {
+  min-height: 32px;
+}
+
+.studio-status {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.studio-status.is-quiet {
+  color: var(--text-muted);
+}
+
+.studio-panel,
+.photo-tools {
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.photo-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.studio-section {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.studio-section h3,
+.tool-panel h4,
+.trace-tools h4 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.shape-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.shape-canvas-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+}
+
+.shape-canvas-svg.is-drawing,
+.shape-canvas-svg.is-measuring {
+  cursor: crosshair;
+}
+
+.shape-grid .minor {
+  stroke: var(--border);
+  stroke-width: 0.6;
+}
+
+.shape-grid .major {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.shape-fill {
+  fill: var(--accent-soft);
+  fill-opacity: 0.75;
+  stroke: var(--accent-strong);
+  stroke-width: 2;
+}
+
+.shape-draft {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.edge-hit {
+  fill: none;
+  stroke: transparent;
+  cursor: pointer;
+}
+
+.edge-selected {
+  fill: none;
+  stroke: var(--focus);
+  stroke-width: 4;
+}
+
+.edge-label,
+.front-label,
+.drawing-hint {
+  fill: var(--text-muted);
+  text-anchor: middle;
+  font-family: var(--font);
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+}
+
+.drawing-hint {
+  text-anchor: start;
+  fill: var(--text);
+}
+
+.vertex {
+  fill: var(--surface-raised);
+  stroke: var(--accent-strong);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+
+.vertex.is-selected,
+.vertex:focus-visible {
+  fill: var(--accent);
+  outline: none;
+  stroke: var(--focus);
+  stroke-width: 3px;
+}
+
+.vertex.is-closing {
+  fill: var(--accent-soft);
+  cursor: pointer;
+}
+
+.curve-handles line {
+  stroke: var(--focus);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.curve-handle {
+  fill: var(--surface-raised);
+  stroke: var(--focus);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+
+.insert-handle {
+  cursor: copy;
+}
+
+.insert-handle circle {
+  fill: var(--focus);
+}
+
+.insert-handle path {
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.measure-marks circle {
+  fill: var(--warning);
+}
+
+.measure-marks line {
+  stroke: var(--warning);
+  stroke-width: 2;
+}
+
+.shape-canvas-tools {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.corner-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.corner-list button {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.corner-list button.is-active {
+  background: var(--accent-soft);
+}
+
+.corner-meta {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.photo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.photo-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.photo-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: repeating-conic-gradient(var(--surface-sunk) 0 25%, var(--surface) 0 50%) 0 0 / 12px 12px;
+}
+
+.photo-thumb.is-missing {
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  text-align: center;
+  color: var(--danger);
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.photo-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.trace-tools,
+.measure-panel,
+.tool-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.appearance-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.appearance-preview figure {
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunk);
+}
+
+.appearance-preview svg {
+  display: block;
+  width: 100%;
+  height: 90px;
+}
+
+.appearance-preview figcaption {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ---------- Photo workshop ---------- */
+.workshop-dialog {
+  width: min(760px, calc(100vw - 24px));
+}
+
+.workshop {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.workshop-intro {
+  margin: 0;
+}
+
+.view-slots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.view-slot {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.view-slot h4 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.slot-preview,
+.slot-empty {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-sm);
+}
+
+.slot-preview {
+  object-fit: contain;
+  background: repeating-conic-gradient(var(--surface-sunk) 0 25%, var(--surface) 0 50%) 0 0 / 14px 14px;
+}
+
+.slot-empty {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  background: var(--surface-sunk);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.file-button {
+  cursor: pointer;
+}
+
+.photo-canvas-wrap {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.checkerboard {
+  background: repeating-conic-gradient(#d9d4cc 0 25%, #f4f1ec 0 50%) 0 0 / 18px 18px;
+}
+
+.photo-canvas,
+.photo-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.photo-overlay {
+  touch-action: none;
+}
+
+.photo-overlay.tool-touchup {
+  cursor: crosshair;
+}
+
+.frame-outline {
+  fill: rgba(47, 111, 179, 0.08);
+  stroke: var(--focus);
+  stroke-width: 2;
+}
+
+.frame-handle {
+  fill: #ffffff;
+  stroke: var(--focus);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+
+.frame-handle:focus-visible {
+  fill: var(--focus);
+  outline: none;
+}
+
+.brush-cursor {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 1px #000);
+  pointer-events: none;
+}
+
+/* ---------- Furniture library ---------- */
+.custom-furniture {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.library-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.library-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--surface-sunk);
+}
+
+.library-info {
+  display: grid;
+  min-width: 0;
+}
+
+.library-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.origin-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: var(--surface-sunk);
+  color: var(--text-muted);
+}
+
+.origin-badge.is-custom {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.origin-badge.is-photo {
+  background: var(--accepted-soft);
+  color: var(--accepted);
+}
+
 /* ---------- Responsive ---------- */
 
 /* Tablet: the plan gets priority; tools can fold to a rail; editing uses the modal. */
 @media (max-width: 1099px) {
+  .studio,
+  .photo-editor {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
   .workspace {
     grid-template-columns: 268px minmax(0, 1fr);
   }
@@ -2166,6 +2729,34 @@ select {
     width: calc(100vw - 16px);
     max-height: calc(100dvh - 16px);
   }
+  /* The studio and photo editor take the whole screen, drawing on top and controls below. */
+  .studio-dialog,
+  .photo-editor-dialog {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  .studio-dialog .dialog-frame,
+  .photo-editor-dialog .dialog-frame {
+    max-height: 100dvh;
+  }
+  .studio,
+  .photo-editor {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    height: auto;
+  }
+  .studio-stage .shape-canvas {
+    flex: none;
+    height: 46vh;
+  }
+  .studio-panel,
+  .photo-tools {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
 }
 
 /* Very narrow phones (320px): keep every control on screen. */
@@ -2208,7 +2799,10 @@ select {
   select,
   .floor-option,
   .lock-toggle,
-  .score-breakdown summary {
+  .score-breakdown summary,
+  .corner-list button,
+  .studio-select select,
+  .file-button {
     min-height: 44px;
   }
   .link-button {
