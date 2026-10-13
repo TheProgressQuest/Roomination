@@ -63,7 +63,11 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
   useEffect(() => {
     const el = svg.current;
     if (!el) return;
-    const measure = () => setPxPerCm(el.getBoundingClientRect().width / Math.max(1, view.maxX - view.minX));
+    const measure = () => {
+      // A hidden or not-yet-laid-out drawing has no width; keep the last good scale.
+      const width = el.getBoundingClientRect().width;
+      if (width > 0) setPxPerCm(width / Math.max(1, view.maxX - view.minX));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);

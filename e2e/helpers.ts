@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { strFromU8, unzipSync } from 'fflate';
 
 /** Loads the app and waits for the floor plan. Collects console errors for later checks. */
 export async function openApp(page: Page): Promise<string[]> {
@@ -77,12 +78,14 @@ export async function checksText(page: Page): Promise<string> {
   return (await tools(page).locator('.checks, .checks-clear').first().textContent()) ?? '';
 }
 
-/** Downloads the project via Export and returns the parsed project. */
+/** Downloads the project via Export and returns the parsed project (from JSON or ZIP). */
 export async function exportProject(page: Page) {
   await page.getByRole('button', { name: /^Projects/ }).click();
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export file' }).click()]);
-  const text = await (await import('node:fs/promises')).readFile((await download.path())!, 'utf8');
+  const bytes = await (await import('node:fs/promises')).readFile((await download.path())!);
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  // Projects with photos download as a ZIP (project.json plus the photos).
+  const text = bytes.subarray(0, 2).toString() === 'PK' ? strFromU8(unzipSync(new Uint8Array(bytes))['project.json']) : bytes.toString('utf8');
   return JSON.parse(text).project;
 }
 

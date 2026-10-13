@@ -6,7 +6,7 @@ import { extname, join, normalize } from 'node:path';
 const port = Number(process.argv[2] ?? 4173);
 const root = join(process.cwd(), 'dist');
 const prefix = '/Roomination/';
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png', '.webp': 'image/webp', '.md': 'text/markdown' };
 
 createServer((req, res) => {
   const url = decodeURIComponent((req.url ?? '/').split('?')[0]);

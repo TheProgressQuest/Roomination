@@ -123,7 +123,13 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
   const [selection, setSelection] = useState<StudioSelection>(null);
   const [snap, setSnap] = useState(1);
   const [saveToLibrary, setSaveToLibrary] = useState(false);
-  const [workshopOpen, setWorkshopOpen] = useState(props.startWithPhotos ?? false);
+  const [workshopOpen, setWorkshopOpen] = useState(false);
+  // Open the photo tools only once the studio itself is showing: modal dialogs stack in the
+  // order they open, and the photo tools must sit on top.
+  const startWithPhotos = props.startWithPhotos ?? false;
+  useEffect(() => {
+    if (startWithPhotos) setWorkshopOpen(true);
+  }, [startWithPhotos]);
   const [traceId, setTraceId] = useState<string | null>(null);
   const [traceScale, setTraceScale] = useState(0.2);
   const [traceOpacity, setTraceOpacity] = useState(0.6);
@@ -394,9 +400,14 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
                 <NumberField label="Front–back (y)" suffix={unit} value={toInput(draft.points[selectedVertex].y)} onCommit={(v) => update({ points: moveVertex(draft.points, selectedVertex, { x: draft.points[selectedVertex].x, y: toCm(v) }) })} />
                 <NumberField label="Inside angle" suffix="°" min={1} value={Math.round(cornerAngle(draft.points, selectedVertex) * 10) / 10} onCommit={(v) => update({ points: setCornerAngle(draft.points, selectedVertex, v) })} />
               </div>
-              <button type="button" className="danger compact" onClick={() => deleteCorner(selectedVertex)} disabled={draft.points.length <= 3}>
-                <Icon name="trash" size={16} /> Delete corner
-              </button>
+              <div className="button-row">
+                <button type="button" className="secondary small" onClick={() => setSelection({ kind: 'edge', index: selectedVertex })}>
+                  Edit the edge after this corner
+                </button>
+                <button type="button" className="danger compact small" onClick={() => deleteCorner(selectedVertex)} disabled={draft.points.length <= 3}>
+                  <Icon name="trash" size={16} /> Delete corner
+                </button>
+              </div>
             </section>
           )}
 

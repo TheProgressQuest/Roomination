@@ -3,6 +3,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'node:child_process';
 
+function jsForMjs(asset: { names?: string[] }): string {
+  return asset.names?.some((n) => n.endsWith('.mjs')) ? 'assets/[name]-[hash].js' : 'assets/[name]-[hash][extname]';
+}
+
 /** The commit being built (CI provides it; locally ask git; otherwise "dev"). */
 function buildVersion(): string {
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7);
@@ -26,6 +30,10 @@ export default defineConfig({
   optimizeDeps: {
     include: ['three', 'three/examples/jsm/controls/OrbitControls.js', 'three/examples/jsm/utils/BufferGeometryUtils.js'],
   },
+  // The AI runtime's loader ships as .mjs; emit it as .js so every static host (GitHub Pages
+  // included) serves it with a JavaScript content type.
+  build: { rollupOptions: { output: { assetFileNames: jsForMjs } } },
+  worker: { format: 'es', rollupOptions: { output: { assetFileNames: jsForMjs } } },
   test: {
     environment: 'node',
     // Browser tests live in e2e/ and run with Playwright, not Vitest.

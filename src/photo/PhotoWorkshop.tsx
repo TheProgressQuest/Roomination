@@ -101,7 +101,7 @@ export default function PhotoWorkshop({ onDone, onCancel }: { onDone: (photos: W
   return (
     <Dialog
       open
-      title="Create furniture from photos"
+      title="Photos of your furniture"
       onClose={onCancel}
       className="workshop-dialog"
       footer={
