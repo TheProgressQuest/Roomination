@@ -112,3 +112,20 @@ describe('schema migration and round-trips', () => {
     expect(parseProjectFile(serializeProject(orphan as never))).toMatchObject({ ok: false, error: expect.stringMatching(/doesn’t exist/) });
   });
 });
+
+describe('older saves', () => {
+  it('still loads a tiny 60 × 60 cm Phase 1 room', () => {
+    expect(parseProject({ ...phase1Save, room: { width: 60, length: 60, height: 250 }, furniture: [] }).ok).toBe(true);
+  });
+
+  it('never lets an item reuse a legacy wall id', () => {
+    const result = parseProject({ ...phase1Save, furniture: [{ ...phase1Save.furniture[0], id: 'wall-top' }] });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.project.furniture[0].id).not.toBe('wall-top');
+  });
+
+  it('refuses a door wider than every wall instead of leaving it floating', () => {
+    const door = { kind: 'door', name: 'Barn door', placement: { type: 'free', x: 100, y: 100, rotation: 0 }, width: 900, depth: 0, height: 200, elevation: 0, clearance: 0 };
+    expect(parseProject({ ...phase1Save, schemaVersion: 2, features: [door] })).toMatchObject({ ok: false, error: expect.stringMatching(/long enough/) });
+  });
+});

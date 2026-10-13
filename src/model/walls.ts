@@ -24,8 +24,8 @@ export const MIN_WALL_LENGTH = 10;
 export const MIN_WALL_THICKNESS = 2;
 export const MAX_WALL_THICKNESS = 100;
 export const DEFAULT_WALL_THICKNESS = 12;
-/** Smallest room area allowed, in cm² (0.5 m²). */
-const MIN_ROOM_AREA = 5_000;
+/** Smallest room area allowed, in cm²: a 50 × 50 cm room, the smallest older versions allowed. */
+const MIN_ROOM_AREA = 2_500;
 export const MAX_ROOM_SPAN = 10_000;
 
 export interface WallSegment {
@@ -126,7 +126,7 @@ export function validateRoom(room: Pick<Room, 'outline' | 'partitions'>): string
   // Dragging a corner far enough can fold the outline over without any walls crossing;
   // every wall's "inside" would then face outwards.
   if (!isClockwise(poly)) return 'That would turn the room inside out. Move the corner back towards the room.';
-  if (polygonArea(poly) < MIN_ROOM_AREA) return 'The room would be too small (under 0.5 m²).';
+  if (polygonArea(poly) < MIN_ROOM_AREA) return 'The room would be too small (under 0.25 m²).';
   const box = boundingBox(poly);
   if (box.maxX - box.minX > MAX_ROOM_SPAN || box.maxY - box.minY > MAX_ROOM_SPAN) return 'The room would be larger than 100 m across.';
 
@@ -307,16 +307,13 @@ export function mergeWithNext(room: Room, wallId: string): Room | string {
 
 /**
  * Deletes a wall. An interior wall segment is removed (splitting its chain if it was in
- * the middle). An outer wall can't leave a gap in the room, so its neighbours are
- * joined instead by removing its end corner.
+ * the middle). An outer wall can't leave a gap in the room, so it is removed by deleting
+ * its start corner: the previous wall stretches to this wall's end and closes the room.
  */
 export function deleteWall(room: Room, wallId: string, newPartitionId: string): Room | string {
   const at = locateNode(room, wallId);
   if (!at) return 'That wall no longer exists.';
-  if (at.chain.kind === 'outline') {
-    const end = endNodeOf(room, wallId)!;
-    return removeNode(room, room.outline[end.index].id);
-  }
+  if (at.chain.kind === 'outline') return removeNode(room, wallId);
   const partition = room.partitions[at.chain.index];
   const before = partition.nodes.slice(0, at.index + 1);
   const after = partition.nodes.slice(at.index + 1);
@@ -355,4 +352,15 @@ export function nearestWall(room: Pick<Room, 'outline' | 'partitions'>, p: Point
     if (!best || projection.distance < best.distance) best = { segment, offset: projection.t * segment.length, distance: projection.distance };
   }
   return best;
+}
+
+/** A human-readable name: "Wall 3" for outer walls, "Interior wall 2" (or "Interior wall 2.1"). */
+export function wallLabel(room: Pick<Room, 'outline' | 'partitions'>, wallId: string): string {
+  const outer = room.outline.findIndex((n) => n.id === wallId);
+  if (outer !== -1) return `Wall ${outer + 1}`;
+  for (let p = 0; p < room.partitions.length; p++) {
+    const k = room.partitions[p].nodes.findIndex((n) => n.id === wallId);
+    if (k !== -1) return room.partitions[p].nodes.length > 2 ? `Interior wall ${p + 1}.${k + 1}` : `Interior wall ${p + 1}`;
+  }
+  return 'Wall';
 }

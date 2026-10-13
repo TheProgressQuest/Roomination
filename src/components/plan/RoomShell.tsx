@@ -1,10 +1,12 @@
-import { Line, Rect, Text } from 'react-konva';
-import { openingSpan } from '../../model/features';
-import type { Project, Wall } from '../../model/types';
+import { Group, Line, Text } from 'react-konva';
+import type { Box } from '../../model/polygon';
+import type { Project } from '../../model/types';
 import { formatLength, gridSpacing } from '../../model/units';
+import { wallBodies } from '../../model/wallGeometry';
+import { outlinePolygon, wallSegments } from '../../model/walls';
 import type { CanvasPalette } from '../../render/palette';
 import { PX_PER_CM, floorTexture } from '../../render/textures';
-import type { Viewport } from './viewport';
+import { flatPx, flatScreen, type Viewport } from './viewport';
 
 export const FONT_FAMILY = 'ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif';
 
@@ -14,23 +16,21 @@ interface ShellProps {
   palette: CanvasPalette;
 }
 
-/** The floor surface (with its texture) and the real-world measurement grid. */
-export function RoomFloor({ project, viewport, palette, showGrid }: ShellProps & { showGrid: boolean }) {
+/** The floor surface (with its texture) and the real-world measurement grid, clipped to the room. */
+export function RoomFloor({ project, viewport, palette, showGrid, bounds }: ShellProps & { showGrid: boolean; bounds: Box }) {
   const { room } = project;
-  const { scale, offsetX, offsetY } = viewport;
   const texture = floorTexture(room.floor);
-  const ratio = scale / PX_PER_CM;
+  const ratio = viewport.scale / PX_PER_CM;
+  const outline = outlinePolygon(room);
 
   return (
-    <>
-      <Rect
-        x={offsetX}
-        y={offsetY}
-        width={room.width * scale}
-        height={room.length * scale}
+    // The group's origin is the room's (0, 0), so the texture is anchored to real
+    // room coordinates and stays aligned at any zoom level or room shape.
+    <Group x={viewport.offsetX} y={viewport.offsetY} listening={false}>
+      <Line
+        points={flatPx(outline, viewport.scale)}
+        closed
         fill={room.floor.color}
-        // The pattern is anchored at the room's top-left corner and scaled from cm,
-        // so it stays aligned with real positions at any zoom level.
         fillPriority={texture ? 'pattern' : 'color'}
         fillPatternImage={texture?.image as unknown as HTMLImageElement | undefined}
         fillPatternRepeat="repeat"
@@ -41,98 +41,103 @@ export function RoomFloor({ project, viewport, palette, showGrid }: ShellProps &
         shadowBlur={24}
         shadowOffsetY={8}
       />
-      {showGrid && <MeasurementGrid project={project} viewport={viewport} palette={palette} />}
-    </>
+      {showGrid && (
+        <Group
+          clipFunc={(ctx) => {
+            ctx.beginPath();
+            outline.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x * viewport.scale, p.y * viewport.scale) : ctx.lineTo(p.x * viewport.scale, p.y * viewport.scale)));
+            ctx.closePath();
+          }}
+        >
+          <MeasurementGrid project={project} scale={viewport.scale} palette={palette} bounds={bounds} />
+        </Group>
+      )}
+    </Group>
   );
 }
 
-function MeasurementGrid({ project, viewport, palette }: ShellProps) {
-  const { room, units } = project;
-  const { minor, major } = gridSpacing(units, viewport.scale);
-  const left = viewport.offsetX;
-  const top = viewport.offsetY;
-  const right = left + room.width * viewport.scale;
-  const bottom = top + room.length * viewport.scale;
+function MeasurementGrid({ project, scale, palette, bounds }: { project: Project; scale: number; palette: CanvasPalette; bounds: Box }) {
+  const { minor, major } = gridSpacing(project.units, scale);
+  // On a patterned floor the fine lines compete with planks and grout, so keep only major ones.
+  const step = project.room.floor.preset !== 'plain' ? major : minor;
   const isMajor = (cm: number) => Math.abs(cm / major - Math.round(cm / major)) < 1e-6;
   const lines: { points: number[]; major: boolean }[] = [];
-  // On a patterned floor the fine lines compete with planks and grout, so keep only major ones.
-  const majorOnly = room.floor.preset !== 'plain';
-
-  // Lines are measured from the room's corner so they line up with real distances.
-  for (let i = 1; i * minor < room.width - 1e-6; i++) {
-    const px = left + i * minor * viewport.scale;
-    lines.push({ points: [px, top, px, bottom], major: isMajor(i * minor) });
+  // Lines sit on multiples of the step from the room's origin, so they line up with real distances.
+  for (let x = Math.ceil(bounds.minX / step) * step; x <= bounds.maxX; x += step) {
+    lines.push({ points: [x * scale, bounds.minY * scale, x * scale, bounds.maxY * scale], major: isMajor(x) });
   }
-  for (let i = 1; i * minor < room.length - 1e-6; i++) {
-    const py = top + i * minor * viewport.scale;
-    lines.push({ points: [left, py, right, py], major: isMajor(i * minor) });
+  for (let y = Math.ceil(bounds.minY / step) * step; y <= bounds.maxY; y += step) {
+    lines.push({ points: [bounds.minX * scale, y * scale, bounds.maxX * scale, y * scale], major: isMajor(y) });
   }
   return (
     <>
-      {lines.filter((line) => line.major || !majorOnly).map((line, i) => (
+      {lines.map((line, i) => (
         <Line key={i} points={line.points} stroke={line.major ? palette.gridMajor : palette.gridMinor} strokeWidth={1} />
       ))}
     </>
   );
 }
 
-/**
- * The four walls, drawn outside the interior, with real gaps where doors and
- * windows are (the door/window symbols are drawn into those gaps separately).
- */
-export function Walls({ project, viewport, palette }: ShellProps) {
-  const { room, features } = project;
-  const { scale, offsetX: ox, offsetY: oy, wallPx: t } = viewport;
-  const W = room.width * scale;
-  const L = room.length * scale;
-  const segments: { x: number; y: number; width: number; height: number }[] = [];
+interface WallsProps extends ShellProps {
+  selectedWallId: string | null;
+  /** Walls are selectable in select mode; not while drawing. */
+  interactive: boolean;
+  onSelectWall: (wallId: string) => void;
+}
 
-  const solidParts = (wall: Wall, length: number): [number, number][] => {
-    const gaps = features
-      .map(openingSpan)
-      .filter((s): s is NonNullable<typeof s> => s !== null && s.wall === wall)
-      .sort((a, b) => a.start - b.start);
-    const parts: [number, number][] = [];
-    let cursor = 0;
-    for (const gap of gaps) {
-      if (gap.start > cursor) parts.push([cursor, gap.start]);
-      cursor = Math.max(cursor, gap.end);
-    }
-    if (cursor < length) parts.push([cursor, length]);
-    return parts;
-  };
-
-  for (const [a, b] of solidParts('top', room.width)) segments.push({ x: ox + a * scale, y: oy - t, width: (b - a) * scale, height: t });
-  for (const [a, b] of solidParts('bottom', room.width)) segments.push({ x: ox + a * scale, y: oy + L, width: (b - a) * scale, height: t });
-  for (const [a, b] of solidParts('left', room.length)) segments.push({ x: ox - t, y: oy + a * scale, width: t, height: (b - a) * scale });
-  for (const [a, b] of solidParts('right', room.length)) segments.push({ x: ox + W, y: oy + a * scale, width: t, height: (b - a) * scale });
-  // Corner blocks, so walls stay joined even when an opening reaches a corner.
-  for (const [x, y] of [[ox - t, oy - t], [ox + W, oy - t], [ox - t, oy + L], [ox + W, oy + L]]) {
-    segments.push({ x, y, width: t, height: t });
-  }
-
+/** Every wall at its real thickness, with real gaps where doors and windows are. */
+export function Walls({ project, viewport, palette, selectedWallId, interactive, onSelectWall }: WallsProps) {
   return (
     <>
-      {segments.map((s, i) => (
-        <Rect key={i} {...s} fill={palette.wall} listening={false} />
-      ))}
+      {wallBodies(project.room, project.features).map((body, i) => {
+        const selected = body.wallId === selectedWallId;
+        return (
+          <Line
+            key={`${body.wallId}-${i}`}
+            name="wall"
+            points={flatScreen(body.polygon, viewport)}
+            closed
+            fill={selected ? palette.selection : palette.wall}
+            stroke={selected ? palette.selection : palette.wall}
+            strokeWidth={0.5}
+            // A wider invisible hit area makes thin walls easy to tap.
+            hitStrokeWidth={14}
+            listening={interactive}
+            onMouseDown={() => onSelectWall(body.wallId)}
+            onTouchStart={() => onSelectWall(body.wallId)}
+            onMouseEnter={(e) => {
+              const container = e.target.getStage()?.container();
+              if (container) container.style.cursor = 'pointer';
+            }}
+            onMouseLeave={(e) => {
+              const container = e.target.getStage()?.container();
+              if (container) container.style.cursor = '';
+            }}
+          />
+        );
+      })}
     </>
   );
 }
 
-export function DimensionLabels({ project, viewport, palette }: ShellProps) {
-  const { room, units } = project;
-  const left = viewport.offsetX;
-  const top = viewport.offsetY;
-  const roomW = room.width * viewport.scale;
-  const roomH = room.length * viewport.scale;
-  const gap = viewport.wallPx + 10;
+/**
+ * Overall width and length of the room's bounding box. `clearance` pushes the lines further
+ * out when per-wall length labels are showing, so the two never overlap.
+ */
+export function DimensionLabels({ project, viewport, palette, bounds, clearance = 0 }: ShellProps & { bounds: Box; clearance?: number }) {
+  const { units } = project;
+  const left = viewport.offsetX + bounds.minX * viewport.scale;
+  const top = viewport.offsetY + bounds.minY * viewport.scale;
+  const roomW = (bounds.maxX - bounds.minX) * viewport.scale;
+  const roomH = (bounds.maxY - bounds.minY) * viewport.scale;
+  const thickest = Math.max(...project.room.outline.map((n) => n.thickness)) * viewport.scale;
+  const gap = thickest + 10 + clearance;
   const fontSize = 13;
   const labelBox = 160;
   const tick = (points: number[]) => <Line points={points} stroke={palette.label} strokeWidth={1} />;
 
   return (
-    <>
+    <Group listening={false}>
       {tick([left, top - gap, left + roomW, top - gap])}
       {tick([left, top - gap - 5, left, top - gap + 5])}
       {tick([left + roomW, top - gap - 5, left + roomW, top - gap + 5])}
@@ -141,7 +146,7 @@ export function DimensionLabels({ project, viewport, palette }: ShellProps) {
         y={top - gap - fontSize - 6}
         width={labelBox}
         align="center"
-        text={formatLength(room.width, units)}
+        text={formatLength(bounds.maxX - bounds.minX, units)}
         fontSize={fontSize}
         fontFamily={FONT_FAMILY}
         fontStyle="600"
@@ -156,12 +161,54 @@ export function DimensionLabels({ project, viewport, palette }: ShellProps) {
         width={labelBox}
         align="center"
         rotation={-90}
-        text={formatLength(room.length, units)}
+        text={formatLength(bounds.maxY - bounds.minY, units)}
         fontSize={fontSize}
         fontFamily={FONT_FAMILY}
         fontStyle="600"
         fill={palette.label}
       />
-    </>
+    </Group>
+  );
+}
+
+/**
+ * A length label beside each wall — outside outer walls (on the board, clear of the
+ * furniture), beside interior walls. Shown while editing walls and for irregular rooms,
+ * where the overall width × length no longer tells the whole story.
+ */
+export function WallLengthLabels({ project, viewport, palette, highlightId }: ShellProps & { highlightId: string | null }) {
+  const fontSize = 11;
+  return (
+    <Group listening={false}>
+      {wallSegments(project.room).map((wall) => {
+        if (wall.length * viewport.scale < 40) return null;
+        const mid = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+        const rad = (wall.angle * Math.PI) / 180;
+        // Outer walls: step outward past the wall's thickness. Interior walls: step to one side.
+        const away = wall.chain === 'outline' ? wall.thickness + 10 / viewport.scale : wall.thickness / 2 + 9 / viewport.scale;
+        const x = viewport.offsetX + (mid.x + Math.sin(rad) * away) * viewport.scale;
+        const y = viewport.offsetY + (mid.y - Math.cos(rad) * away) * viewport.scale;
+        // Keep text upright: flip labels on walls that point "backwards".
+        const angle = wall.angle > 90 || wall.angle <= -90 ? wall.angle + 180 : wall.angle;
+        const highlighted = wall.id === highlightId;
+        return (
+          <Text
+            key={wall.id}
+            x={x}
+            y={y}
+            rotation={angle}
+            text={formatLength(wall.length, project.units)}
+            width={120}
+            offsetX={60}
+            offsetY={fontSize / 2}
+            align="center"
+            fontSize={fontSize}
+            fontStyle={highlighted ? '800' : '600'}
+            fontFamily={FONT_FAMILY}
+            fill={highlighted ? palette.selection : palette.feature}
+          />
+        );
+      })}
+    </Group>
   );
 }

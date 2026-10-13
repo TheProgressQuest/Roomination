@@ -8,5 +8,7 @@ export default defineConfig({
   base: './',
   test: {
     environment: 'node',
+    // Browser tests live in e2e/ and run with Playwright, not Vitest.
+    include: ['src/**/*.test.ts'],
   },
 });

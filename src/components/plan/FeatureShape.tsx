@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import { Circle, Group, Line, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
 import { doorLeaves, localZones, type Frame } from '../../model/features';
@@ -6,7 +6,7 @@ import { arcPoints } from '../../model/polygon';
 import type { RoomFeature } from '../../model/types';
 import type { CanvasPalette } from '../../render/palette';
 import { FONT_FAMILY } from './RoomShell';
-import { interactionEvents, type ConflictStatus, type InteractionProps } from './shared';
+import { interactionEvents, sameDataProps, type ConflictStatus, type InteractionProps } from './shared';
 import { flatPx } from './viewport';
 
 interface FeatureShapeProps extends InteractionProps {
@@ -14,7 +14,8 @@ interface FeatureShapeProps extends InteractionProps {
   /** Screen position and rotation of the feature's local frame. */
   frame: Frame;
   scale: number;
-  wallPx: number;
+  /** The wall's extent across its thickness in this frame, px: outer walls [−t, 0], interior walls [−t/2, t/2]. */
+  wallBand: WallBand;
   selected: boolean;
   status: ConflictStatus;
   showClearance: boolean;
@@ -25,10 +26,10 @@ interface FeatureShapeProps extends InteractionProps {
 /**
  * Draws one architectural feature in its local frame: x runs along the wall (or the
  * feature's own axis) and y points into the room. The wall itself occupies
- * y ∈ [−wallPx, 0] in this frame.
+ * `wallBand` (y from `top` to `top + height`) in this frame.
  */
-export function FeatureShape(props: FeatureShapeProps) {
-  const { feature, frame, scale, wallPx, selected, status, palette } = props;
+export const FeatureShape = memo(function FeatureShape(props: FeatureShapeProps) {
+  const { feature, frame, scale, wallBand, selected, status, palette } = props;
   const [hovered, setHovered] = useState(false);
   const s = scale;
   const w = feature.width * s;
@@ -38,7 +39,7 @@ export function FeatureShape(props: FeatureShapeProps) {
   const showZones = props.showClearance || selected || status !== undefined;
   const zones = showZones ? localZones(feature).filter((zone) => zone.type === 'clearance') : [];
 
-  const symbol = drawSymbol(feature, s, w, d, wallPx, palette, highlight);
+  const symbol = drawSymbol(feature, s, w, d, wallBand, palette, highlight);
 
   return (
     <Group
@@ -68,6 +69,11 @@ export function FeatureShape(props: FeatureShapeProps) {
       {selected && <Rect {...pad(symbol.hit, 3)} stroke={palette.selection} strokeWidth={1.5} dash={[4, 4]} cornerRadius={4} listening={false} />}
     </Group>
   );
+}, sameDataProps);
+
+export interface WallBand {
+  top: number;
+  height: number;
 }
 
 interface Box {
@@ -93,7 +99,7 @@ function drawSymbol(
   s: number,
   w: number,
   d: number,
-  wallPx: number,
+  band: WallBand,
   palette: CanvasPalette,
   highlight: string | null,
 ): { shapes: ReactNode; hit: Box } {
@@ -105,8 +111,8 @@ function drawSymbol(
       const leaves = doorLeaves(feature);
       const jambs = (
         <>
-          <Line points={[-w / 2, -wallPx, -w / 2, 0]} stroke={palette.wall} strokeWidth={2} listening={false} />
-          <Line points={[w / 2, -wallPx, w / 2, 0]} stroke={palette.wall} strokeWidth={2} listening={false} />
+          <Line points={[-w / 2, band.top, -w / 2, band.top + band.height]} stroke={palette.wall} strokeWidth={2} listening={false} />
+          <Line points={[w / 2, band.top, w / 2, band.top + band.height]} stroke={palette.wall} strokeWidth={2} listening={false} />
         </>
       );
       if (feature.doorType === 'sliding') {
@@ -114,11 +120,11 @@ function drawSymbol(
           shapes: (
             <>
               {jambs}
-              <Rect x={-w / 2} y={-wallPx * 0.75} width={w * 0.58} height={wallPx * 0.3} fill={palette.featureFill} stroke={line} strokeWidth={1} listening={false} />
-              <Rect x={-w * 0.08} y={-wallPx * 0.45} width={w * 0.58} height={wallPx * 0.3} fill={palette.featureFill} stroke={line} strokeWidth={1} listening={false} />
+              <Rect x={-w / 2} y={band.top + band.height * 0.2} width={w * 0.58} height={band.height * 0.3} fill={palette.featureFill} stroke={line} strokeWidth={1} listening={false} />
+              <Rect x={-w * 0.08} y={band.top + band.height * 0.5} width={w * 0.58} height={band.height * 0.3} fill={palette.featureFill} stroke={line} strokeWidth={1} listening={false} />
             </>
           ),
-          hit: hitBox(-w / 2, -wallPx, w / 2, 8),
+          hit: hitBox(-w / 2, band.top, w / 2, Math.max(8, band.top + band.height)),
         };
       }
       const swingDepth = feature.swing === 'out' ? -w : w;
@@ -141,7 +147,7 @@ function drawSymbol(
             })}
           </>
         ),
-        hit: hitBox(-w / 2, Math.min(-wallPx, swingDepth * 0.35), w / 2, Math.max(8, swingDepth * 0.35)),
+        hit: hitBox(-w / 2, Math.min(band.top, swingDepth * 0.35), w / 2, Math.max(8, band.top + band.height, swingDepth * 0.35)),
       };
     }
 
@@ -149,11 +155,11 @@ function drawSymbol(
       return {
         shapes: (
           <Group listening={false}>
-            <Rect x={-w / 2} y={-wallPx} width={w} height={wallPx} fill={palette.windowGlass} stroke={line} strokeWidth={lineWidth} />
-            <Line points={[-w / 2, -wallPx / 2, w / 2, -wallPx / 2]} stroke={palette.featureInk} strokeWidth={1} />
+            <Rect x={-w / 2} y={band.top} width={w} height={band.height} fill={palette.windowGlass} stroke={line} strokeWidth={lineWidth} />
+            <Line points={[-w / 2, band.top + band.height / 2, w / 2, band.top + band.height / 2]} stroke={palette.featureInk} strokeWidth={1} />
           </Group>
         ),
-        hit: hitBox(-w / 2, -wallPx, w / 2, 8),
+        hit: hitBox(-w / 2, band.top, w / 2, Math.max(8, band.top + band.height)),
       };
 
     case 'outlet':

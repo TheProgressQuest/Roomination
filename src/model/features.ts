@@ -2,7 +2,7 @@ import { rotatedHalfExtents } from './geometry';
 import { resolvePosition } from './placement';
 import { arcPoints, convexInsidePolygon, rectPolygon, type Polygon } from './polygon';
 import type { FeatureKind, FreePlacement, Point, Room, RoomFeature, WallPlacement } from './types';
-import { findSegment, nearestWall, outlinePolygon, outlineSegments, pointAlong, roomBounds, wallSegments } from './walls';
+import { findSegment, nearestWall, outlinePolygon, outlineSegments, partitionSegments, pointAlong, roomBounds } from './walls';
 
 /**
  * Geometry for architectural features (doors, windows, vents, …).
@@ -237,16 +237,19 @@ export function clampOffset(offset: number, wallLen: number, width: number): num
   return Math.min(Math.max(offset, width / 2), wallLen - width / 2);
 }
 
-/** Floor footprint of a free feature centred at `centre`. Lights and round columns are circles. */
+/** Lights and round columns are circles on the plan; everything else is a rectangle. */
+function isRound(feature: Pick<RoomFeature, 'kind' | 'shape'>): boolean {
+  return feature.kind === 'light' || (feature.kind === 'column' && feature.shape === 'round');
+}
+
+/** Floor footprint of a free feature centred at `centre`. */
 export function freeFootprint(feature: RoomFeature, centre: Point, rotation: number): Polygon {
-  const round = feature.kind === 'light' || (feature.kind === 'column' && feature.shape === 'round');
-  if (round) return arcPoints(centre.x, centre.y, feature.width / 2, 0, 360, 16).slice(0, -1);
+  if (isRound(feature)) return arcPoints(centre.x, centre.y, feature.width / 2, 0, 360, 16).slice(0, -1);
   return rectPolygon(centre.x, centre.y, feature.width, feature.depth, rotation);
 }
 
 function freeExtents(feature: RoomFeature, rotation: number) {
-  const round = feature.kind === 'light' || (feature.kind === 'column' && feature.shape === 'round');
-  return round ? { halfX: feature.width / 2, halfY: feature.width / 2 } : rotatedHalfExtents(feature.width, feature.depth, rotation);
+  return isRound(feature) ? { halfX: feature.width / 2, halfY: feature.width / 2 } : rotatedHalfExtents(feature.width, feature.depth, rotation);
 }
 
 /**
@@ -258,7 +261,16 @@ export function clampFeatureToRoom(feature: RoomFeature, room: RoomWalls, from?:
   if (p.type === 'wall') {
     const segment = findSegment(room, p.wallId);
     if (!segment || feature.width > segment.length + 1e-6) return null;
-    return { ...feature, placement: { ...p, offset: clampOffset(p.offset, segment.length, feature.width) } };
+    const placement: WallPlacement = { ...p, offset: clampOffset(p.offset, segment.length, feature.width) };
+    const placed: RoomFeature = { ...feature, placement };
+    // Whatever stands out from the wall (a radiator's body) must fit inside the room.
+    if (segment.chain === 'outline' && feature.depth > 0) {
+      const frame = wallFrame(placement, room)!;
+      const half = feature.width / 2;
+      const body = [{ x: -half, y: 0 }, { x: half, y: 0 }, { x: half, y: feature.depth }, { x: -half, y: feature.depth }].map((q) => toRoom(frame, q));
+      if (!convexInsidePolygon(body, outlinePolygon(room))) return null;
+    }
+    return placed;
   }
   const poly = outlinePolygon(room);
   const centre = resolvePosition(p, {
@@ -317,7 +329,7 @@ function findOpeningInSpan(span: { wallId: string; start: number; end: number },
 export function findFreeWallSpot(features: RoomFeature[], room: RoomWalls, width: number, preferredIndex = 0): WallPlacement | null {
   const outer = outlineSegments(room);
   const ordered = [...outer.slice(preferredIndex % outer.length), ...outer.slice(0, preferredIndex % outer.length)];
-  const interior = wallSegments(room).filter((s) => s.chain !== 'outline');
+  const interior = room.partitions.flatMap(partitionSegments);
   for (const segment of [...ordered, ...interior]) {
     const len = segment.length;
     if (width > len) continue;

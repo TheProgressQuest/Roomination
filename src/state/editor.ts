@@ -180,7 +180,9 @@ function commit(
   next: Project,
   options: { promptForConflicts: boolean; mergeKey?: string | null },
 ): EditorState {
-  if (next === state.present) return state;
+  // Edits that produce an identical project (e.g. confirming a field without changing it)
+  // must not add an undo step or wipe the redo history.
+  if (next === state.present || sameData(next, state.present)) return state;
 
   const after = findConflicts(next);
   const live = new Set(after.map((c) => c.key));
@@ -414,7 +416,11 @@ function placeFeature(feature: RoomFeature, project: Project): RoomFeature | str
   if (feature.kind === 'column' && feature.shape === 'round') feature = { ...feature, depth: feature.width };
 
   if (feature.placement.type === 'wall' && !findSegment(project.room, feature.placement.wallId)) return 'That wall no longer exists.';
-  const placed = clampFeatureToRoom(feature, project.room);
+  // 7. A kind that must sit on a wall can't be left free-standing (e.g. no wall long enough).
+  if (allowedPlacement(feature) === 'wall' && feature.placement.type !== 'wall') return `No wall is long enough for “${feature.name}”.`;
+  const previous = project.features.find((f) => f.id === feature.id)?.placement;
+  const from = previous?.type === 'free' ? { x: previous.x, y: previous.y } : undefined;
+  const placed = clampFeatureToRoom(feature, project.room, from);
   if (!placed) return `“${feature.name}” is too big for that spot.`;
   const clash = findOverlappingOpening(placed, project.features);
   if (clash) return `“${placed.name}” would overlap “${clash.name}” on that wall.`;
@@ -451,6 +457,16 @@ function sanitizeFeature(feature: RoomFeature): RoomFeature {
     elevation: roundLength(feature.elevation),
     clearance: roundLength(feature.clearance),
   };
+}
+
+/** Structural equality for plain project data (objects, arrays, numbers, strings). */
+function sameData(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keysA = Object.keys(a);
+  if (keysA.length !== Object.keys(b).length) return false;
+  return keysA.every((key) => sameData((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
 }
 
 function clampNumber(value: number, min: number, max: number): number {

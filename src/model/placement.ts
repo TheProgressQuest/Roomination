@@ -80,9 +80,12 @@ function lerp(a: Point, b: Point, t: number): Point {
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
-function spiralSearch(target: Point, { roomBox, halfX, halfY, fits }: ResolveOptions): Point | null {
+function spiralSearch(target: Point, { roomBox, fits }: ResolveOptions): Point | null {
   const span = Math.hypot(roomBox.maxX - roomBox.minX, roomBox.maxY - roomBox.minY);
-  const step = Math.max(2, Math.min(halfX, halfY) / 2, span / 200);
+  // Fine enough to find narrow spots (e.g. an L-shaped stair in one leg of an L-shaped
+  // room can have a valid strip only ~30 cm wide), coarse enough to stay fast. The
+  // search stops at the first ring with a fit, so typical searches are short.
+  const step = Math.max(2, Math.min(10, span / 100));
   for (let r = step; r <= span; r += step) {
     const samples = Math.max(12, Math.ceil((2 * Math.PI * r) / step));
     const found: Point[] = [];

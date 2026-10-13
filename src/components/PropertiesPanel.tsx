@@ -2,26 +2,25 @@ import type { Dispatch } from 'react';
 import type { Conflict } from '../model/conflicts';
 import type { Project } from '../model/types';
 import type { EditorAction } from '../state/editor';
+import type { Selection } from '../state/selection';
 import { ChecksList } from './ChecksList';
-import { ObjectEditor } from './ObjectEditor';
+import { SelectionEditor } from './StructureEditors';
 
 interface PropertiesPanelProps {
   project: Project;
-  selectedId: string | null;
+  selection: Selection;
   conflicts: Conflict[];
   dispatch: Dispatch<EditorAction>;
   onDelete: (id: string) => void;
-  onSelect: (id: string) => void;
+  onSelect: (selection: Selection) => void;
 }
 
 /** Desktop right-hand panel. On smaller screens the same editor opens in a modal. */
-export function PropertiesPanel({ project, selectedId, conflicts, dispatch, onDelete, onSelect }: PropertiesPanelProps) {
-  const exists = selectedId !== null && [...project.furniture, ...project.features].some((o) => o.id === selectedId);
-
+export function PropertiesPanel({ project, selection, conflicts, dispatch, onDelete, onSelect }: PropertiesPanelProps) {
   return (
     <aside className="panel properties-panel" aria-label="Selected object properties">
-      {exists ? (
-        <ObjectEditor project={project} selectedId={selectedId} conflicts={conflicts} dispatch={dispatch} onDelete={onDelete} />
+      {selection ? (
+        <SelectionEditor project={project} selection={selection} conflicts={conflicts} dispatch={dispatch} onDelete={onDelete} onSelect={onSelect} />
       ) : (
         <>
           <section className="panel-section empty-state">
@@ -40,7 +39,7 @@ export function PropertiesPanel({ project, selectedId, conflicts, dispatch, onDe
           </section>
           <section className="panel-section">
             <h3>Room checks</h3>
-            <ChecksList project={project} conflicts={conflicts} onSelect={onSelect} />
+            <ChecksList project={project} conflicts={conflicts} onSelect={(id) => onSelect({ kind: 'object', id })} />
           </section>
         </>
       )}

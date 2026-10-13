@@ -1,45 +1,86 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Layer, Stage, Transformer } from 'react-konva';
+import { Circle, Layer, Stage, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import { findConflicts, isSolid, type Conflict } from '../../model/conflicts';
-import { WALL_ANGLE, clampFeatureToRoom, featureFrame, snapToWall, type Frame } from '../../model/features';
-import { clampCenterToRoom } from '../../model/geometry';
-import type { Furniture, Placement, Project, RoomFeature } from '../../model/types';
+import { clampFeatureToRoom, featureFrame, snapToWall, type Frame } from '../../model/features';
+import { clampFurnitureToRoom, clampStairToRoom } from '../../model/placement';
+import { boundingBox, type Box } from '../../model/polygon';
+import { snapPoint, type SnapResult, type SnapSettings } from '../../model/snapping';
+import type { Furniture, Placement, Point, Project, RoomFeature, Staircase } from '../../model/types';
 import { formatLength } from '../../model/units';
+import { asRectangle, findSegment, moveNode, outlinePolygon, wallSegments } from '../../model/walls';
 import type { CanvasPalette } from '../../render/palette';
+import type { Selection, ToolMode } from '../../state/selection';
+import { DrawOverlay } from './DrawOverlay';
 import { FeatureShape } from './FeatureShape';
 import { FurnitureShape } from './FurnitureShape';
-import { DimensionLabels, RoomFloor, Walls } from './RoomShell';
+import { DimensionLabels, RoomFloor, WallLengthLabels, Walls } from './RoomShell';
 import type { ConflictStatus } from './shared';
-import { fitViewport, toRoomPoint, toScreen } from './viewport';
+import { StairShape } from './StairShape';
+import { fitViewport, toRoomPoint, toScreen, type Viewport } from './viewport';
 
 interface FloorPlanProps {
   project: Project;
   conflicts: Conflict[];
-  selectedId: string | null;
+  selection: Selection;
   palette: CanvasPalette;
   showMeasurementGrid: boolean;
   showClearances: boolean;
-  onSelect: (id: string | null) => void;
+  mode: ToolMode;
+  /** Points placed so far while drawing walls. */
+  draft: Point[];
+  snap: SnapSettings;
+  /** Touch screens: items must be selected before they can be dragged. */
+  touch: boolean;
+  onSelect: (selection: Selection) => void;
   onOpenEditor: (id: string) => void;
   onChangeFurniture: (id: string, changes: Partial<Furniture>) => void;
   onChangeFeature: (id: string, changes: Partial<RoomFeature>) => void;
+  onChangeStair: (id: string, changes: Partial<Staircase>) => void;
+  onMoveCorner: (nodeId: string, to: Point) => void;
+  /** A drawing point was placed (the app decides whether it closes the room). */
+  onDraftPoint: (point: Point) => void;
 }
 
 /** Features drawn underneath furniture (they sit on the floor). */
 const FLOOR_FEATURES = new Set(['column', 'radiator']);
+/** Extra screen space (px) taken by per-wall length labels outside the walls. */
+const WALL_LABEL_SPACE = 18;
+/** How close (in screen px) the pointer must come to something to snap to it. */
+const SNAP_PX = 12;
 
 export function FloorPlan(props: FloorPlanProps) {
-  const { project, conflicts, selectedId, palette, onSelect, onOpenEditor, onChangeFurniture, onChangeFeature } = props;
+  const { project, conflicts, selection, palette, mode, draft, onSelect, onOpenEditor, onChangeFurniture, onChangeFeature, onChangeStair } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(containerRef);
-  const { room, furniture, features } = project;
-  const viewport = useMemo(() => fitViewport(size, room), [size, room]);
+  const drawing = mode !== 'select';
+
+  // While a corner is being dragged, show the reshaped room live.
+  const [cornerDrag, setCornerDrag] = useState<{ id: string; to: Point } | null>(null);
+  const shown = useMemo(() => {
+    if (!cornerDrag) return project;
+    const room = moveNode(project.room, cornerDrag.id, cornerDrag.to);
+    return typeof room === 'string' ? project : { ...project, room };
+  }, [project, cornerDrag]);
+  const { room, furniture, features, stairs } = shown;
+
+  // The view fits the room; while drawing it also fits the new points, with room to spare.
+  const bounds = useMemo<Box>(() => {
+    const box = boundingBox([...outlinePolygon(project.room), ...draft]);
+    const thickest = Math.max(...project.room.outline.map((n) => n.thickness));
+    const margin = drawing ? Math.max(box.maxX - box.minX, box.maxY - box.minY) * 0.2 : thickest;
+    return { minX: box.minX - margin, minY: box.minY - margin, maxX: box.maxX + margin, maxY: box.maxY + margin };
+  }, [project.room, draft, drawing]);
+  const showCorners = !drawing && (selection?.kind === 'wall' || selection?.kind === 'corner');
+  // Per-wall lengths: while editing walls, and for irregular rooms where width × length isn't enough.
+  const showWallLengths = drawing || showCorners || asRectangle(room) === null;
+  const labelRoom = showWallLengths ? WALL_LABEL_SPACE : 0;
+  const viewport = useMemo(() => fitViewport(size, bounds, labelRoom), [size, bounds, labelRoom]);
+  const roomBox = useMemo(() => boundingBox(outlinePolygon(room)), [room]);
 
   // Conflicts found while a drag is in progress (before the change is committed).
   const [liveConflictIds, setLiveConflictIds] = useState<Set<string> | null>(null);
   const liveKeyRef = useRef('');
-
   const statusById = useMemo(() => {
     const map = new Map<string, ConflictStatus>();
     for (const c of conflicts) {
@@ -53,12 +94,12 @@ export function FloorPlan(props: FloorPlanProps) {
   const statusOf = (id: string): ConflictStatus => (liveConflictIds ? (liveConflictIds.has(id) ? 'warning' : undefined) : statusById.get(id));
 
   /**
-   * While dragging, re-check only the moving object and highlight what it would
-   * overlap. State only changes when the set of conflicting objects changes, so
-   * this stays cheap and never produces repeated messages.
+   * While dragging, re-check only the moving object and highlight what it would overlap.
+   * State only changes when the set of conflicting objects changes, so this stays cheap
+   * and never produces repeated messages.
    */
-  function updateLiveConflicts(variant: Project, movingId: string, isFeature: boolean) {
-    const found = isFeature ? findConflicts(variant).filter((c) => c.otherId === movingId) : findConflicts(variant, movingId);
+  function updateLiveConflicts(variant: Project, movingId: string, isFurniture: boolean) {
+    const found = isFurniture ? findConflicts(variant, movingId) : findConflicts(variant).filter((c) => c.otherId === movingId);
     const ids = new Set<string>();
     for (const c of found) {
       if (c.accepted) continue;
@@ -71,24 +112,61 @@ export function FloorPlan(props: FloorPlanProps) {
       setLiveConflictIds(ids);
     }
   }
-
   function endLiveConflicts() {
     liveKeyRef.current = '';
     setLiveConflictIds(null);
   }
 
+  // Drawing: where the next point would go, snapped.
+  const [hover, setHover] = useState<SnapResult | null>(null);
+  useEffect(() => {
+    if (!drawing) setHover(null);
+  }, [drawing]);
+  const tolerance = SNAP_PX / viewport.scale;
+  function snapDraft(raw: Point): SnapResult {
+    const corners = [...wallSegments(project.room).flatMap((s) => [s.start, s.end]), ...draft];
+    // When redrawing the room, the old walls are being replaced, so only snap to the new ones.
+    const segments = mode === 'drawWall' ? wallSegments(project.room) : [];
+    return snapPoint(raw, { corners, segments, previous: draft[draft.length - 1] }, props.snap, tolerance);
+  }
+  const closing = mode === 'drawRoom' && draft.length >= 3 && hover !== null && Math.hypot(hover.point.x - draft[0].x, hover.point.y - draft[0].y) < 1e-6;
+
   // Attach the rotation handle to the selected object if it can rotate.
   const transformerRef = useRef<Konva.Transformer>(null);
   const nodeRefs = useRef(new Map<string, Konva.Group>());
-  const selectedFeature = features.find((f) => f.id === selectedId);
-  const rotatable = selectedId !== null && (furniture.some((f) => f.id === selectedId) || (selectedFeature !== undefined && canRotate(selectedFeature)));
+  const selectedObjectId = selection?.kind === 'object' ? selection.id : null;
+  const selectedFeature = features.find((f) => f.id === selectedObjectId);
+  const rotatable =
+    selectedObjectId !== null &&
+    (furniture.some((f) => f.id === selectedObjectId) || stairs.some((s) => s.id === selectedObjectId) || (selectedFeature !== undefined && canRotate(selectedFeature)));
   useEffect(() => {
     const transformer = transformerRef.current;
     if (!transformer) return;
-    const node = rotatable && selectedId ? nodeRefs.current.get(selectedId) : undefined;
-    transformer.nodes(node ? [node] : []);
+    const node = rotatable && selectedObjectId ? nodeRefs.current.get(selectedObjectId) : undefined;
+    transformer.nodes(node && !drawing ? [node] : []);
     transformer.getLayer()?.batchDraw();
-  }, [selectedId, rotatable, project]);
+  }, [selectedObjectId, rotatable, project, drawing]);
+
+  /** Where the piece being dragged last fitted, so it slides along walls instead of jumping. */
+  const lastGood = useRef<Point | null>(null);
+
+  /**
+   * The latest room, project and view, for drag handlers. Shapes are memoised and may keep
+   * an older handler; reading through this ref keeps every handler working on current data.
+   */
+  const latest = useRef({ shown, room, viewport });
+  useLayoutEffect(() => {
+    latest.current = { shown, room, viewport };
+  });
+
+  /** Places a drawing point where the user clicked or tapped. */
+  function pressWhileDrawing(stage: Konva.Stage | null) {
+    const pointer = stage?.getPointerPosition();
+    if (!pointer) return;
+    const snapped = snapDraft(toRoomPoint(viewport, pointer));
+    setHover(snapped);
+    props.onDraftPoint(snapped.point);
+  }
 
   const registerNode = (id: string) => (node: Konva.Group | null) => {
     if (node) nodeRefs.current.set(id, node);
@@ -96,12 +174,12 @@ export function FloorPlan(props: FloorPlanProps) {
   };
 
   /**
-   * Konva moves nodes directly while dragging/rotating. When the gesture ends we put
-   * the node back where the data says it is, then dispatch the change. If accepted,
-   * React re-renders it in the new spot; if rejected, it is already back. Either
-   * way the canvas always mirrors the data.
+   * Konva moves nodes directly while dragging/rotating. When the gesture ends we put the
+   * node back where the data says it is, then dispatch the change. If accepted, React
+   * re-renders it in the new spot; if rejected, it is already back. Either way the
+   * canvas always mirrors the data.
    */
-  function resetNode(node: Konva.Node, frame: { x: number; y: number; angle: number }) {
+  function resetNode(node: Konva.Node, frame: Frame) {
     node.position({ x: frame.x, y: frame.y });
     node.rotation(frame.angle);
   }
@@ -110,9 +188,8 @@ export function FloorPlan(props: FloorPlanProps) {
     return <div ref={containerRef} className="floor-plan" />;
   }
 
-  const screenFrame = (frame: Frame): Frame => ({ ...toScreen(viewport, frame), angle: frame.angle });
-  const rugs = furniture.filter((f) => !isSolid(f));
-  const solids = furniture.filter(isSolid);
+  const screenFrame = (frame: Frame): Frame => screenFrameOf(frame, viewport);
+  const canDrag = (id: string) => !drawing && (!props.touch || id === selectedObjectId);
   const ceilingFeatures = features.filter((f) => f.kind === 'light' || (f.kind === 'vent' && f.ventMount === 'ceiling'));
   const floorFeatures = features.filter((f) => FLOOR_FEATURES.has(f.kind) || (f.kind === 'vent' && f.ventMount === 'floor'));
   const wallFeatures = features.filter((f) => !ceilingFeatures.includes(f) && !floorFeatures.includes(f));
@@ -123,31 +200,37 @@ export function FloorPlan(props: FloorPlanProps) {
       item={item}
       scale={viewport.scale}
       {...toScreen(viewport, item)}
-      selected={item.id === selectedId}
+      selected={item.id === selectedObjectId}
       status={statusOf(item.id)}
       palette={palette}
+      draggable={canDrag(item.id)}
       registerNode={registerNode(item.id)}
-      onSelect={() => onSelect(item.id)}
+      onSelect={() => onSelect({ kind: 'object', id: item.id })}
       onOpenEditor={() => onOpenEditor(item.id)}
       dragBound={(pos) => {
-        const clamped = clampCenterToRoom({ ...item, ...toRoomPoint(viewport, pos) }, room);
-        return clamped ? toScreen(viewport, clamped) : pos;
+        const { room, viewport } = latest.current;
+        const placed = clampFurnitureToRoom({ ...item, ...toRoomPoint(viewport, pos) }, room, lastGood.current ?? item);
+        if (placed) lastGood.current = { x: placed.x, y: placed.y };
+        return toScreen(viewport, lastGood.current ?? item);
       }}
       onDragMove={(node) => {
+        const { shown, viewport } = latest.current;
         const moved = { ...item, ...toRoomPoint(viewport, node.position()) };
-        updateLiveConflicts({ ...project, furniture: furniture.map((f) => (f.id === item.id ? moved : f)) }, item.id, false);
+        updateLiveConflicts({ ...shown, furniture: shown.furniture.map((f) => (f.id === item.id ? moved : f)) }, item.id, true);
       }}
       onDragEnd={(node) => {
+        const { viewport } = latest.current;
         const { x, y } = toRoomPoint(viewport, node.position());
+        lastGood.current = null;
         resetNode(node, { ...toScreen(viewport, item), angle: item.rotation });
         endLiveConflicts();
         onChangeFurniture(item.id, { x, y });
       }}
       onTransformEnd={(node) => {
-        // The piece rotates around a fixed centre while the handle is held; on
-        // release the reducer slides it back inside the walls if it now overlaps one.
+        // The piece rotates around a fixed centre while the handle is held; on release
+        // the reducer slides it back inside the walls if it now overlaps one.
         const rotation = node.rotation();
-        resetNode(node, { ...toScreen(viewport, item), angle: item.rotation });
+        resetNode(node, { ...toScreen(latest.current.viewport, item), angle: item.rotation });
         onChangeFurniture(item.id, { rotation });
       }}
     />
@@ -157,78 +240,197 @@ export function FloorPlan(props: FloorPlanProps) {
     const frame = featureFrame(feature, room);
     /** Where the feature would be if dropped at screen position `pos`. */
     const placementAt = (pos: Konva.Vector2d): Placement | null => {
+      const { room, viewport } = latest.current;
       const point = toRoomPoint(viewport, pos);
       if (feature.placement.type === 'wall') return snapToWall(point, room, feature.width);
-      const placed = clampFeatureToRoom({ ...feature, placement: { ...feature.placement, ...point } }, room);
-      return placed?.placement ?? null;
+      // Start from where it last fitted, so it slides along walls instead of searching afresh.
+      const from = lastGood.current ?? (feature.placement.type === 'free' ? feature.placement : undefined);
+      const placement = clampFeatureToRoom({ ...feature, placement: { ...feature.placement, ...point } }, room, from)?.placement ?? null;
+      if (placement?.type === 'free') lastGood.current = { x: placement.x, y: placement.y };
+      return placement;
     };
+    const screenNow = () => screenFrameOf(featureFrame(feature, latest.current.room), latest.current.viewport);
+    const wall = feature.placement.type === 'wall' ? findSegment(room, feature.placement.wallId) : null;
+    const thickness = (wall?.thickness ?? 0) * viewport.scale;
+    const wallBand = wall?.chain === 'outline' ? { top: -thickness, height: thickness } : { top: -thickness / 2, height: thickness };
     return (
       <FeatureShape
         key={feature.id}
         feature={feature}
         frame={screenFrame(frame)}
         scale={viewport.scale}
-        wallPx={viewport.wallPx}
-        selected={feature.id === selectedId}
+        wallBand={wallBand}
+        selected={feature.id === selectedObjectId}
         status={statusOf(feature.id)}
         showClearance={props.showClearances}
         palette={palette}
+        draggable={canDrag(feature.id)}
         registerNode={registerNode(feature.id)}
-        onSelect={() => onSelect(feature.id)}
+        onSelect={() => onSelect({ kind: 'object', id: feature.id })}
         onOpenEditor={() => onOpenEditor(feature.id)}
         dragBound={(pos) => {
           // Wall features slide along walls and hop to whichever wall is nearest.
+          const { room, viewport } = latest.current;
           const placement = placementAt(pos);
-          if (!placement) return pos;
-          return toScreen(viewport, featureFrame({ ...feature, placement }, room));
+          return placement ? toScreen(viewport, featureFrame({ ...feature, placement }, room)) : screenNow();
         }}
         onDragMove={(node) => {
+          const { room, shown } = latest.current;
           const placement = placementAt(node.position());
           if (!placement) return;
-          if (placement.type === 'wall') node.rotation(WALL_ANGLE[placement.wall]);
+          node.rotation(featureFrame({ ...feature, placement }, room).angle);
           const moved = { ...feature, placement };
-          updateLiveConflicts({ ...project, features: features.map((f) => (f.id === feature.id ? moved : f)) }, feature.id, true);
+          updateLiveConflicts({ ...shown, features: shown.features.map((f) => (f.id === feature.id ? moved : f)) }, feature.id, false);
         }}
         onDragEnd={(node) => {
           const placement = placementAt(node.position());
-          resetNode(node, screenFrame(frame));
+          lastGood.current = null;
+          resetNode(node, screenNow());
           endLiveConflicts();
           if (placement) onChangeFeature(feature.id, { placement });
         }}
         onTransformEnd={(node) => {
           const rotation = node.rotation();
-          resetNode(node, screenFrame(frame));
+          resetNode(node, screenNow());
           if (feature.placement.type === 'free') onChangeFeature(feature.id, { placement: { ...feature.placement, rotation } });
         }}
       />
     );
   };
 
+  const renderStair = (stair: Staircase) => (
+    <StairShape
+      key={stair.id}
+      stair={stair}
+      scale={viewport.scale}
+      {...toScreen(viewport, stair)}
+      selected={stair.id === selectedObjectId}
+      status={statusOf(stair.id)}
+      palette={palette}
+      draggable={canDrag(stair.id)}
+      registerNode={registerNode(stair.id)}
+      onSelect={() => onSelect({ kind: 'object', id: stair.id })}
+      onOpenEditor={() => onOpenEditor(stair.id)}
+      dragBound={(pos) => {
+        const { room, viewport } = latest.current;
+        const placed = clampStairToRoom({ ...stair, ...toRoomPoint(viewport, pos) }, room, stair);
+        return toScreen(viewport, placed ?? stair);
+      }}
+      onDragMove={(node) => {
+        const { shown, viewport } = latest.current;
+        const moved = { ...stair, ...toRoomPoint(viewport, node.position()) };
+        updateLiveConflicts({ ...shown, stairs: shown.stairs.map((s) => (s.id === stair.id ? moved : s)) }, stair.id, false);
+      }}
+      onDragEnd={(node) => {
+        const { viewport } = latest.current;
+        const { x, y } = toRoomPoint(viewport, node.position());
+        resetNode(node, { ...toScreen(viewport, stair), angle: stair.rotation });
+        endLiveConflicts();
+        onChangeStair(stair.id, { x, y });
+      }}
+      onTransformEnd={(node) => {
+        const rotation = node.rotation();
+        resetNode(node, { ...toScreen(latest.current.viewport, stair), angle: stair.rotation });
+        onChangeStair(stair.id, { rotation });
+      }}
+    />
+  );
+
+  const cornerSegments = wallSegments(project.room);
+  const corners = [...project.room.outline, ...project.room.partitions.flatMap((p) => p.nodes)];
+
   return (
     <div
       ref={containerRef}
       className="floor-plan"
       role="img"
-      aria-label={`Floor plan of ${project.name}: ${formatLength(room.width, project.units)} wide by ${formatLength(room.length, project.units)} long, with ${furniture.length} items and ${features.length} room features.`}
+      aria-label={`Floor plan of ${project.name}: about ${formatLength(roomBox.maxX - roomBox.minX, project.units)} by ${formatLength(roomBox.maxY - roomBox.minY, project.units)}, with ${room.outline.length} outer walls, ${furniture.length} items, ${features.length} room features and ${stairs.length} staircases.`}
+      // On phones, swiping over an unselected plan scrolls the page instead of grabbing things.
+      style={{ touchAction: props.touch && !drawing && !selection ? 'pan-y' : 'none' }}
     >
       <Stage
         width={size.width}
         height={size.height}
-        onMouseDown={(e) => isEmptySpace(e.target) && onSelect(null)}
-        onTouchStart={(e) => isEmptySpace(e.target) && onSelect(null)}
+        onMouseDown={(e) => !drawing && isEmptySpace(e.target) && onSelect(null)}
+        onTouchStart={(e) => !drawing && isEmptySpace(e.target) && onSelect(null)}
+        onMouseMove={(e) => {
+          if (!drawing) return;
+          const pointer = e.target.getStage()?.getPointerPosition();
+          if (pointer) setHover(snapDraft(toRoomPoint(viewport, pointer)));
+        }}
+        onMouseLeave={() => setHover(null)}
+        // One pointer event for mouse, pen and touch: listening to both "click" and "tap"
+        // would place two points per tap, because touch screens also emit a click.
+        onPointerClick={(e) => drawing && e.evt.button === 0 && pressWhileDrawing(e.target.getStage())}
       >
-        <Layer listening={false}>
-          <RoomFloor project={project} viewport={viewport} palette={palette} showGrid={props.showMeasurementGrid} />
-          <DimensionLabels project={project} viewport={viewport} palette={palette} />
+        <Layer listening={false} opacity={mode === 'drawRoom' ? 0.45 : 1}>
+          <RoomFloor project={shown} viewport={viewport} palette={palette} showGrid={props.showMeasurementGrid} bounds={roomBox} />
+          <DimensionLabels project={shown} viewport={viewport} palette={palette} bounds={roomBox} clearance={labelRoom} />
         </Layer>
-        <Layer>
-          {/* Bottom to top: rugs, floor-standing features, furniture, walls & wall features, ceiling. */}
-          {rugs.map(renderFurniture)}
+        <Layer listening={!drawing} opacity={mode === 'drawRoom' ? 0.45 : 1}>
+          {/* Bottom to top: rugs, floor features, stairs, furniture, walls & wall features, ceiling. */}
+          {furniture.filter((f) => !isSolid(f)).map(renderFurniture)}
           {floorFeatures.map(renderFeature)}
-          {solids.map(renderFurniture)}
-          <Walls project={project} viewport={viewport} palette={palette} />
+          {stairs.map(renderStair)}
+          {furniture.filter(isSolid).map(renderFurniture)}
+          <Walls
+            project={shown}
+            viewport={viewport}
+            palette={palette}
+            selectedWallId={selection?.kind === 'wall' ? selection.id : null}
+            interactive={!drawing}
+            onSelectWall={(id) => onSelect({ kind: 'wall', id })}
+          />
           {wallFeatures.map(renderFeature)}
           {ceilingFeatures.map(renderFeature)}
+          {showWallLengths && (
+            <WallLengthLabels project={shown} viewport={viewport} palette={palette} highlightId={selection?.kind === 'wall' ? selection.id : null} />
+          )}
+          {showCorners &&
+            corners.map((corner) => {
+              const at = toScreen(viewport, cornerDrag?.id === corner.id ? cornerDrag.to : corner);
+              const selected = selection?.kind === 'corner' && selection.id === corner.id;
+              return (
+                <Circle
+                  key={corner.id}
+                  name="handle"
+                  x={at.x}
+                  y={at.y}
+                  radius={selected ? 9 : 7}
+                  fill="#ffffff"
+                  stroke={palette.selection}
+                  strokeWidth={3}
+                  // Large invisible margin: an easy target for fingers.
+                  hitStrokeWidth={30}
+                  draggable
+                  onMouseDown={() => onSelect({ kind: 'corner', id: corner.id })}
+                  onTouchStart={() => onSelect({ kind: 'corner', id: corner.id })}
+                  onMouseEnter={(e) => {
+                    const container = e.target.getStage()?.container();
+                    if (container) container.style.cursor = 'move';
+                  }}
+                  onMouseLeave={(e) => {
+                    const container = e.target.getStage()?.container();
+                    if (container) container.style.cursor = '';
+                  }}
+                  dragBoundFunc={(pos) => {
+                    // Snap to other corners, walls (not the two that meet here), the grid and alignment.
+                    const others = corners.filter((c) => c.id !== corner.id);
+                    const touchesCorner = (p: Point) => p.x === corner.x && p.y === corner.y;
+                    const segments = cornerSegments.filter((s) => !touchesCorner(s.start) && !touchesCorner(s.end));
+                    const snapped = snapPoint(toRoomPoint(viewport, pos), { corners: others, segments }, { ...props.snap, angles: false }, tolerance);
+                    return toScreen(viewport, snapped.point);
+                  }}
+                  onDragMove={(e) => setCornerDrag({ id: corner.id, to: toRoomPoint(viewport, e.target.position()) })}
+                  onDragEnd={(e) => {
+                    const to = toRoomPoint(viewport, e.target.position());
+                    e.target.position(toScreen(viewport, corner));
+                    setCornerDrag(null);
+                    props.onMoveCorner(corner.id, to);
+                  }}
+                />
+              );
+            })}
           <Transformer
             ref={transformerRef}
             resizeEnabled={false}
@@ -236,8 +438,8 @@ export function FloorPlan(props: FloorPlanProps) {
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
             rotationSnapTolerance={6}
             rotateAnchorOffset={28}
-            anchorSize={16}
-            anchorCornerRadius={8}
+            anchorSize={22}
+            anchorCornerRadius={11}
             anchorStroke={palette.selection}
             anchorFill="#ffffff"
             borderStroke={palette.selection}
@@ -246,9 +448,18 @@ export function FloorPlan(props: FloorPlanProps) {
             padding={4}
           />
         </Layer>
+        {drawing && (
+          <Layer listening={false}>
+            <DrawOverlay draft={draft} hover={hover} closing={closing} viewport={viewport} palette={palette} units={project.units} />
+          </Layer>
+        )}
       </Stage>
     </div>
   );
+}
+
+function screenFrameOf(frame: Frame, viewport: Viewport): Frame {
+  return { ...toScreen(viewport, frame), angle: frame.angle };
 }
 
 /** Lights and round columns look the same at any angle; wall features follow their wall. */
@@ -257,9 +468,9 @@ function canRotate(feature: RoomFeature): boolean {
   return feature.kind !== 'light' && !(feature.kind === 'column' && feature.shape === 'round');
 }
 
-/** True when a click landed on bare floor or background (not an object or the rotate handle). */
+/** True when a click landed on bare floor or background (not an object, wall, handle or rotate handle). */
 function isEmptySpace(target: Konva.Node): boolean {
-  return !target.findAncestor('.object', true) && !target.findAncestor('Transformer');
+  return !target.findAncestor('.object', true) && !target.hasName('wall') && !target.hasName('handle') && !target.findAncestor('Transformer');
 }
 
 /** Tracks an element's rendered size so the canvas can fill its panel responsively. */
@@ -276,4 +487,3 @@ function useElementSize(ref: React.RefObject<HTMLElement | null>) {
   }, [ref]);
   return size;
 }
-

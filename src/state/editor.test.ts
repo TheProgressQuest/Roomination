@@ -388,3 +388,44 @@ describe('stairs in the editor', () => {
     expect(next.prompt?.conflicts[0]).toMatchObject({ otherKind: 'stairs' });
   });
 });
+
+describe('code review regressions', () => {
+  it('confirming a value without changing it adds no undo step and keeps redo', () => {
+    const { state, id } = setup();
+    const moved = run(state, { type: 'furniture/update', id, changes: { x: 100 } }, { type: 'history/undo' });
+    expect(canRedo(moved)).toBe(true);
+    const same = run(moved, { type: 'room/resize', width: 400, length: 300 });
+    expect(same.past).toBe(moved.past);
+    expect(canRedo(same)).toBe(true);
+    const [corner] = state.present.room.outline;
+    expect(canRedo(run(moved, { type: 'walls/moveNode', nodeId: corner.id, to: { x: corner.x, y: corner.y } }))).toBe(true);
+  });
+
+  it('deleting an outer wall removes that wall, and refuses while a feature is on it', () => {
+    const { state } = setup();
+    const [top, right] = state.present.room.outline;
+    const split = run(state, { type: 'walls/split', wallId: top.id, distance: 200, newId: 'mid' });
+    const deleted = run(split, { type: 'walls/delete', wallId: 'mid', newPartitionId: 'x' });
+    expect(wallSegments(deleted.present.room).map((w) => w.id)).not.toContain('mid');
+    const door = createFeature('door', { type: 'wall', wallId: right.id, offset: 150 }, { height: 250 }, { width: 80 });
+    const withDoor = run(state, { type: 'feature/add', feature: door });
+    // Deleting the TOP wall must not complain about the door on the RIGHT wall.
+    const pentagonish = run(withDoor, { type: 'walls/split', wallId: top.id, distance: 200, newId: 'm' }, { type: 'walls/moveNode', nodeId: 'm', to: { x: 200, y: -50 } });
+    expect(run(pentagonish, { type: 'walls/delete', wallId: 'm', newPartitionId: 'x' }).notice).toBeNull();
+    expect(run(withDoor, { type: 'walls/delete', wallId: right.id, newPartitionId: 'x' }).notice?.message).toMatch(/Front door|Door/);
+  });
+
+  it('a radiator deeper than the room is refused', () => {
+    const { state } = setup();
+    const radiator = createFeature('radiator', { type: 'wall', wallId: state.present.room.outline[0].id, offset: 200 }, { height: 250 }, { depth: 400 });
+    expect(run(state, { type: 'feature/add', feature: radiator }).notice?.message).toMatch(/too big/);
+  });
+
+  it('a wall-only feature with no wall long enough is refused rather than left floating', () => {
+    const { state } = setup();
+    const vent = createFeature('vent', { type: 'free', x: 200, y: 150, rotation: 0 }, { height: 250 }, { width: 500, depth: 12 });
+    const added = run(state, { type: 'feature/add', feature: { ...vent, width: 50 } });
+    const next = run(added, { type: 'feature/update', id: vent.id, changes: { width: 500, ventMount: 'wall' } });
+    expect(next.present).toBe(added.present);
+  });
+});

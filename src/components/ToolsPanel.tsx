@@ -1,11 +1,14 @@
 import type { Dispatch, ReactNode } from 'react';
 import type { Conflict } from '../model/conflicts';
 import { FEATURE_LABELS } from '../model/features';
-import type { FeatureKind, Project, Room } from '../model/types';
+import type { FeatureKind, Project } from '../model/types';
 import { cmToInput, formatLength, inputToCm, inputUnitLabel } from '../model/units';
+import { asRectangle, outlineSegments, roomArea, wallLabel, wallSegments } from '../model/walls';
 import type { EditorAction } from '../state/editor';
 import type { Preferences } from '../state/preferences';
-import { FeatureButtons, FurnitureButtons, type FurniturePreset } from './AddCatalog';
+import type { Selection } from '../state/selection';
+import { FeatureButtons, FurnitureButtons, StairButtons, StructureButtons, type FurniturePreset } from './AddCatalog';
+import { SnapOptions } from './DrawingBar';
 import { BoardSettings, FloorSettings } from './AppearanceSettings';
 import { ChecksList } from './ChecksList';
 import { Icon } from './Icon';
@@ -14,23 +17,27 @@ import { SegmentedControl } from './SegmentedControl';
 
 interface ToolsPanelProps {
   project: Project;
-  selectedId: string | null;
+  selection: Selection;
   conflicts: Conflict[];
   dispatch: Dispatch<EditorAction>;
   preferences: Preferences;
   onPreferences: (changes: Partial<Preferences>) => void;
   onAddFurniture: (preset: FurniturePreset) => void;
   onAddFeature: (kind: FeatureKind) => void;
-  onSelect: (id: string) => void;
+  onAddStairs: (shape: 'straight' | 'L' | 'U' | 'custom') => void;
+  onStartDrawing: (mode: 'drawRoom' | 'drawWall') => void;
+  onSelect: (selection: Selection) => void;
   /** Tablet layout: lets the panel fold away to give the plan more room. */
   onCollapse?: () => void;
 }
 
 export function ToolsPanel(props: ToolsPanelProps) {
-  const { project, selectedId, conflicts, dispatch } = props;
+  const { project, selection, conflicts, dispatch } = props;
   const { room, units } = project;
   const unit = inputUnitLabel(units);
-  const resize = (changes: Partial<Room>) => dispatch({ type: 'room/resize', room: changes });
+  const rect = asRectangle(room);
+  const isSelected = (kind: 'object' | 'wall', id: string) => selection?.kind === kind && selection.id === id;
+  const selectObject = (id: string) => props.onSelect({ kind: 'object', id });
   const warningIds = new Set(conflicts.filter((c) => !c.accepted).flatMap((c) => [c.itemId, c.otherId]));
   const openChecks = conflicts.filter((c) => !c.accepted).length;
 
@@ -55,14 +62,34 @@ export function ToolsPanel(props: ToolsPanelProps) {
           ]}
           onChange={(value) => dispatch({ type: 'units/set', units: value })}
         />
-        <div className="field-grid">
-          <NumberField label="Width" suffix={unit} min={0} value={cmToInput(room.width, units)} onCommit={(v) => resize({ width: inputToCm(v, units) })} />
-          <NumberField label="Length" suffix={unit} min={0} value={cmToInput(room.length, units)} onCommit={(v) => resize({ length: inputToCm(v, units) })} />
-          <NumberField label="Ceiling" suffix={unit} min={0} value={cmToInput(room.height, units)} onCommit={(v) => resize({ height: inputToCm(v, units) })} />
-        </div>
+        {rect ? (
+          <div className="field-grid">
+            <NumberField label="Width" suffix={unit} min={0} value={cmToInput(rect.width, units)} onCommit={(v) => dispatch({ type: 'room/resize', width: inputToCm(v, units), length: rect.length })} />
+            <NumberField label="Length" suffix={unit} min={0} value={cmToInput(rect.length, units)} onCommit={(v) => dispatch({ type: 'room/resize', width: rect.width, length: inputToCm(v, units) })} />
+            <NumberField label="Ceiling" suffix={unit} min={0} value={cmToInput(room.height, units)} onCommit={(v) => dispatch({ type: 'room/setHeight', height: inputToCm(v, units) })} />
+          </div>
+        ) : (
+          <div className="field-grid">
+            <NumberField label="Ceiling" suffix={unit} min={0} value={cmToInput(room.height, units)} onCommit={(v) => dispatch({ type: 'room/setHeight', height: inputToCm(v, units) })} />
+          </div>
+        )}
         <p className="hint">
-          {formatLength(room.width, units)} × {formatLength(room.length, units)} · {formatArea(room, units)}
+          {rect ? `${formatLength(rect.width, units)} × ${formatLength(rect.length, units)}` : `Custom shape · ${room.outline.length} walls`} · {formatArea(roomArea(room), units)}
+          {!rect && ' — edit it wall by wall.'}
         </p>
+      </Collapsible>
+
+      <Collapsible title="Walls" defaultOpen>
+        <StructureButtons onDraw={props.onStartDrawing} />
+        <button type="button" className="secondary" onClick={() => props.onSelect({ kind: 'wall', id: outlineSegments(room)[0].id })}>
+          <Icon name="wall" size={16} /> Edit walls & corners
+        </button>
+        <p className="hint">Select any wall to change its length, angle or thickness, or drag its corners. Doors and windows move with their walls.</p>
+        <SnapOptions snap={props.preferences.snap} onSnap={(snap) => props.onPreferences({ snap })} units={units} />
+      </Collapsible>
+
+      <Collapsible title="Stairs" defaultOpen>
+        <StairButtons onAdd={props.onAddStairs} />
       </Collapsible>
 
       <Collapsible title="Room features" defaultOpen>
@@ -74,23 +101,30 @@ export function ToolsPanel(props: ToolsPanelProps) {
       </Collapsible>
 
       <Collapsible title={`Checks${openChecks > 0 ? ` (${openChecks})` : ''}`} defaultOpen>
-        <ChecksList project={project} conflicts={conflicts} onSelect={props.onSelect} />
+        <ChecksList project={project} conflicts={conflicts} onSelect={selectObject} />
       </Collapsible>
 
       <Collapsible title="In this room" defaultOpen>
-        {project.furniture.length + project.features.length === 0 ? (
+        {project.furniture.length + project.features.length + project.stairs.length === 0 ? (
           <p className="hint">Nothing here yet. Add a room feature or a piece of furniture above.</p>
         ) : (
           <ul className="object-list">
+            {project.stairs.map((s) => (
+              <ObjectRow key={s.id} id={s.id} selected={isSelected('object', s.id)} warning={warningIds.has(s.id)} onSelect={selectObject}>
+                <Icon name="stairs" size={14} />
+                <span className="object-name">{s.name}</span>
+                <span className="object-meta">Stairs</span>
+              </ObjectRow>
+            ))}
             {project.features.map((f) => (
-              <ObjectRow key={f.id} id={f.id} selected={f.id === selectedId} warning={warningIds.has(f.id)} onSelect={props.onSelect}>
+              <ObjectRow key={f.id} id={f.id} selected={isSelected('object', f.id)} warning={warningIds.has(f.id)} onSelect={selectObject}>
                 <Icon name={f.kind} size={14} />
                 <span className="object-name">{f.name}</span>
                 <span className="object-meta">{FEATURE_LABELS[f.kind]}</span>
               </ObjectRow>
             ))}
             {project.furniture.map((item) => (
-              <ObjectRow key={item.id} id={item.id} selected={item.id === selectedId} warning={warningIds.has(item.id)} onSelect={props.onSelect}>
+              <ObjectRow key={item.id} id={item.id} selected={isSelected('object', item.id)} warning={warningIds.has(item.id)} onSelect={selectObject}>
                 <span className={`preset-swatch ${item.category === 'floorCovering' ? 'is-rug' : ''}`} style={{ background: item.color }} aria-hidden="true" />
                 <span className="object-name">{item.name}</span>
                 <span className="object-meta">
@@ -100,6 +134,16 @@ export function ToolsPanel(props: ToolsPanelProps) {
             ))}
           </ul>
         )}
+        <h3 className="list-heading">Walls</h3>
+        <ul className="object-list">
+          {wallSegments(room).map((w) => (
+            <ObjectRow key={w.id} id={w.id} selected={isSelected('wall', w.id)} warning={warningIds.has(w.chain)} onSelect={(id) => props.onSelect({ kind: 'wall', id })}>
+              <Icon name="wall" size={14} />
+              <span className="object-name">{wallLabel(room, w.id)}</span>
+              <span className="object-meta">{formatLength(w.length, units)}</span>
+            </ObjectRow>
+          ))}
+        </ul>
       </Collapsible>
 
       <Collapsible title="Floor">
@@ -144,8 +188,8 @@ function ObjectRow(props: { id: string; selected: boolean; warning: boolean; onS
   );
 }
 
-function formatArea(room: Room, units: Project['units']): string {
-  const squareMetres = (room.width * room.length) / 10_000;
+function formatArea(areaCm2: number, units: Project['units']): string {
+  const squareMetres = areaCm2 / 10_000;
   if (units === 'metric') return `${squareMetres.toFixed(1)} m²`;
   return `${Math.round(squareMetres * 10.7639)} sq ft`;
 }

@@ -92,7 +92,9 @@ describe('validation', () => {
 
   it('rejects walls that are too short and rooms that are too small', () => {
     expect(validateRoom(room([node('a', 0, 0), node('b', 5, 0), node('c', 5, 300), node('d', 0, 300)]))).toMatch(/shorter than/);
-    expect(validateRoom(room([node('a', 0, 0), node('b', 50, 0), node('c', 50, 50), node('d', 0, 50)]))).toMatch(/too small/);
+    expect(validateRoom(room([node('a', 0, 0), node('b', 40, 0), node('c', 40, 40), node('d', 0, 40)]))).toMatch(/too small/);
+    // 60 × 60 cm was allowed by older versions, so it must stay valid.
+    expect(validateRoom(room([node('a', 0, 0), node('b', 60, 0), node('c', 60, 60), node('d', 0, 60)]))).toBeNull();
   });
 
   it('interior walls must stay inside the room', () => {
@@ -171,8 +173,11 @@ describe('editing walls', () => {
     const withPartition = { ...rect, partitions: [{ id: 'p', nodes: [node('p1', 50, 50), node('p2', 150, 50), node('p3', 150, 150), node('p4', 250, 150)] }] };
     const deleted = asRoom(deleteWall(withPartition, 'p2', 'p-split'));
     expect(deleted.partitions.map((p) => p.nodes.map((n) => n.id))).toEqual([['p1', 'p2'], ['p3', 'p4']]);
+    // Deleting outer wall 'b' removes exactly that wall: 'a' now runs to where 'b' ended.
     const pentagon = room([node('a', 0, 0), node('b', 200, -50), node('c', 400, 0), node('d', 400, 300), node('e', 0, 300)]);
-    expect(outlineSegments(asRoom(deleteWall(pentagon, 'a', 'x')))).toHaveLength(4);
+    const four = outlineSegments(asRoom(deleteWall(pentagon, 'b', 'x')));
+    expect(four.map((w) => w.id)).toEqual(['a', 'c', 'd', 'e']);
+    expect(four[0].end).toEqual({ x: 400, y: 0 });
   });
 
   it('resizes rectangles by width and length, refusing other shapes', () => {

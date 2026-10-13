@@ -1,7 +1,7 @@
 import { featureZones, openingSpan, type Zone, type ZoneType } from './features';
 import { overlapArea, polygonArea, rectPolygon, type Polygon } from './polygon';
 import { stairPolygons } from './stairs';
-import type { Furniture, Project, RoomFeature } from './types';
+import type { Furniture, Partition, Project, RoomFeature } from './types';
 import { partitionSegments, pointAlong } from './walls';
 
 /**
@@ -75,6 +75,7 @@ interface Obstacle {
 
 /** Everything that isn't furniture but that furniture should respect. */
 export function obstacles(project: Project): Obstacle[] {
+  const openings = openingsByWall(project.features);
   return [
     ...project.features.map((feature) => ({ id: feature.id, kind: 'feature' as const, zones: featureZones(feature, project.room) })),
     ...project.stairs.map((stair) => ({
@@ -85,21 +86,27 @@ export function obstacles(project: Project): Obstacle[] {
     ...project.room.partitions.map((partition) => ({
       id: partition.id,
       kind: 'wall' as const,
-      zones: partitionBodies(project, partition.id).map((polygon) => ({ type: 'solid' as const, polygon, minHeight: 0 })),
+      zones: partitionBodies(partition, openings).map((polygon) => ({ type: 'solid' as const, polygon, minHeight: 0 })),
     })),
   ];
 }
 
+type Span = NonNullable<ReturnType<typeof openingSpan>>;
+
+/** Door and window openings, grouped by the wall they're in. */
+function openingsByWall(features: RoomFeature[]): Map<string, Span[]> {
+  const byWall = new Map<string, Span[]>();
+  for (const span of features.map(openingSpan)) {
+    if (span) byWall.set(span.wallId, [...(byWall.get(span.wallId) ?? []), span]);
+  }
+  return byWall;
+}
+
 /** The solid parts of an interior wall: each segment's thickness, minus door and window openings. */
-export function partitionBodies(project: Pick<Project, 'room' | 'features'>, partitionId: string): Polygon[] {
-  const partition = project.room.partitions.find((p) => p.id === partitionId);
-  if (!partition) return [];
+function partitionBodies(partition: Partition, openings: Map<string, Span[]>): Polygon[] {
   const bodies: Polygon[] = [];
   for (const segment of partitionSegments(partition)) {
-    const gaps = project.features
-      .map(openingSpan)
-      .filter((s): s is NonNullable<typeof s> => s !== null && s.wallId === segment.id)
-      .sort((a, b) => a.start - b.start);
+    const gaps = [...(openings.get(segment.id) ?? [])].sort((a, b) => a.start - b.start);
     let cursor = 0;
     for (const [from, to] of [...gaps.map((g) => [g.start, g.end]), [segment.length, segment.length]]) {
       if (from - cursor > 0.5) {

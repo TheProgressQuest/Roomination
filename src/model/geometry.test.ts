@@ -106,3 +106,14 @@ describe('clampFurnitureToRoom — concave rooms', () => {
     expect(placed.x).toBeLessThan(380);
   });
 });
+
+describe('placing staircases in concave rooms', () => {
+  it('finds the narrow strip where an L-shaped stair fits in one leg of an L-shaped room', async () => {
+    const { clampStairToRoom } = await import('./placement');
+    const { createStaircase } = await import('./sample');
+    const room = outlineOf([0, 0], [500, 0], [500, 200], [300, 200], [300, 400], [0, 400]);
+    const stair = createStaircase('L', { x: 250, y: 200 }); // 265 × 265 footprint
+    const placed = clampStairToRoom(stair, room);
+    expect(placed).not.toBeNull();
+  });
+});

@@ -1,0 +1,33 @@
+import { defineConfig, devices } from '@playwright/test';
+
+/**
+ * Browser tests. Every spec runs twice:
+ *   - "dev": against the Vite dev server;
+ *   - "prod": against the production build, served from a /Roomination/ sub-path exactly
+ *     like GitHub Pages serves it.
+ *
+ * Browsers: run `npx playwright install chromium` once. To use an already-installed
+ * Chromium instead, set PW_CHROMIUM_PATH to its executable.
+ */
+const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  workers: process.env.CI ? 2 : 4,
+  retries: process.env.CI ? 1 : 0,
+  reporter: [['list']],
+  use: {
+    ...devices['Desktop Chrome'],
+    viewport: { width: 1440, height: 900 },
+    launchOptions: { executablePath },
+  },
+  projects: [
+    { name: 'dev', use: { baseURL: 'http://localhost:5173/' } },
+    { name: 'prod', use: { baseURL: 'http://localhost:4173/Roomination/' } },
+  ],
+  webServer: [
+    { command: 'npm run dev -- --port 5173 --strictPort', url: 'http://localhost:5173/', reuseExistingServer: true },
+    { command: 'npm run build && node e2e/serve-dist.mjs 4173', url: 'http://localhost:4173/Roomination/', reuseExistingServer: false, timeout: 120_000 },
+  ],
+});

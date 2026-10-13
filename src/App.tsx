@@ -1,23 +1,26 @@
-import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperties } from 'react';
-import { FeatureButtons, FurnitureButtons, type FurniturePreset } from './components/AddCatalog';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { FeatureButtons, FurnitureButtons, StairButtons, StructureButtons, type FurniturePreset } from './components/AddCatalog';
+import { DrawingBar } from './components/DrawingBar';
 import { ConflictBanner } from './components/ConflictBanner';
 import { Dialog } from './components/Dialog';
 import { Header, type SaveStatus } from './components/Header';
 import { Icon } from './components/Icon';
-import { ObjectEditor } from './components/ObjectEditor';
 import { FloorPlan } from './components/plan/FloorPlan';
 import { ProjectsDialog } from './components/ProjectsDialog';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SelectionBar } from './components/SelectionBar';
+import { SelectionEditor } from './components/StructureEditors';
 import { Toast } from './components/Toast';
 import { ToolsPanel } from './components/ToolsPanel';
 import { findConflicts } from './model/conflicts';
-import { allowedPlacement, findFreeWallSpot, wallLength } from './model/features';
-import { createEmptyProject, createFeature, createFurniture, createSampleProject } from './model/sample';
-import type { FeatureKind, Placement, Project, RoomFeature, Wall } from './model/types';
+import { allowedPlacement, findFreeWallSpot } from './model/features';
+import { createEmptyProject, createFeature, createFurniture, createId, createSampleProject, createStaircase } from './model/sample';
+import type { FeatureKind, Placement, Point, Project, RoomFeature } from './model/types';
+import { DEFAULT_WALL_THICKNESS, findSegment, outlineSegments, roomBounds, wallLabel } from './model/walls';
 import { CM_PER_INCH } from './model/units';
 import { canvasPalette, luminance } from './render/palette';
-import { canRedo, canUndo, createEditorState, editorReducer } from './state/editor';
+import { canRedo, canUndo, createEditorState, editorReducer, type EditorAction } from './state/editor';
+import { objectId, type Selection, type ToolMode } from './state/selection';
 import { useMediaQuery, usePreferences, useResolvedTheme, type BoardPreferences, type ResolvedTheme } from './state/preferences';
 import { MAX_IMPORT_BYTES, parseProjectFile, serializeProject } from './storage/projectFile';
 import {
@@ -38,13 +41,26 @@ export function App() {
   const [state, dispatch] = useReducer(editorReducer, null, () => createEditorState(createSampleProject()));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [mode, setMode] = useState<ToolMode>('select');
+  const [draft, setDraftState] = useState<Point[]>([]);
+  /**
+   * The drawing in progress. Taps can arrive faster than React re-renders (especially on
+   * phones), so every update builds on this ref rather than on the last render's value —
+   * otherwise a quick second tap could overwrite the first.
+   */
+  const draftRef = useRef<Point[]>([]);
+  const setDraft = useCallback((next: Point[] | ((current: Point[]) => Point[])) => {
+    draftRef.current = typeof next === 'function' ? next(draftRef.current) : next;
+    setDraftState(draftRef.current);
+  }, []);
   const [preferences, updatePreferences] = usePreferences();
   const theme = useResolvedTheme(preferences.theme);
 
   // Layout: desktop keeps three panels; tablets and phones edit in a modal.
   const isDesktop = useMediaQuery('(min-width: 1100px)');
   const isTablet = useMediaQuery('(min-width: 768px)') && !isDesktop;
+  const isTouch = useMediaQuery('(pointer: coarse)');
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -54,9 +70,11 @@ export function App() {
 
   const project = state.present;
   const conflicts = useMemo(() => findConflicts(project), [project]);
+  const selectedId = objectId(selection);
   const selectedFurniture = project.furniture.find((f) => f.id === selectedId) ?? null;
   const selectedFeature = project.features.find((f) => f.id === selectedId) ?? null;
-  const selectedName = selectedFurniture?.name ?? selectedFeature?.name ?? null;
+  const selectedStair = project.stairs.find((s) => s.id === selectedId) ?? null;
+  const selectedName = selectionName(selection, project);
 
   // ---------------------------------------------------------------------------
   // Loading and saving
@@ -66,7 +84,9 @@ export function App() {
     dispatch({ type: 'project/replace', project: next, resetHistory: true });
     setActiveId(id);
     setActiveProjectId(id);
-    setSelectedId(null);
+    setSelection(null);
+    setMode('select');
+    setDraft([]);
   }, []);
 
   // Restore the last project from this device. First-time visitors get the sample room.
@@ -183,27 +203,111 @@ export function App() {
   // Editing
   // ---------------------------------------------------------------------------
 
-  const select = useCallback((id: string | null) => setSelectedId(id), []);
+  const select = useCallback((next: Selection) => setSelection(next), []);
 
   function openEditor(id: string) {
-    setSelectedId(id);
+    setSelection({ kind: 'object', id });
     if (!isDesktop) setEditorOpen(true);
   }
 
   function deleteObject(id: string) {
-    const isFeature = project.features.some((f) => f.id === id);
-    dispatch({ type: isFeature ? 'feature/delete' : 'furniture/delete', id });
-    setSelectedId(null);
+    const type = project.features.some((f) => f.id === id) ? 'feature/delete' : project.stairs.some((s) => s.id === id) ? 'stairs/delete' : 'furniture/delete';
+    dispatch({ type, id });
+    setSelection(null);
     setEditorOpen(false);
+  }
+
+  /** Deletes whatever is selected (Delete key / selection bar), including walls and corners. */
+  function deleteSelection() {
+    if (!selection) return;
+    if (selection.kind === 'object') deleteObject(selection.id);
+    else if (selection.kind === 'wall') dispatch({ type: 'walls/delete', wallId: selection.id, newPartitionId: createId() });
+    else dispatch({ type: 'walls/removeNode', nodeId: selection.id });
+    if (selection.kind !== 'object') setSelection(null);
   }
 
   function addFurniture(preset: FurniturePreset) {
     // Cascade new pieces slightly so several quick adds don't hide under each other.
     const cascade = (project.furniture.length % 5) * 15;
-    const furniture = createFurniture({ ...preset, x: project.room.width / 2 + cascade, y: project.room.length / 2 + cascade });
+    const centre = roomCentre(project);
+    const furniture = createFurniture({ ...preset, x: centre.x + cascade, y: centre.y + cascade });
     dispatch({ type: 'furniture/add', furniture });
-    setSelectedId(furniture.id);
+    setSelection({ kind: 'object', id: furniture.id });
     setAddOpen(false);
+  }
+
+  function addStairs(shape: 'straight' | 'L' | 'U' | 'custom') {
+    const stair =
+      shape === 'custom'
+        ? createStaircase('straight', roomCentre(project), {
+            sections: [
+              { id: createId(), kind: 'flight', length: 150, width: 90, steps: 6, turn: 'straight' },
+              { id: createId(), kind: 'landing', length: 90, width: 90, steps: 0, turn: 'straight' },
+              { id: createId(), kind: 'flight', length: 150, width: 90, steps: 6, turn: 'straight' },
+            ],
+          })
+        : createStaircase(shape, roomCentre(project));
+    dispatch({ type: 'stairs/add', stair });
+    setSelection({ kind: 'object', id: stair.id });
+    setAddOpen(false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drawing walls
+  // ---------------------------------------------------------------------------
+
+  function startDrawing(next: 'drawRoom' | 'drawWall') {
+    setMode(next);
+    setDraft([]);
+    setSelection(null);
+    setEditorOpen(false);
+  }
+
+  function cancelDrawing() {
+    setMode('select');
+    setDraft([]);
+  }
+
+  /**
+   * Turns the drawn points into walls. The change is checked first with the same rules
+   * the editor uses, so an invalid drawing keeps the draft (and explains why) instead
+   * of throwing the user's points away.
+   */
+  function finishDrawing() {
+    const thickness = project.room.outline[0]?.thickness ?? DEFAULT_WALL_THICKNESS;
+    const nodes = draftRef.current.map((p) => ({ id: createId(), x: p.x, y: p.y, thickness: mode === 'drawWall' ? 10 : thickness }));
+    const needed = mode === 'drawRoom' ? 3 : 2;
+    if (nodes.length < needed) {
+      dispatch({ type: 'notice/show', message: mode === 'drawRoom' ? 'Place at least three corners to make a room.' : 'Place at least two points to make a wall.' });
+      return;
+    }
+    const action: EditorAction =
+      mode === 'drawRoom' ? { type: 'walls/replaceOutline', nodes } : { type: 'walls/addPartition', partition: { id: createId(), nodes } };
+    const result = editorReducer(state, action);
+    if (result.present === state.present) {
+      dispatch({ type: 'notice/show', message: result.notice?.message ?? 'Those walls aren’t valid.' });
+      return;
+    }
+    dispatch(action);
+    setMode('select');
+    setDraft([]);
+    if (action.type === 'walls/addPartition') setSelection({ kind: 'wall', id: nodes[0].id });
+  }
+
+  /** A point placed on the plan. Tapping the first corner again closes the room. */
+  function addDraftPoint(point: Point) {
+    const current = draftRef.current;
+    const closesRoom = mode === 'drawRoom' && current.length >= 3 && Math.hypot(point.x - current[0].x, point.y - current[0].y) < 1e-6;
+    if (closesRoom) finishDrawing();
+    else setDraft((d) => [...d, point]);
+  }
+
+  /** Keyboard/touch-precise entry: adds a wall of exact length and angle from the last point. */
+  function addDraftWall(lengthCm: number, angleDeg: number) {
+    const last = draftRef.current[draftRef.current.length - 1];
+    if (!last || !(lengthCm > 0)) return;
+    const rad = (angleDeg * Math.PI) / 180;
+    setDraft((d) => [...d, { x: Math.round((last.x + Math.cos(rad) * lengthCm) * 1000) / 1000, y: Math.round((last.y + Math.sin(rad) * lengthCm) * 1000) / 1000 }]);
   }
 
   function addFeature(kind: FeatureKind) {
@@ -214,18 +318,25 @@ export function App() {
     }
     const feature = createFeature(kind, placement, project.room);
     dispatch({ type: 'feature/add', feature });
-    setSelectedId(feature.id);
+    setSelection({ kind: 'object', id: feature.id });
     setAddOpen(false);
   }
 
   function rotateSelected(direction: 1 | -1) {
     if (selectedFurniture) {
       dispatch({ type: 'furniture/update', id: selectedFurniture.id, changes: { rotation: selectedFurniture.rotation + 90 * direction } });
+    } else if (selectedStair) {
+      dispatch({ type: 'stairs/update', id: selectedStair.id, changes: { rotation: selectedStair.rotation + 90 * direction } });
     } else if (selectedFeature?.placement.type === 'free') {
       const p = selectedFeature.placement;
       dispatch({ type: 'feature/update', id: selectedFeature.id, changes: { placement: { ...p, rotation: p.rotation + 90 * direction } } });
     }
   }
+
+  // Forget a selection whose object, wall or corner no longer exists (e.g. after undo).
+  useEffect(() => {
+    if (selection && selectedName === null) setSelection(null);
+  }, [selection, selectedName]);
 
   // Close the modal editor if its object disappears (e.g. undo) or the layout becomes desktop.
   useEffect(() => {
@@ -244,6 +355,16 @@ export function App() {
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
 
+    if (mode !== 'select') {
+      if (key === 'escape') cancelDrawing();
+      else if (key === 'enter') finishDrawing();
+      else if (key === 'backspace' || (mod && key === 'z')) {
+        e.preventDefault();
+        setDraft((d) => d.slice(0, -1));
+      }
+      return;
+    }
+
     if (mod && key === 'z') {
       e.preventDefault();
       dispatch({ type: e.shiftKey ? 'history/redo' : 'history/undo' });
@@ -254,13 +375,13 @@ export function App() {
       dispatch({ type: 'history/redo' });
       return;
     }
-    if (mod || !selectedId) return;
+    if (mod || !selection) return;
 
     if (key === 'escape') {
-      setSelectedId(null);
+      setSelection(null);
     } else if (key === 'delete' || key === 'backspace') {
       e.preventDefault();
-      deleteObject(selectedId);
+      deleteSelection();
     } else if (key === 'r') {
       rotateSelected(e.shiftKey ? -1 : 1);
     } else if (key === 'enter' && !isDesktop && !(e.target instanceof HTMLButtonElement)) {
@@ -276,16 +397,23 @@ export function App() {
   }
 
   function nudge(dx: number, dy: number) {
+    if (selection?.kind === 'corner') {
+      const corner = [...project.room.outline, ...project.room.partitions.flatMap((p) => p.nodes)].find((n) => n.id === selection.id);
+      if (corner) dispatch({ type: 'walls/moveNode', nodeId: corner.id, to: { x: corner.x + dx, y: corner.y + dy } });
+      return;
+    }
+    if (selectedStair) {
+      dispatch({ type: 'stairs/update', id: selectedStair.id, changes: { x: selectedStair.x + dx, y: selectedStair.y + dy } });
+      return;
+    }
     if (selectedFurniture) {
       dispatch({ type: 'furniture/update', id: selectedFurniture.id, changes: { x: selectedFurniture.x + dx, y: selectedFurniture.y + dy } });
       return;
     }
     if (!selectedFeature) return;
     const p = selectedFeature.placement;
-    const placement: Placement =
-      p.type === 'wall'
-        ? { ...p, offset: p.offset + (p.wall === 'top' || p.wall === 'bottom' ? dx : dy) }
-        : { ...p, x: p.x + dx, y: p.y + dy };
+    // Along a wall, left/up moves towards the wall's start and right/down towards its end.
+    const placement: Placement = p.type === 'wall' ? { ...p, offset: p.offset + dx + dy } : { ...p, x: p.x + dx, y: p.y + dy };
     dispatch({ type: 'feature/update', id: selectedFeature.id, changes: { placement } });
   }
 
@@ -296,7 +424,8 @@ export function App() {
   const board = useMemo(() => boardAppearance(preferences.board, theme), [preferences.board, theme]);
   const palette = useMemo(() => canvasPalette(theme, board.isDark, project.room.floor.color), [theme, board.isDark, project.room.floor.color]);
 
-  const editorProps = { project, conflicts, dispatch, onDelete: deleteObject };
+  const editorProps = { project, conflicts, dispatch, onDelete: deleteObject, onSelect: select };
+  const roomBox = roomBounds(project.room);
   const showTools = isDesktop || !toolsCollapsed || !isTablet;
 
   return (
@@ -321,13 +450,15 @@ export function App() {
           {showTools ? (
             <ToolsPanel
               project={project}
-              selectedId={selectedId}
+              selection={selection}
               conflicts={conflicts}
               dispatch={dispatch}
               preferences={preferences}
               onPreferences={updatePreferences}
               onAddFurniture={addFurniture}
               onAddFeature={addFeature}
+              onAddStairs={addStairs}
+              onStartDrawing={startDrawing}
               onSelect={select}
               onCollapse={isTablet ? () => setToolsCollapsed(true) : undefined}
             />
@@ -343,6 +474,21 @@ export function App() {
           )}
 
           <div className="canvas-column">
+            {mode !== 'select' && (
+              <DrawingBar
+                mode={mode}
+                draft={draft}
+                units={project.units}
+                snap={preferences.snap}
+                onSnap={(snap) => updatePreferences({ snap })}
+                onStartAt={(point) => setDraft([point])}
+                onAddWall={addDraftWall}
+                onUndoPoint={() => setDraft((d) => d.slice(0, -1))}
+                onFinish={finishDrawing}
+                onCancel={cancelDrawing}
+                compact={!isTablet && !isDesktop}
+              />
+            )}
             <section
               className="canvas-panel"
               aria-label="Floor plan"
@@ -350,37 +496,44 @@ export function App() {
                 {
                   ...board.style,
                   // Phones size the plan to the room's shape (plus room for labels).
-                  '--room-aspect': `${project.room.width + 90} / ${project.room.length + 90}`,
+                  '--room-aspect': `${roomBox.maxX - roomBox.minX + 90} / ${roomBox.maxY - roomBox.minY + 90}`,
                 } as CSSProperties
               }
             >
               <FloorPlan
                 project={project}
                 conflicts={conflicts}
-                selectedId={selectedId}
+                selection={selection}
                 palette={palette}
                 showMeasurementGrid={preferences.showMeasurementGrid}
                 showClearances={preferences.showClearances}
+                mode={mode}
+                draft={draft}
+                snap={preferences.snap}
+                touch={isTouch}
                 onSelect={select}
                 onOpenEditor={openEditor}
                 onChangeFurniture={(id, changes) => dispatch({ type: 'furniture/update', id, changes })}
                 onChangeFeature={(id, changes) => dispatch({ type: 'feature/update', id, changes })}
+                onChangeStair={(id, changes) => dispatch({ type: 'stairs/update', id, changes })}
+                onMoveCorner={(nodeId, to) => dispatch({ type: 'walls/moveNode', nodeId, to })}
+                onDraftPoint={addDraftPoint}
               />
             </section>
-            {!isDesktop && (
+            {!isDesktop && mode === 'select' && (
               <SelectionBar
                 selectedName={selectedName}
-                canRotate={selectedFurniture !== null || selectedFeature?.placement.type === 'free'}
+                canRotate={selectedFurniture !== null || selectedStair !== null || selectedFeature?.placement.type === 'free'}
                 onEdit={() => setEditorOpen(true)}
                 onRotate={() => rotateSelected(1)}
-                onDelete={() => selectedId && deleteObject(selectedId)}
+                onDelete={deleteSelection}
                 onAdd={() => setAddOpen(true)}
               />
             )}
           </div>
 
           {isDesktop && (
-            <PropertiesPanel project={project} selectedId={selectedId} conflicts={conflicts} dispatch={dispatch} onDelete={deleteObject} onSelect={select} />
+            <PropertiesPanel {...editorProps} selection={selection} />
           )}
         </main>
       ) : (
@@ -389,11 +542,24 @@ export function App() {
         </main>
       )}
 
-      <Dialog open={editorOpen && selectedId !== null} title={selectedName ? `Edit ${selectedName}` : 'Edit'} onClose={() => setEditorOpen(false)} className="editor-dialog">
-        {selectedId && <ObjectEditor {...editorProps} selectedId={selectedId} />}
+      <Dialog open={editorOpen && selection !== null} title={selectedName ? `Edit ${selectedName}` : 'Edit'} onClose={() => setEditorOpen(false)} className="editor-dialog">
+        {selection && <SelectionEditor {...editorProps} selection={selection} />}
       </Dialog>
 
       <Dialog open={addOpen} title="Add to the room" onClose={() => setAddOpen(false)}>
+        <section className="dialog-section">
+          <h3>Walls</h3>
+          <StructureButtons
+            onDraw={(next) => {
+              setAddOpen(false);
+              startDrawing(next);
+            }}
+          />
+        </section>
+        <section className="dialog-section">
+          <h3>Stairs</h3>
+          <StairButtons onAdd={addStairs} />
+        </section>
         <section className="dialog-section">
           <h3>Room features</h3>
           <FeatureButtons onAdd={addFeature} />
@@ -433,22 +599,42 @@ export function App() {
   );
 }
 
-/** Where a newly added feature goes: openings find a free stretch of wall; others start central. */
+/** Middle of the room's bounding box. (Placement rules move things inside concave rooms.) */
+function roomCentre(project: Project): Point {
+  const box = roomBounds(project.room);
+  return { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+}
+
+/** What to call the current selection in titles and the selection bar. */
+function selectionName(selection: Selection, project: Project): string | null {
+  if (!selection) return null;
+  if (selection.kind === 'wall') return findSegment(project.room, selection.id) ? wallLabel(project.room, selection.id) : null;
+  if (selection.kind === 'corner') return [...project.room.outline, ...project.room.partitions.flatMap((p) => p.nodes)].some((n) => n.id === selection.id) ? 'Corner' : null;
+  const object = [...project.furniture, ...project.features, ...project.stairs].find((o) => o.id === selection.id);
+  return object?.name ?? null;
+}
+
+/**
+ * Where a newly added feature goes: openings find a free stretch of wall; others start
+ * central. For rectangles the preferred walls match the original layout (doors on the
+ * bottom wall, windows on the top) — outer walls run clockwise from the top.
+ */
 function defaultPlacement(kind: FeatureKind, project: Project): Placement | null {
   const { room, features } = project;
   const sameKind = features.filter((f) => f.kind === kind).length;
   const probe = { kind, ventMount: 'floor' } as Pick<RoomFeature, 'kind' | 'ventMount'>;
   if (allowedPlacement(probe) === 'free') {
     const cascade = (sameKind % 5) * 20;
-    return { type: 'free', x: room.width / 2 + cascade, y: room.length / 2 - 60 + cascade, rotation: 0 };
+    const centre = roomCentre(project);
+    return { type: 'free', x: centre.x + cascade, y: centre.y - 60 + cascade, rotation: 0 };
   }
-  const preferred: Record<string, Wall> = { door: 'bottom', window: 'top', outlet: 'left', switch: 'right', radiator: 'top' };
-  const wall = preferred[kind] ?? 'top';
+  const preferredIndex: Record<string, number> = { door: 2, window: 0, outlet: 3, switch: 1, radiator: 0 };
+  const index = preferredIndex[kind] ?? 0;
   if (kind === 'door' || kind === 'window') {
-    return findFreeWallSpot(features, room, kind === 'door' ? 80 : 120, wall);
+    return findFreeWallSpot(features, room, kind === 'door' ? 80 : 120, index);
   }
-  const len = wallLength(wall, room);
-  return { type: 'wall', wall, offset: Math.min(len - 10, len / 2 + (sameKind % 5) * 25) };
+  const wall = outlineSegments(room)[index % room.outline.length];
+  return { type: 'wall', wallId: wall.id, offset: Math.min(wall.length - 10, wall.length / 2 + (sameKind % 5) * 25) };
 }
 
 /** CSS for the board around the room. Purely decorative — measured in screen pixels. */

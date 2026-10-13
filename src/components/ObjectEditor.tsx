@@ -2,8 +2,9 @@ import { useId, type Dispatch, type ReactNode } from 'react';
 import { describeConflict, type Conflict } from '../model/conflicts';
 import { FEATURE_LABELS } from '../model/features';
 import { FURNITURE_COLORS } from '../model/sample';
-import type { Furniture, FurnitureCategory, FurnitureTexture, Project, RoomFeature, UnitSystem, Wall } from '../model/types';
-import { cmToInput, inputToCm, inputUnitLabel } from '../model/units';
+import type { Furniture, FurnitureCategory, FurnitureTexture, Project, RoomFeature, UnitSystem } from '../model/types';
+import { cmToInput, formatLength, inputToCm, inputUnitLabel } from '../model/units';
+import { wallLabel, wallSegments } from '../model/walls';
 import type { EditorAction } from '../state/editor';
 import { Icon } from './Icon';
 import { NumberField } from './NumberField';
@@ -104,12 +105,23 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
 // Room features
 // ---------------------------------------------------------------------------
 
-const WALL_OPTIONS: { value: Wall; label: string }[] = [
-  { value: 'top', label: 'Top' },
-  { value: 'right', label: 'Right' },
-  { value: 'bottom', label: 'Bottom' },
-  { value: 'left', label: 'Left' },
-];
+/** Chooses which wall a feature sits on. Walls too short for it are listed but disabled. */
+function WallPicker({ project, value, onChange }: { project: Project; value: string; onChange: (wallId: string) => void }) {
+  const id = useId();
+  const feature = project.features.find((f) => f.placement.type === 'wall' && f.placement.wallId === value);
+  return (
+    <div className="field">
+      <label htmlFor={id}>Wall</label>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+        {wallSegments(project.room).map((wall) => (
+          <option key={wall.id} value={wall.id} disabled={feature !== undefined && wall.length < feature.width}>
+            {wallLabel(project.room, wall.id)} · {formatLength(wall.length, project.units)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: ObjectEditorProps & { feature: RoomFeature }) {
   const units: UnitSystem = project.units;
@@ -289,10 +301,10 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
       <Section title="Position">
         {p.type === 'wall' ? (
           <>
-            <SegmentedControl label="Wall" value={p.wall} options={WALL_OPTIONS} onChange={(wall) => change({ placement: { ...p, wall } })} />
+            <WallPicker project={project} value={p.wallId} onChange={(wallId) => change({ placement: { ...p, wallId } })} />
             <div className="field-grid two">
               <NumberField
-                label={p.wall === 'top' || p.wall === 'bottom' ? 'Centre from left' : 'Centre from top'}
+                label="Centre from the wall’s start"
                 suffix={unit}
                 value={length(p.offset)}
                 onCommit={(v) => change({ placement: { ...p, offset: toCm(v) } })}
@@ -329,7 +341,7 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
 // ---------------------------------------------------------------------------
 
 /** Lists this object's overlaps, each with its own "allow" decision. */
-function ConflictList({ objectId, project, conflicts, dispatch }: { objectId: string; project: Project; conflicts: Conflict[]; dispatch: Dispatch<EditorAction> }) {
+export function ConflictList({ objectId, project, conflicts, dispatch }: { objectId: string; project: Project; conflicts: Conflict[]; dispatch: Dispatch<EditorAction> }) {
   const mine = conflicts.filter((c) => c.itemId === objectId || c.otherId === objectId);
   if (mine.length === 0) return null;
   return (
@@ -363,9 +375,13 @@ function ConflictList({ objectId, project, conflicts, dispatch }: { objectId: st
 
 /** A reminder of why the overlap matters. Allowing it never means it's safe. */
 export function conflictCaveat(conflict: Conflict, project: Project): string {
-  if (!conflict.otherIsFeature) {
+  if (conflict.otherKind === 'furniture') {
     return 'Solid pieces can’t share space. Allow this only if it reflects reality — like a stool tucked under a counter.';
   }
+  if (conflict.otherKind === 'stairs') {
+    return 'Stairs need clear space to walk. Allowing this doesn’t make it safe, and Roomination doesn’t check building codes.';
+  }
+  if (conflict.otherKind === 'wall') return 'Walls are solid. The drawing may need adjusting.';
   const feature = project.features.find((f) => f.id === conflict.otherId);
   switch (feature?.kind) {
     case 'vent':
@@ -386,7 +402,7 @@ export function conflictCaveat(conflict: Conflict, project: Project): string {
 // Small building blocks
 // ---------------------------------------------------------------------------
 
-function Section({ title, hint, children }: { title?: string; hint?: string; children: ReactNode }) {
+export function Section({ title, hint, children }: { title?: string; hint?: string; children: ReactNode }) {
   return (
     <section className="panel-section">
       {title && <h3>{title}</h3>}
@@ -396,7 +412,7 @@ function Section({ title, hint, children }: { title?: string; hint?: string; chi
   );
 }
 
-function NameField({ value, onCommit }: { value: string; onCommit: (name: string) => void }) {
+export function NameField({ value, onCommit }: { value: string; onCommit: (name: string) => void }) {
   const id = useId();
   return (
     <div className="field">
@@ -415,7 +431,7 @@ function NameField({ value, onCommit }: { value: string; onCommit: (name: string
   );
 }
 
-function RotationField({ rotation, onChange }: { rotation: number; onChange: (rotation: number) => void }) {
+export function RotationField({ rotation, onChange }: { rotation: number; onChange: (rotation: number) => void }) {
   return (
     <div className="rotation-row">
       <NumberField label="Angle" suffix="°" value={Math.round(rotation * 10) / 10} onCommit={onChange} />

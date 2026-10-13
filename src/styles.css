@@ -16,10 +16,10 @@
   --accent-soft: #fbe3d6;
   --accent-line: #f0c3ac;
   --on-accent: #ffffff;
-  --sage: #5f8c69;
+  --sage: #3f6b4a;
   --warning: #c2410c;
   --warning-soft: #fdeee6;
-  --accepted: #9a6b12;
+  --accepted: #7f560b;
   --accepted-soft: #fbf3df;
   --danger: #b8423b;
   --danger-soft: #fdf1f0;
@@ -617,13 +617,15 @@ button:disabled {
 }
 
 .primary {
-  background: var(--accent);
+  background: var(--accent-strong);
   color: var(--on-accent);
   box-shadow: 0 2px 8px rgba(217, 100, 58, 0.25);
 }
 
-.primary:hover {
-  background: var(--accent-strong);
+@media (hover: hover) and (pointer: fine) {
+  .primary:hover {
+    filter: brightness(0.92);
+  }
 }
 
 .link-button {
@@ -721,11 +723,17 @@ button:disabled {
   text-align: left;
 }
 
-.preset:hover {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(217, 100, 58, 0.12);
+/* Hover lift only where hover really exists; on touch screens it would "stick" after a tap. */
+@media (hover: hover) and (pointer: fine) {
+  .preset:hover {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(217, 100, 58, 0.12);
+  }
+  .swatch:hover {
+    transform: scale(1.1);
+  }
 }
 
 .feature-preset {
@@ -987,10 +995,6 @@ button:disabled {
   transition: transform 120ms var(--ease);
 }
 
-.swatch:hover {
-  transform: scale(1.1);
-}
-
 .swatch.is-active {
   box-shadow: 0 0 0 2px var(--text);
 }
@@ -1089,6 +1093,210 @@ kbd {
   height: 34px;
   border-radius: 5px;
   border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* ---------- Walls & stairs ---------- */
+select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.editor-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.list-heading {
+  margin: 14px 0 6px;
+}
+
+.plain-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.section-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.section-list > li {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunk);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-name {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.problem-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.problem-list li {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.problem-list svg {
+  flex: none;
+  color: var(--warning);
+  margin-top: 1px;
+}
+
+.drawing-bar {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--accent-line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.drawing-head {
+  display: grid;
+  gap: 4px;
+}
+
+.drawing-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.drawing-entry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.drawing-angle-hint {
+  margin-top: -4px;
+}
+
+.drawing-entry-toggle > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.drawing-entry-toggle[open] > summary {
+  margin-bottom: 8px;
+}
+
+.drawing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drawing-actions .primary {
+  margin-left: auto;
+}
+
+.snap-options > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  list-style: none;
+  min-height: 32px;
+}
+
+.snap-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.snap-options[open] > summary {
+  margin-bottom: 8px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chip-toggle {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip-toggle input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  cursor: pointer;
+}
+
+.chip-toggle span {
+  padding: 6px 12px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.chip-toggle input:checked + span {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--text);
+}
+
+.chip-toggle input:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }
 
 /* ---------- Tablet tools rail ---------- */
@@ -1430,6 +1638,35 @@ kbd {
   }
   .theme-toggle button {
     width: 28px;
+  }
+}
+
+/* Touch screens: every control at least 44 px tall (WCAG 2.5.5 target size). */
+@media (pointer: coarse) {
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+  .icon-button.small {
+    width: 40px;
+    height: 40px;
+  }
+  .secondary,
+  .primary,
+  .danger,
+  .preset,
+  .object-list button,
+  .check-row,
+  .segmented button,
+  .chip-toggle span,
+  .field input,
+  input[type='text'],
+  select,
+  .floor-option {
+    min-height: 44px;
+  }
+  .theme-toggle button {
+    width: 40px;
   }
 }
 

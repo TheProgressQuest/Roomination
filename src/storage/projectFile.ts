@@ -112,6 +112,8 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     return value;
   };
   const room = version < 3 ? parseLegacyRoom(data.room) : parseRoom(data.room, uniqueId);
+  // Reserve wall ids so no furniture, feature or stair in the file can reuse one.
+  for (const node of [...room.outline, ...room.partitions.flatMap((p) => p.nodes)]) seenIds.add(node.id);
   const problem = validateRoom(room);
   if (problem) fail(`The walls in this file aren’t valid: ${problem}`);
 
@@ -244,7 +246,9 @@ function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => st
   if (kind === 'light') feature.lightType = oneOf(raw.lightType, ['pendant', 'flush', 'recessed', 'chandelier'] as const, 'pendant');
   if (kind === 'column') feature.shape = oneOf(raw.shape, ['square', 'round'] as const, 'square');
   // Make sure e.g. a door isn't stored as free-standing.
-  return convertPlacement(feature, allowedPlacement(feature), room);
+  const converted = convertPlacement(feature, allowedPlacement(feature), room);
+  if (allowedPlacement(converted) === 'wall' && converted.placement.type !== 'wall') fail(`No wall in this file is long enough for “${converted.name}”.`);
+  return converted;
 }
 
 function parsePlacement(raw: unknown, label: string, room: Room): Placement {

@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Circle, Group, Line, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
 import type { Furniture } from '../../model/types';
 import { readableText, shade, type CanvasPalette } from '../../render/palette';
 import { PX_PER_CM, rugTexture } from '../../render/textures';
 import { FONT_FAMILY } from './RoomShell';
-import { interactionEvents, type ConflictStatus, type InteractionProps } from './shared';
+import { interactionEvents, sameDataProps, type ConflictStatus, type InteractionProps } from './shared';
 
 interface FurnitureShapeProps extends InteractionProps {
   item: Furniture;
@@ -18,7 +18,7 @@ interface FurnitureShapeProps extends InteractionProps {
   onTransformEnd: (node: Konva.Node) => void;
 }
 
-export function FurnitureShape(props: FurnitureShapeProps) {
+export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShapeProps) {
   const { item, scale, x, y, selected, status, palette } = props;
   const [hovered, setHovered] = useState(false);
   const w = item.width * scale;
@@ -54,10 +54,14 @@ export function FurnitureShape(props: FurnitureShapeProps) {
         dash={status === 'accepted' ? [6, 4] : undefined}
         cornerRadius={isRug ? Math.min(3, w / 8, h / 8) : Math.min(6, w / 4, h / 4)}
         opacity={isRug ? 0.92 : 1}
+        shadowEnabled={!isRug}
         shadowColor={palette.shadow}
-        shadowOpacity={isRug ? 0 : lifted ? 0.28 : 0.14}
+        shadowOpacity={lifted ? 0.28 : 0.14}
         shadowBlur={lifted ? 12 : 4}
         shadowOffsetY={lifted ? 4 : 2}
+        // Konva performance: draw the shadow once (fill only) and skip the extra buffer canvas.
+        shadowForStrokeEnabled={false}
+        perfectDrawEnabled={false}
       />
       {isRug && item.texture === 'bordered' && (
         <Rect
@@ -107,4 +111,4 @@ export function FurnitureShape(props: FurnitureShapeProps) {
       )}
     </Group>
   );
-}
+}, sameDataProps);

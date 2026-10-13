@@ -60,6 +60,41 @@ export function FeatureButtons({ onAdd }: { onAdd: (kind: FeatureKind) => void }
   );
 }
 
+/** Tools that create walls: redraw the room's outline, or add a freestanding interior wall. */
+export function StructureButtons({ onDraw }: { onDraw: (mode: 'drawRoom' | 'drawWall') => void }) {
+  return (
+    <div className="preset-grid">
+      <button type="button" className="preset feature-preset" onClick={() => onDraw('drawRoom')}>
+        <Icon name="drawRoom" size={16} />
+        <span className="preset-label">Draw room shape</span>
+      </button>
+      <button type="button" className="preset feature-preset" onClick={() => onDraw('drawWall')}>
+        <Icon name="drawWall" size={16} />
+        <span className="preset-label">Interior wall</span>
+      </button>
+    </div>
+  );
+}
+
+export function StairButtons({ onAdd }: { onAdd: (shape: 'straight' | 'L' | 'U' | 'custom') => void }) {
+  const shapes = [
+    { value: 'straight', label: 'Straight' },
+    { value: 'L', label: 'L-shaped' },
+    { value: 'U', label: 'U-shaped' },
+    { value: 'custom', label: 'Custom' },
+  ] as const;
+  return (
+    <div className="preset-grid">
+      {shapes.map((shape) => (
+        <button key={shape.value} type="button" className="preset feature-preset" onClick={() => onAdd(shape.value)}>
+          <Icon name="stairs" size={16} />
+          <span className="preset-label">{shape.label} stairs</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function FurnitureButtons({ onAdd }: { onAdd: (preset: FurniturePreset) => void }) {
   return (
     <>

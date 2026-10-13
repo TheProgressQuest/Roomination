@@ -27,6 +27,13 @@ const PATHS = {
   light: 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2Z',
   radiator: 'M4 6h16v12H4zM8 6v12M12 6v12M16 6v12M6 18v3M18 18v3',
   column: 'M6 3h12M6 21h12M8 3v18M16 3v18',
+  // Structure
+  wall: 'M3 6h18v12H3zM3 12h18M9 6v6M15 12v6',
+  corner: 'M5 20V9a4 4 0 0 1 4-4h11',
+  stairs: 'M3 20h5v-5h5v-5h5V5h3',
+  drawRoom: 'M4 20V6h8v6h8v8ZM4 6h0M12 12h0',
+  drawWall: 'M3 18 9 8l6 6 6-10',
+  magnet: 'M6 3v8a6 6 0 0 0 12 0V3M6 7h4M14 7h4',
 } as const;
 
 export type IconName = keyof typeof PATHS;

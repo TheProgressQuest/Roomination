@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { DEFAULT_SNAP, type SnapSettings } from '../model/snapping';
 
 /**
  * Display preferences: how the app looks on this device, never part of a project.
@@ -27,6 +28,8 @@ export interface Preferences {
   showMeasurementGrid: boolean;
   /** Shaded keep-clear zones around doors, vents, outlets, … */
   showClearances: boolean;
+  /** How points snap while drawing walls and dragging corners. */
+  snap: SnapSettings;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -34,6 +37,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   board: { style: 'dots', color: null, showGrid: true, spacing: 18, opacity: 0.5 },
   showMeasurementGrid: true,
   showClearances: true,
+  snap: DEFAULT_SNAP,
 };
 
 const STORAGE_KEY = 'roomination.preferences';
@@ -56,10 +60,26 @@ function readPreferences(): Preferences {
       },
       showMeasurementGrid: typeof raw.showMeasurementGrid === 'boolean' ? raw.showMeasurementGrid : d.showMeasurementGrid,
       showClearances: typeof raw.showClearances === 'boolean' ? raw.showClearances : d.showClearances,
+      snap: readSnap(raw.snap),
     };
   } catch {
     return DEFAULT_PREFERENCES;
   }
+}
+
+function readSnap(raw: unknown): SnapSettings {
+  if (typeof raw !== 'object' || raw === null) return DEFAULT_SNAP;
+  const r = raw as Record<string, unknown>;
+  const flag = (key: keyof SnapSettings) => (typeof r[key] === 'boolean' ? (r[key] as boolean) : (DEFAULT_SNAP[key] as boolean));
+  return {
+    endpoints: flag('endpoints'),
+    walls: flag('walls'),
+    grid: flag('grid'),
+    alignment: flag('alignment'),
+    angles: flag('angles'),
+    gridSize: inRange(r.gridSize, 1, 100) ? r.gridSize : DEFAULT_SNAP.gridSize,
+    angleStep: inRange(r.angleStep, 5, 90) ? r.angleStep : DEFAULT_SNAP.angleStep,
+  };
 }
 
 function inRange(value: unknown, min: number, max: number): value is number {
