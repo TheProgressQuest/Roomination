@@ -25,10 +25,10 @@ export default defineConfig({
   },
   // Relative asset paths so the build works from any GitHub Pages sub-path.
   base: './',
-  // Prepare Three.js when the dev server starts. Otherwise Vite discovers it the first time
-  // the 3D view opens and reloads the page mid-session.
+  // Prepare on-demand libraries when the dev server starts. Otherwise Vite discovers each one
+  // the first time it's used (3D view, Smart remove, ZIP export) and reloads mid-session.
   optimizeDeps: {
-    include: ['three', 'three/examples/jsm/controls/OrbitControls.js', 'three/examples/jsm/utils/BufferGeometryUtils.js'],
+    include: ['three', 'three/examples/jsm/controls/OrbitControls.js', 'three/examples/jsm/utils/BufferGeometryUtils.js', 'onnxruntime-web/wasm', 'fflate'],
   },
   // The AI runtime's loader ships as .mjs; emit it as .js so every static host (GitHub Pages
   // included) serves it with a JavaScript content type.
