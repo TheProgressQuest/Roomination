@@ -54,3 +54,22 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # After publishing, open the real public site and check the new version is served and the
+  # 2D / 3D switch is visible and works. (Pages can take a minute to update; the test waits.)
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test -c playwright.live.config.ts
+        env:
+          CI: 'true'
+          LIVE_URL: https://theprogressquest.github.io/Roomination/
+          EXPECTED_VERSION: ${{ github.sha }}

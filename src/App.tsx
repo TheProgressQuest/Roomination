@@ -551,6 +551,7 @@ export function App() {
                     setView(value);
                   }}
                 >
+                  <Icon name={value === '2d' ? 'floorPlan' : 'cube'} size={16} />
                   {value === '2d' ? '2D Plan' : '3D View'}
                 </button>
               ))}

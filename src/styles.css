@@ -186,8 +186,26 @@ h3 {
 }
 
 /* ---------- 3D view ---------- */
+/* The 2D / 3D switch: always the first thing above the canvas, never hidden. */
 .view-switch {
   flex: none;
+  flex-wrap: nowrap;
+  border: 1px solid var(--border);
+}
+
+.view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.app-version {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.8;
 }
 
 .view3d {
@@ -2103,6 +2121,13 @@ select {
   }
   .view3d {
     flex: none;
+  }
+  .view-switch {
+    width: 100%;
+  }
+  .view-switch button {
+    flex: 1;
+    justify-content: center;
   }
   .canvas-panel.view3d-panel,
   .canvas-panel.view3d-loading {

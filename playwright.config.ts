@@ -13,6 +13,8 @@ const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
 
 export default defineConfig({
   testDir: './e2e',
+  // The public-site checks have their own config (playwright.live.config.ts).
+  testIgnore: '**/live/**',
   fullyParallel: true,
   workers: process.env.CI ? 2 : 4,
   retries: process.env.CI ? 1 : 0,

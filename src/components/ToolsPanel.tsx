@@ -158,6 +158,9 @@ export function ToolsPanel(props: ToolsPanelProps) {
 
       <p className="panel-footer">
         Made by The Progress Quest · Your rooms stay on this device.
+        <span className="app-version">
+          Version {__APP_VERSION__} · {__BUILD_DATE__}
+        </span>
       </p>
     </aside>
   );
