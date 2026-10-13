@@ -1,7 +1,7 @@
 import { findConflicts, furniturePolygon, isSolid, type Conflict } from '../model/conflicts';
 import { featureFrame, featureZones, toRoom } from '../model/features';
 import { functionWeightFor } from '../model/furnitureKinds';
-import { boundingBox, overlapArea, projectOntoSegment, type Polygon } from '../model/polygon';
+import { boundingBox, pointInPolygon, projectOntoSegment, type Polygon } from '../model/polygon';
 import { layoutStair, stairPolygons, stairToRoom } from '../model/stairs';
 import type { Furniture, FurnitureKind, OptimizerSettings, PlacementPreference, Point, Project, Relationship } from '../model/types';
 import { wallBodies } from '../model/wallGeometry';
@@ -157,7 +157,7 @@ function roomToLocal(item: Pick<Furniture, 'x' | 'y' | 'rotation'>, p: Point): P
 
 /** Shortest distance between two convex polygons (0 if they touch or overlap). */
 export function polygonGap(a: Polygon, b: Polygon): number {
-  if (overlapArea(a, b) > 0.5) return 0;
+  if (outlinesOverlap(a, b)) return 0;
   let best = Infinity;
   for (const [from, to] of [
     [a, b],
@@ -168,6 +168,29 @@ export function polygonGap(a: Polygon, b: Polygon): number {
     }
   }
   return best;
+}
+
+/** Whether two simple (possibly concave) outlines overlap: crossing edges, or one inside the other. */
+function outlinesOverlap(a: Polygon, b: Polygon): boolean {
+  const ba = boundingBox(a);
+  const bb = boundingBox(b);
+  if (ba.maxX <= bb.minX || bb.maxX <= ba.minX || ba.maxY <= bb.minY || bb.maxY <= ba.minY) return false;
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      if (properCross(a[i], a[(i + 1) % a.length], b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return pointInPolygon(a[0], b) || pointInPolygon(b[0], a);
+}
+
+/** Segments cross at a single interior point (touching edges and corners don't count). */
+function properCross(p: Point, q: Point, r: Point, s: Point): boolean {
+  const d = (o: Point, x: Point, y: Point) => (x.x - o.x) * (y.y - o.y) - (x.y - o.y) * (y.x - o.x);
+  const d1 = d(r, s, p);
+  const d2 = d(r, s, q);
+  const d3 = d(p, q, r);
+  const d4 = d(p, q, s);
+  return d1 * d2 < -1e-9 && d3 * d4 < -1e-9;
 }
 
 /** How close a piece's back edge is to the nearest wall, and how parallel it is. */
@@ -380,6 +403,8 @@ function angleDifference(a: number, b: number, period: number): number {
  */
 export function isHard(conflict: Conflict, project: Project): boolean {
   if (conflict.type === 'collision' || conflict.otherKind === 'stairs') return true;
+  // Space a person asked to keep free in front of a piece is never filled by the optimizer.
+  if (conflict.otherKind === 'furniture' && conflict.type === 'clearance') return true;
   return conflict.otherKind === 'feature' && project.features.find((f) => f.id === conflict.otherId)?.kind === 'door';
 }
 

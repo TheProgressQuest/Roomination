@@ -1,5 +1,5 @@
-import { findConflicts, furniturePolygon, isSolid } from '../model/conflicts';
-import { convexInsidePolygon } from '../model/polygon';
+import { findConflicts, isSolid } from '../model/conflicts';
+import { footprintInside, roomFootprint } from '../model/shape';
 import type { Furniture, Point, Project } from '../model/types';
 import { frontOf, isHard, localToRoom, measure, score, type LayoutContext } from './scoring';
 
@@ -44,7 +44,7 @@ export function withPoses(project: Project, poses: Arrangement): Project {
  * old positions only.
  */
 export function fitsHard(project: Project, item: Furniture, context: LayoutContext): boolean {
-  if (!convexInsidePolygon(furniturePolygon(item), context.room)) return false;
+  if (!footprintInside(roomFootprint(item).parts, context.room)) return false;
   if (!isSolid(item)) return true;
   return !findConflicts(project, item.id).some((c) => isHard(c, project));
 }

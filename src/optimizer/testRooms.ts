@@ -1,4 +1,5 @@
 import { createEmptyProject, createFeature, createFurniture, createId, createRectangularRoom, createStaircase } from '../model/sample';
+import { normaliseShape, shapeTemplate, type ShapeTemplate } from '../model/shape';
 import type { Furniture, Project, Room, WallNode } from '../model/types';
 
 /**
@@ -142,6 +143,26 @@ export function overcrowded(): Project {
     ],
     features: [createFeature('door', wall(room, 2, 150), room, { name: 'Door' })],
   }));
+}
+
+/** 8. Custom-shaped furniture in an L-shaped room: an L-desk, an angled loveseat and a kidney table. */
+export function customShapes(): Project {
+  const base = lShapedStudio();
+  const shaped = (name: string, kind: Furniture['kind'], template: ShapeTemplate, x: number, y: number, height: number) => {
+    const { shape, width, depth } = normaliseShape(shapeTemplate(template));
+    return createFurniture({ name, kind, x, y, width, depth, height, shape });
+  };
+  return {
+    ...base,
+    name: 'Custom shapes',
+    furniture: [
+      shaped('L-desk', 'desk', 'lDesk', 450, 120, 75),
+      shaped('Loveseat', 'sofa', 'angledLoveseat', 150, 360, 85),
+      shaped('Kidney table', 'coffeeTable', 'kidneyTable', 150, 180, 45),
+      createFurniture({ name: 'Desk chair', kind: 'chair', x: 300, y: 220, width: 50, depth: 50, height: 90 }),
+    ],
+    relationships: [],
+  };
 }
 
 export const TEST_ROOMS = { smallBedroom, largeLivingRoom, lShapedStudio, multipleDoors, withStairs, withLockedPieces, overcrowded };

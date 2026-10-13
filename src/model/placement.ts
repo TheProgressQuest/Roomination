@@ -1,5 +1,5 @@
-import { rotatedHalfExtents } from './geometry';
-import { boundingBox, convexInsidePolygon, rectPolygon, type Box } from './polygon';
+import { boundingBox, convexInsidePolygon, type Box } from './polygon';
+import { footprintInside, roomFootprint } from './shape';
 import { layoutStair, stairToRoom } from './stairs';
 import type { Furniture, Point, Room, Staircase } from './types';
 import { outlinePolygon, roomBounds } from './walls';
@@ -107,16 +107,20 @@ function spiralSearch(target: Point, { roomBox, fits }: ResolveOptions): Point |
  * Moves a piece the minimum needed to sit fully inside the room's real outline (not just
  * its bounding box), or returns null if it can't fit anywhere at this size and rotation.
  */
-export function clampFurnitureToRoom<T extends Pick<Furniture, 'x' | 'y' | 'width' | 'depth' | 'rotation'>>(
+export function clampFurnitureToRoom<T extends Pick<Furniture, 'x' | 'y' | 'width' | 'depth' | 'rotation' | 'shape'>>(
   item: T,
   room: Pick<Room, 'outline'>,
   from?: Point,
 ): T | null {
   const poly = outlinePolygon(room);
+  // The true footprint (a drawn shape, or the rectangle), placed with its centre at c.
+  const placed = (c: Point) => roomFootprint({ ...item, x: c.x, y: c.y });
+  const box = boundingBox(placed({ x: 0, y: 0 }).outline);
   const centre = resolvePosition(item, {
     roomBox: roomBounds(room),
-    ...rotatedHalfExtents(item.width, item.depth, item.rotation),
-    fits: (c) => convexInsidePolygon(rectPolygon(c.x, c.y, item.width, item.depth, item.rotation), poly),
+    halfX: Math.max(-box.minX, box.maxX),
+    halfY: Math.max(-box.minY, box.maxY),
+    fits: (c) => footprintInside(placed(c).parts, poly),
     from,
   });
   return centre ? { ...item, x: centre.x, y: centre.y } : null;

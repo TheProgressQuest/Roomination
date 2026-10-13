@@ -1,5 +1,6 @@
 import { featureZones, openingSpan, type Zone, type ZoneType } from './features';
-import { overlapArea, polygonArea, rectPolygon, type Polygon } from './polygon';
+import { boundingBox, polygonArea, rectPolygon, type Polygon } from './polygon';
+import { footprintOverlap, localFootprint, pieceToRoom, roomFootprint } from './shape';
 import { stairPolygons } from './stairs';
 import type { Furniture, Partition, Project, RoomFeature } from './types';
 import { partitionSegments, pointAlong } from './walls';
@@ -63,8 +64,22 @@ export function isSolid(item: Furniture): boolean {
   return item.category !== 'floorCovering';
 }
 
+/** A piece's true outline in the room (its drawn shape, or its rectangle). */
 export function furniturePolygon(item: Furniture): Polygon {
-  return rectPolygon(item.x, item.y, item.width, item.depth, item.rotation);
+  return roomFootprint(item).outline;
+}
+
+/** The space a piece asks to keep free in front of it (across its full width), or null. */
+export function furnitureClearanceZone(item: Furniture): Polygon | null {
+  const depth = item.clearance ?? 0;
+  if (depth <= 0) return null;
+  const box = boundingBox(localFootprint(item).outline);
+  return [
+    { x: box.minX, y: box.maxY },
+    { x: box.maxX, y: box.maxY },
+    { x: box.maxX, y: box.maxY + depth },
+    { x: box.minX, y: box.maxY + depth },
+  ].map((p) => pieceToRoom(item, p));
 }
 
 interface Obstacle {
@@ -126,7 +141,11 @@ function partitionBodies(partition: Partition, openings: Map<string, Span[]>): P
 export function findConflicts(project: Project, onlyItemId?: string, onlyObstacleId?: string): Conflict[] {
   const accepted = new Set(project.acceptedOverlaps);
   const solids = project.furniture.filter(isSolid);
-  const polygons = new Map(solids.map((item) => [item.id, furniturePolygon(item)]));
+  const footprints = new Map(solids.map((item) => [item.id, roomFootprint(item)]));
+  const clearances = solids.flatMap((owner) => {
+    const zone = furnitureClearanceZone(owner);
+    return zone ? [{ owner, zone }] : [];
+  });
   const others = onlyObstacleId ? obstacles(project).filter((o) => o.id === onlyObstacleId) : obstacles(project);
   const conflicts: Conflict[] = [];
 
@@ -137,24 +156,31 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
 
   for (let i = 0; i < solids.length; i++) {
     const item = solids[i];
-    const itemPoly = polygons.get(item.id)!;
+    const itemPrint = footprints.get(item.id)!;
 
     // Furniture vs furniture: each pair once (not needed when checking one obstacle).
     for (let j = i + 1; j < solids.length && !onlyObstacleId; j++) {
       const other = solids[j];
       if (onlyItemId && item.id !== onlyItemId && other.id !== onlyItemId) continue;
-      const otherPoly = polygons.get(other.id)!;
-      const area = overlapArea(itemPoly, otherPoly);
+      const otherPrint = footprints.get(other.id)!;
+      const area = footprintOverlap(itemPrint.parts, otherPrint.parts);
       if (area > MIN_OVERLAP_AREA) {
-        const smaller = Math.min(polygonArea(itemPoly), polygonArea(otherPoly));
+        const smaller = Math.min(polygonArea(itemPrint.outline), polygonArea(otherPrint.outline));
         add(item.id, other.id, 'furniture', 'collision', area / smaller);
       }
+    }
+
+    // Furniture standing in the space another piece keeps clear in front of it.
+    for (const { owner, zone } of onlyObstacleId ? [] : clearances) {
+      if (owner.id === item.id || (onlyItemId && item.id !== onlyItemId && owner.id !== onlyItemId)) continue;
+      const area = footprintOverlap(itemPrint.parts, [zone]);
+      if (area > MIN_OVERLAP_AREA) add(item.id, owner.id, 'furniture', 'clearance', area / polygonArea(zone));
     }
 
     // Furniture vs obstacles: report only the most severe kind of intrusion per obstacle.
     if (onlyItemId && item.id !== onlyItemId) continue;
     for (const obstacle of others) {
-      const hit = worstIntrusion(item, itemPoly, obstacle.zones);
+      const hit = worstIntrusion(item, itemPrint.parts, obstacle.zones);
       if (hit) add(item.id, obstacle.id, obstacle.kind, ZONE_TO_CONFLICT[hit.type], hit.coverage);
     }
   }
@@ -166,11 +192,11 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
  * type, so multi-part obstacles (an L-shaped stair, a double door's two swings) report
  * one combined percentage.
  */
-function worstIntrusion(item: Furniture, itemPoly: Polygon, zones: Zone[]): { type: ZoneType; coverage: number } | null {
+function worstIntrusion(item: Furniture, itemParts: Polygon[], zones: Zone[]): { type: ZoneType; coverage: number } | null {
   for (const type of SEVERITY) {
     const ofType = zones.filter((z) => z.type === type && item.height >= z.minHeight);
     if (ofType.length === 0) continue;
-    const area = ofType.reduce((sum, z) => sum + overlapArea(itemPoly, z.polygon), 0);
+    const area = ofType.reduce((sum, z) => sum + footprintOverlap(itemParts, [z.polygon]), 0);
     if (area > MIN_OVERLAP_AREA) {
       const total = ofType.reduce((sum, z) => sum + polygonArea(z.polygon), 0);
       return { type, coverage: area / total };
@@ -204,13 +230,15 @@ export function obstacleName(conflict: Pick<Conflict, 'otherId' | 'otherKind'>, 
  * is named first.
  */
 export function describeConflict(conflict: Conflict, project: Project, perspectiveId?: string): string {
-  if (conflict.otherKind === 'furniture' && conflict.otherId === perspectiveId) {
+  // Name the piece being moved first — but only for collisions, which read the same either way.
+  if (conflict.otherKind === 'furniture' && conflict.type === 'collision' && conflict.otherId === perspectiveId) {
     conflict = { ...conflict, itemId: conflict.otherId, otherId: conflict.itemId };
   }
   const itemName = project.furniture.find((f) => f.id === conflict.itemId)?.name ?? 'This piece';
   const otherName = obstacleName(conflict, project);
   const coverage = formatCoverage(conflict.coverage);
   if (conflict.otherKind === 'stairs') return `${itemName} blocks ${otherName} (${coverage} of the stair footprint).`;
+  if (conflict.otherKind === 'furniture' && conflict.type === 'clearance') return `${itemName} is in the space kept clear in front of ${otherName} (${coverage} of it).`;
   switch (conflict.type) {
     case 'collision':
       return `${itemName} overlaps ${otherName}.`;

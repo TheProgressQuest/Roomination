@@ -7,6 +7,7 @@ import {
 } from '../model/features';
 import { MIN_FURNITURE_SIZE, MIN_ROOM_SIZE, normalizeRotation, roundLength } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
+import { normaliseShape, pieceToRoom, scaleShape, shapeProblem } from '../model/shape';
 import { applyRoomChange } from '../model/roomChange';
 import type { FloorStyle, Furniture, OptimizerSettings, Partition, Placement, Point, Project, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
@@ -367,6 +368,8 @@ function applyEdit(project: Project, action: EditAction): Project | string {
     }
 
     case 'furniture/add': {
+      const problem = action.furniture.shape && shapeProblem(action.furniture.shape);
+      if (problem) return problem;
       const placed = clampFurnitureToRoom(sanitizeFurniture(action.furniture), project.room);
       if (!placed) return `“${action.furniture.name}” is too big for this room.`;
       return { ...project, furniture: [...project.furniture, placed] };
@@ -375,7 +378,17 @@ function applyEdit(project: Project, action: EditAction): Project | string {
     case 'furniture/update': {
       const current = project.furniture.find((f) => f.id === action.id);
       if (!current) return project;
-      const merged = sanitizeFurniture({ ...current, ...action.changes, id: current.id });
+      let changes = action.changes;
+      // Typing a new width or depth for a drawn shape stretches the outline to match.
+      if (current.shape && !('shape' in changes) && ('width' in changes || 'depth' in changes)) {
+        const sx = (changes.width ?? current.width) / current.width;
+        const sy = (changes.depth ?? current.depth) / current.depth;
+        if (!(sx > 0 && sy > 0 && Number.isFinite(sx) && Number.isFinite(sy))) return `Furniture must be at least ${MIN_FURNITURE_SIZE} cm wide and deep.`;
+        changes = { ...changes, shape: scaleShape(current.shape, sx, sy) };
+      }
+      const problem = changes.shape && shapeProblem(changes.shape);
+      if (problem) return problem;
+      const merged = sanitizeFurniture({ ...current, ...changes, id: current.id });
       if (![merged.x, merged.y, merged.rotation].every(Number.isFinite)) return 'Please enter a number.';
       const sizes = [merged.width, merged.depth, merged.height];
       // Rugs can be very thin, so height only needs to be positive.
@@ -516,7 +529,7 @@ function placeFeature(feature: RoomFeature, project: Project): RoomFeature | str
 
 /** Normalises rotation and rounds lengths so stored values stay tidy and comparable. */
 function sanitizeFurniture(item: Furniture): Furniture {
-  return {
+  const clean: Furniture = {
     ...item,
     name: item.name.trim() || 'Untitled piece',
     x: roundLength(item.x),
@@ -526,6 +539,20 @@ function sanitizeFurniture(item: Furniture): Furniture {
     height: roundLength(item.height),
     rotation: roundLength(normalizeRotation(item.rotation)),
   };
+  if (clean.clearance !== undefined) {
+    const clearance = Math.min(500, Math.max(0, roundLength(clean.clearance)));
+    if (clearance > 0 && Number.isFinite(clearance)) clean.clearance = clearance;
+    else delete clean.clearance;
+  }
+  if (!clean.shape) {
+    delete clean.shape;
+    return clean;
+  }
+  // A drawn outline: re-centre it on its bounding box (moving the piece by the same amount, so
+  // nothing shifts on screen); width and depth always equal the outline's real extent.
+  const normal = normaliseShape(clean.shape);
+  const at = pieceToRoom(item, normal.shift);
+  return { ...clean, shape: normal.shape, width: normal.width, depth: normal.depth, x: roundLength(at.x), y: roundLength(at.y) };
 }
 
 function sanitizeFeature(feature: RoomFeature): RoomFeature {

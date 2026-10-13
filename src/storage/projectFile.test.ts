@@ -17,7 +17,7 @@ describe('parseProject', () => {
     const result = parseProject(phase1Save);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.project.schemaVersion).toBe(5);
+    expect(result.project.schemaVersion).toBe(6);
     expect(result.project.furniture[0]).toMatchObject({ kind: 'sofa', locked: false, preferences: [] });
     expect(result.project.relationships).toEqual([]);
     expect(result.project.furniture[0]).toMatchObject({ name: 'Sofa', category: 'furniture', texture: 'plain' });

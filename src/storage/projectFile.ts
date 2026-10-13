@@ -7,6 +7,12 @@ import {
   CURRENT_SCHEMA_VERSION,
   type FloorStyle,
   type Furniture,
+  type FurnitureAppearance,
+  type FurnitureShape,
+  type MaterialKind,
+  type Point,
+  type ShapeVertex,
+  type SurfaceFinish,
   type FurnitureKind,
   type OptimizerSettings,
   type Partition,
@@ -23,6 +29,7 @@ import {
   type WallNode,
 } from '../model/types';
 import { DEFAULT_WALL_THICKNESS, MAX_ROOM_SPAN, MAX_WALL_THICKNESS, findSegment, validateRoom } from '../model/walls';
+import { MAX_SHAPE_POINTS, normaliseShape, pieceToRoom, shapeProblem } from '../model/shape';
 
 /**
  * Reading projects from untrusted sources: browser storage (possibly written by an
@@ -98,7 +105,7 @@ function parseUnsafe(data: unknown): ParseResult {
   if (version > CURRENT_SCHEMA_VERSION) {
     return { ok: false, error: 'This project was made with a newer version of Roomination. Please update the app.' };
   }
-  if (![1, 2, 3, 4, 5].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
+  if (![1, 2, 3, 4, 5, 6].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
 
   try {
     return { ok: true, project: buildProject(data, version) };
@@ -288,7 +295,7 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   const label = `Furniture item ${index + 1}`;
   if (!isRecord(raw)) fail(`${label} is damaged.`);
   if (![raw.x, raw.y, raw.rotation].every(finite)) fail(`${label} has an invalid position.`);
-  return {
+  const item: Furniture = {
     id: uniqueId(raw.id),
     name: typeof raw.name === 'string' ? raw.name.slice(0, MAX_NAME_LENGTH) : 'Untitled piece',
     category: oneOf(raw.category, CATEGORIES, 'furniture'),
@@ -305,6 +312,75 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
     locked: raw.locked === true,
     preferences: Array.isArray(raw.preferences) ? [...new Set(raw.preferences.filter((p): p is PlacementPreference => PREFERENCES.includes(p)))] : [],
   };
+  const clearance = finite(raw.clearance) && raw.clearance > 0 && raw.clearance <= MAX_CLEARANCE ? raw.clearance : undefined;
+  if (clearance) item.clearance = clearance;
+  const appearance = parseAppearance(raw.appearance);
+  if (appearance) item.appearance = appearance;
+  if (raw.shape === undefined) return item;
+  return withShape(item, parseShape(raw.shape, label));
+}
+
+/** Attaches a shape, keeping width/depth equal to its outline and the piece exactly where it was. */
+function withShape(item: Furniture, shape: FurnitureShape): Furniture {
+  const normal = normaliseShape(shape);
+  // The outline's centre may move when re-centred; move the piece the same amount (rotated).
+  const at = pieceToRoom(item, normal.shift);
+  return { ...item, shape: normal.shape, width: normal.width, depth: normal.depth, x: at.x, y: at.y };
+}
+
+/** A custom outline from a file. Throws (with a plain reason) if it can't be used. */
+export function parseShape(raw: unknown, label: string): FurnitureShape {
+  if (!isRecord(raw) || !Array.isArray(raw.points)) fail(`${label}’s shape is damaged.`);
+  if (raw.points.length > MAX_SHAPE_POINTS) fail(`${label}’s shape has too many corners to load safely.`);
+  const point = (p: unknown): Point | null => (isRecord(p) && finite(p.x) && finite(p.y) ? { x: p.x, y: p.y } : null);
+  const points: ShapeVertex[] = raw.points.map((v) => {
+    const corner = point(v);
+    if (!corner) fail(`A corner of ${label}’s shape is damaged.`);
+    const c1 = isRecord(v) ? point(v.c1) : null;
+    const c2 = isRecord(v) ? point(v.c2) : null;
+    return c1 && c2 ? { ...corner, c1, c2 } : corner;
+  });
+  const problem = shapeProblem({ points });
+  if (problem) fail(`${label}’s shape can’t be used: ${problem}`);
+  return { points };
+}
+
+const MATERIALS: MaterialKind[] = ['fabric', 'leather', 'wood', 'metal', 'glass', 'plastic', 'custom'];
+const FINISHES: SurfaceFinish[] = ['matte', 'satin', 'gloss'];
+/** Photos are referenced by the SHA-256 of their bytes. */
+const ASSET_ID = /^[0-9a-f]{64}$/;
+const MAX_PHOTOS = 12;
+const MAX_CLEARANCE = 500;
+
+/** A piece's look. Anything unrecognised is dropped rather than rejecting the project. */
+export function parseAppearance(raw: unknown): FurnitureAppearance | undefined {
+  if (!isRecord(raw)) return undefined;
+  const id = (v: unknown) => (typeof v === 'string' && ASSET_ID.test(v) ? v : undefined);
+  const appearance: FurnitureAppearance = {
+    material: oneOf(raw.material, MATERIALS, 'custom'),
+    finish: oneOf(raw.finish, FINISHES, 'matte'),
+  };
+  if (isRecord(raw.textures)) {
+    const textures = { top: id(raw.textures.top), front: id(raw.textures.front), side: id(raw.textures.side) };
+    const kept = Object.fromEntries(Object.entries(textures).filter(([, v]) => v !== undefined));
+    if (Object.keys(kept).length > 0) appearance.textures = kept;
+  }
+  if (Array.isArray(raw.photos)) {
+    const photos = [...new Set(raw.photos.map(id).filter((v): v is string => v !== undefined))].slice(0, MAX_PHOTOS);
+    if (photos.length > 0) appearance.photos = photos;
+  }
+  return appearance;
+}
+
+/** Every photo a project refers to (textures and reference photos). */
+export function projectAssetIds(project: Pick<Project, 'furniture'>): string[] {
+  return [...new Set(project.furniture.flatMap(furnitureAssetIds))];
+}
+
+export function furnitureAssetIds(item: Pick<Furniture, 'appearance'>): string[] {
+  const a = item.appearance;
+  if (!a) return [];
+  return [...Object.values(a.textures ?? {}), ...(a.photos ?? [])].filter((v): v is string => typeof v === 'string');
 }
 
 function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => string, room: Room, version: number): RoomFeature {

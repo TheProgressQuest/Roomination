@@ -146,6 +146,43 @@ export interface Furniture {
   /** Locked pieces can't be dragged, nudged or moved by the optimizer until unlocked. */
   locked: boolean;
   preferences: PlacementPreference[];
+  /** A drawn outline instead of a plain rectangle (custom furniture). */
+  shape?: FurnitureShape;
+  /** Space to keep free in front of the piece, in cm (0 or missing = none). */
+  clearance?: number;
+  /** Material, finish and photo textures. Missing = the default look for its type. */
+  appearance?: FurnitureAppearance;
+}
+
+/**
+ * One corner of a custom outline, in the piece's local frame (cm): x across its width,
+ * y across its depth with the front at +y, origin at the centre of the outline's bounding
+ * box. When `c1` and `c2` are present, the edge from this corner to the next is a cubic
+ * Bézier curve with those control points.
+ */
+export interface ShapeVertex {
+  x: number;
+  y: number;
+  c1?: Point;
+  c2?: Point;
+}
+
+/** A custom furniture outline: a simple, clockwise polygon whose edges may be curved. */
+export interface FurnitureShape {
+  points: ShapeVertex[];
+}
+
+export type MaterialKind = 'fabric' | 'leather' | 'wood' | 'metal' | 'glass' | 'plastic' | 'custom';
+export type SurfaceFinish = 'matte' | 'satin' | 'gloss';
+
+/** How a piece looks. Photos are referenced by asset id (stored on this device). */
+export interface FurnitureAppearance {
+  material: MaterialKind;
+  finish: SurfaceFinish;
+  /** Photo textures for particular surfaces. */
+  textures?: { top?: string; front?: string; side?: string };
+  /** Reference photos (front, side, top, …) kept with the piece. */
+  photos?: string[];
 }
 
 /**
@@ -307,7 +344,7 @@ export interface SavedLayout {
   positions: { id: string; x: number; y: number; rotation: number }[];
 }
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 /** Everything that makes up one saved design. */
 export interface Project {
