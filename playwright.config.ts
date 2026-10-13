@@ -18,6 +18,8 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   // On CI, failures are also reported as GitHub annotations (visible without signing in).
   reporter: process.env.CI ? [['list'], ['github']] : [['list']],
+  // Software WebGL is slow on small CI machines, so 3D tests get extra time there.
+  timeout: process.env.CI ? 90_000 : 30_000,
   use: {
     ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 900 },

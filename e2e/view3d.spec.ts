@@ -44,7 +44,12 @@ async function settled(page: Page) {
 
 test.beforeEach(async ({ page }) => lightweight3D(page));
 
-test.describe('3D view', () => {
+/** Desktop layout, but fewer pixels to render in software WebGL. */
+const DESKTOP_3D = { viewport: { width: 1180, height: 760 } };
+
+test.describe('3D view', { tag: '@3d' }, () => {
+  test.use(DESKTOP_3D);
+
   test('shadows can be switched on and off', async ({ page }) => {
     await openApp(page);
     await open3D(page);
@@ -253,7 +258,9 @@ test.describe('3D view', () => {
   });
 });
 
-test.describe('3D rooms', () => {
+test.describe('3D rooms', { tag: '@3d' }, () => {
+  test.use(DESKTOP_3D);
+
   for (const [name, make] of Object.entries(ROOMS_3D)) {
     test(`renders ${name}`, async ({ page }, info) => {
       const errors = await openApp(page);
@@ -299,7 +306,7 @@ test.describe('3D rooms', () => {
 
 for (const width of [320, 375, 430, 768, 1024, 1440]) {
   const touch = width < 1100;
-  test.describe(`3D at ${width}px`, () => {
+  test.describe(`3D at ${width}px`, { tag: '@3d' }, () => {
     test.use({ viewport: { width, height: width < 500 ? 780 : 900 }, hasTouch: touch, isMobile: touch && width < 500 });
 
     test('fits the screen, keeps controls reachable, and owns touches inside the canvas only', async ({ page }) => {

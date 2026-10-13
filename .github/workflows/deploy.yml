@@ -30,7 +30,13 @@ jobs:
       - run: npm test
       # Browser tests run against the dev server and the production build (under /Roomination/).
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      # 3D tests (tagged @3d) render WebGL in software, which saturates the CPU, so they run on
+      # their own afterwards, one at a time, against the production build that gets deployed.
+      # `npm run test:e2e` locally runs everything on both builds.
+      - run: npx playwright test --grep-invert @3d
+        env:
+          CI: 'true'
+      - run: npx playwright test --grep @3d --project=prod --workers=1
         env:
           CI: 'true'
       - run: npm run build

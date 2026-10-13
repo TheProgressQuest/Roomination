@@ -9,7 +9,7 @@ import { importProject, openApp } from './helpers';
  * furniture, 4 doors, 5 windows and 3 staircases. The numbers are logged (and attached
  * to the report) every run; the limits are generous because CI renders in software.
  */
-test('3D performance with a stress project', async ({ page }, info) => {
+test('3D performance with a stress project', { tag: '@3d' }, async ({ page }, info) => {
   test.setTimeout(120_000);
   await openApp(page);
   const file = info.outputPath('stress.json');
