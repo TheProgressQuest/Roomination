@@ -120,14 +120,14 @@ function partitionBodies(partition: Partition, openings: Map<string, Span[]>): P
 }
 
 /**
- * All current conflicts. Pass `onlyItemId` to check a single piece (used while
- * dragging, so only the moving piece is tested against the rest).
+ * All current conflicts. While dragging, only the moving thing is checked: pass
+ * `onlyItemId` for a piece of furniture, or `onlyObstacleId` for a feature or staircase.
  */
-export function findConflicts(project: Project, onlyItemId?: string): Conflict[] {
+export function findConflicts(project: Project, onlyItemId?: string, onlyObstacleId?: string): Conflict[] {
   const accepted = new Set(project.acceptedOverlaps);
   const solids = project.furniture.filter(isSolid);
   const polygons = new Map(solids.map((item) => [item.id, furniturePolygon(item)]));
-  const others = obstacles(project);
+  const others = onlyObstacleId ? obstacles(project).filter((o) => o.id === onlyObstacleId) : obstacles(project);
   const conflicts: Conflict[] = [];
 
   const add = (itemId: string, otherId: string, otherKind: ObstacleKind, type: ConflictType, coverage: number) => {
@@ -139,8 +139,8 @@ export function findConflicts(project: Project, onlyItemId?: string): Conflict[]
     const item = solids[i];
     const itemPoly = polygons.get(item.id)!;
 
-    // Furniture vs furniture: each pair once.
-    for (let j = i + 1; j < solids.length; j++) {
+    // Furniture vs furniture: each pair once (not needed when checking one obstacle).
+    for (let j = i + 1; j < solids.length && !onlyObstacleId; j++) {
       const other = solids[j];
       if (onlyItemId && item.id !== onlyItemId && other.id !== onlyItemId) continue;
       const otherPoly = polygons.get(other.id)!;

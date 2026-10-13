@@ -80,8 +80,10 @@ export function snapPoint(raw: Point, context: SnapContext, settings: SnapSettin
       const projected = dx * along.x + dy * along.y;
       // Distance from the pointer to the snapped ray.
       const offRay = Math.abs(dx * along.y - dy * along.x);
-      if (projected > 0 && offRay <= tolerance) {
-        const snappedLength = settings.grid ? Math.max(settings.gridSize, roundTo(projected, settings.gridSize)) : projected;
+      // A pointer still on (or very near) the previous point isn't drawing a wall yet;
+      // angle-snapping it would invent a tiny wall in some arbitrary direction.
+      const snappedLength = settings.grid ? roundTo(projected, settings.gridSize) : projected;
+      if (projected > tolerance && snappedLength > 0 && offRay <= tolerance) {
         const point = { x: previous.x + along.x * snappedLength, y: previous.y + along.y * snappedLength };
         return { point: clean(point), kind: 'angle', guides: [{ from: previous, to: point }] };
       }

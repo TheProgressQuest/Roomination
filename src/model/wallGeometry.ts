@@ -28,20 +28,25 @@ const outward = (s: WallSegment): Point => {
 };
 const offsetPoint = (p: Point, n: Point, t: number): Point => ({ x: p.x + n.x * t, y: p.y + n.y * t });
 
-/** Outer corner where the outer faces of walls `a` (arriving) and `b` (leaving) meet. */
-function miter(a: WallSegment, b: WallSegment): Point {
+/**
+ * Outer corner where the outer faces of walls `a` (arriving) and `b` (leaving) meet.
+ * When no clean miter exists (straight continuation, or a very sharp corner), each wall
+ * ends square at its own thickness: `side` says which wall is asking.
+ */
+function miter(a: WallSegment, b: WallSegment, side: 'arriving' | 'leaving'): Point {
   const corner = b.start;
   const pa = offsetPoint(corner, outward(a), a.thickness);
   const pb = offsetPoint(corner, outward(b), b.thickness);
   const da = unit(a);
   const db = unit(b);
   const denominator = da.x * db.y - da.y * db.x;
-  if (Math.abs(denominator) < 1e-9) return pb; // straight continuation
+  const square = side === 'arriving' ? pa : pb;
+  if (Math.abs(denominator) < 1e-9) return square; // straight continuation
   // Intersect line pa + s·da with pb + t·db.
   const s = ((pb.x - pa.x) * db.y - (pb.y - pa.y) * db.x) / denominator;
   const point = { x: pa.x + da.x * s, y: pa.y + da.y * s };
   const limit = MITER_LIMIT * Math.max(a.thickness, b.thickness);
-  return Math.hypot(point.x - corner.x, point.y - corner.y) > limit ? pb : point;
+  return Math.hypot(point.x - corner.x, point.y - corner.y) > limit ? square : point;
 }
 
 /** Stretches of a wall not taken up by door/window openings, as [from, to] distances. */
@@ -66,8 +71,8 @@ export function wallBodies(room: Pick<Room, 'outline' | 'partitions'>, features:
   outer.forEach((segment, i) => {
     const previous = outer[(i - 1 + outer.length) % outer.length];
     const next = outer[(i + 1) % outer.length];
-    const startOuter = miter(previous, segment);
-    const endOuter = miter(segment, next);
+    const startOuter = miter(previous, segment, 'leaving');
+    const endOuter = miter(segment, next, 'arriving');
     const n = outward(segment);
     for (const [from, to] of solidStretches(segment, features)) {
       const a = pointAlong(segment, from);

@@ -1,4 +1,4 @@
-# Builds Roomination and publishes it to GitHub Pages on every push to main.
+# Tests, builds and publishes Roomination to GitHub Pages on every push to main.
 # Free for public repositories; no secrets or API keys are needed.
 name: Deploy to GitHub Pages
 
@@ -27,6 +27,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Browser tests run against the dev server and the production build (under /Roomination/).
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          CI: 'true'
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

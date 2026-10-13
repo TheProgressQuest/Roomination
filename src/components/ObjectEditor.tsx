@@ -106,15 +106,14 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
 // ---------------------------------------------------------------------------
 
 /** Chooses which wall a feature sits on. Walls too short for it are listed but disabled. */
-function WallPicker({ project, value, onChange }: { project: Project; value: string; onChange: (wallId: string) => void }) {
+function WallPicker({ project, value, featureWidth, onChange }: { project: Project; value: string; featureWidth: number; onChange: (wallId: string) => void }) {
   const id = useId();
-  const feature = project.features.find((f) => f.placement.type === 'wall' && f.placement.wallId === value);
   return (
     <div className="field">
       <label htmlFor={id}>Wall</label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
         {wallSegments(project.room).map((wall) => (
-          <option key={wall.id} value={wall.id} disabled={feature !== undefined && wall.length < feature.width}>
+          <option key={wall.id} value={wall.id} disabled={wall.length < featureWidth}>
             {wallLabel(project.room, wall.id)} · {formatLength(wall.length, project.units)}
           </option>
         ))}
@@ -301,7 +300,7 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
       <Section title="Position">
         {p.type === 'wall' ? (
           <>
-            <WallPicker project={project} value={p.wallId} onChange={(wallId) => change({ placement: { ...p, wallId } })} />
+            <WallPicker project={project} value={p.wallId} featureWidth={feature.width} onChange={(wallId) => change({ placement: { ...p, wallId } })} />
             <div className="field-grid two">
               <NumberField
                 label="Centre from the wall’s start"

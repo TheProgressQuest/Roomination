@@ -31,3 +31,16 @@ describe('wallBodies', () => {
     expect(boundingBox(body.polygon)).toMatchObject({ minX: 195, maxX: 205 });
   });
 });
+
+describe('wallBodies edge cases', () => {
+  it('straight-continuing walls of different thickness each end square at their own thickness', () => {
+    const room = createRectangularRoom(400, 300);
+    const outline = [room.outline[0], { id: 'mid', x: 200, y: 0, thickness: 30 }, ...room.outline.slice(1)];
+    const bodies = wallBodies({ ...room, outline }, []);
+    const first = boundingBox(bodies.find((b) => b.wallId === room.outline[0].id)!.polygon);
+    const second = boundingBox(bodies.find((b) => b.wallId === 'mid')!.polygon);
+    expect(first.minY).toBeCloseTo(-12);
+    expect(second.minY).toBeCloseTo(-30);
+    expect(first.maxX).toBeCloseTo(200);
+  });
+});

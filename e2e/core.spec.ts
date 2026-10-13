@@ -224,4 +224,22 @@ test.describe('Phase 1 & 2 features still work', () => {
     await expect(props(page).getByLabel('Wall', { exact: true }).locator('option:checked')).toContainText('Wall 4'); // the left wall
     expect(await num(props(page), 'Centre from the wall’s start')).toBe(100); // 350 − 250
   });
+
+  test('arrow keys move wall features the way the arrow points, on every wall', async ({ page }) => {
+    await openApp(page);
+    // The front door is on the left wall, which runs bottom → top.
+    await selectInList(page, 'Front door');
+    const before = await num(props(page), 'Centre from the wall’s start');
+    await page.locator('.object-list button.is-selected').focus();
+    await page.keyboard.press('ArrowDown');
+    expect(await num(props(page), 'Centre from the wall’s start')).toBe(before - 1); // moved down on screen
+  });
+
+  test('a refused wall deletion keeps the wall selected and explains why', async ({ page }) => {
+    await openApp(page);
+    await tools(page).locator('.object-list').nth(1).getByRole('button', { name: /^Wall 4/ }).click();
+    await page.keyboard.press('Delete');
+    await expect(toast(page)).toContainText('Front door');
+    await expect(props(page).locator('.editor-title')).toHaveText('Wall 4');
+  });
 });

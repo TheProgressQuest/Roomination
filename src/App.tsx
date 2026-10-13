@@ -217,13 +217,16 @@ export function App() {
     setEditorOpen(false);
   }
 
-  /** Deletes whatever is selected (Delete key / selection bar), including walls and corners. */
+  /**
+   * Deletes whatever is selected (Delete key / selection bar), including walls and corners.
+   * If a wall deletion is refused (a door is on it), the wall stays selected so the user
+   * can see what to move; successful deletions are deselected automatically.
+   */
   function deleteSelection() {
     if (!selection) return;
     if (selection.kind === 'object') deleteObject(selection.id);
     else if (selection.kind === 'wall') dispatch({ type: 'walls/delete', wallId: selection.id, newPartitionId: createId() });
     else dispatch({ type: 'walls/removeNode', nodeId: selection.id });
-    if (selection.kind !== 'object') setSelection(null);
   }
 
   function addFurniture(preset: FurniturePreset) {
@@ -298,8 +301,9 @@ export function App() {
   function addDraftPoint(point: Point) {
     const current = draftRef.current;
     const closesRoom = mode === 'drawRoom' && current.length >= 3 && Math.hypot(point.x - current[0].x, point.y - current[0].y) < 1e-6;
+    const last = current[current.length - 1];
     if (closesRoom) finishDrawing();
-    else setDraft((d) => [...d, point]);
+    else if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 1) setDraft((d) => [...d, point]);
   }
 
   /** Keyboard/touch-precise entry: adds a wall of exact length and angle from the last point. */
@@ -412,8 +416,12 @@ export function App() {
     }
     if (!selectedFeature) return;
     const p = selectedFeature.placement;
-    // Along a wall, left/up moves towards the wall's start and right/down towards its end.
-    const placement: Placement = p.type === 'wall' ? { ...p, offset: p.offset + dx + dy } : { ...p, x: p.x + dx, y: p.y + dy };
+    // Along a wall, move by the part of the arrow's direction that runs along the wall, so the
+    // feature goes the way the arrow points on screen (outer walls run clockwise, so the bottom
+    // and left walls run "backwards").
+    const wall = p.type === 'wall' ? findSegment(project.room, p.wallId) : null;
+    const along = wall ? dx * Math.cos((wall.angle * Math.PI) / 180) + dy * Math.sin((wall.angle * Math.PI) / 180) : 0;
+    const placement: Placement = p.type === 'wall' ? { ...p, offset: p.offset + along } : { ...p, x: p.x + dx, y: p.y + dy };
     dispatch({ type: 'feature/update', id: selectedFeature.id, changes: { placement } });
   }
 

@@ -263,8 +263,9 @@ export function clampFeatureToRoom(feature: RoomFeature, room: RoomWalls, from?:
     if (!segment || feature.width > segment.length + 1e-6) return null;
     const placement: WallPlacement = { ...p, offset: clampOffset(p.offset, segment.length, feature.width) };
     const placed: RoomFeature = { ...feature, placement };
-    // Whatever stands out from the wall (a radiator's body) must fit inside the room.
-    if (segment.chain === 'outline' && feature.depth > 0) {
+    // A radiator's body stands out from the wall and must fit inside the room. (Outlets,
+    // switches and wall vents are only a few cm deep, so they're never refused for this.)
+    if (segment.chain === 'outline' && feature.kind === 'radiator') {
       const frame = wallFrame(placement, room)!;
       const half = feature.width / 2;
       const body = [{ x: -half, y: 0 }, { x: half, y: 0 }, { x: half, y: feature.depth }, { x: -half, y: feature.depth }].map((q) => toRoom(frame, q));

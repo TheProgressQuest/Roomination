@@ -161,4 +161,14 @@ test.describe('Draw Walls', () => {
     await props(page).getByRole('button', { name: 'Delete this interior wall' }).click();
     await expect(wallRows(page).filter({ hasText: 'Interior wall' })).toHaveCount(0);
   });
+
+  test('tapping the same spot twice while drawing adds only one corner', async ({ page }) => {
+    await openApp(page);
+    await tools(page).getByRole('button', { name: 'Draw room shape' }).click();
+    await settle(page);
+    await clickAt(page, 100, 100);
+    await clickAt(page, 300, 100);
+    await clickAt(page, 300, 100);
+    await expect(drawingBar(page)).toContainText('2 corners placed');
+  });
 });

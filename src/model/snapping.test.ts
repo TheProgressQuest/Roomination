@@ -51,4 +51,10 @@ describe('snapPoint', () => {
     const r = snapPoint({ x: 398, y: 3 }, { corners, segments: [{ start: corners[0], end: corners[1] }], previous: { x: 0, y: 300 } }, DEFAULT_SNAP, 10);
     expect(r.kind).toBe('endpoint');
   });
+
+  it('does not invent a tiny wall when the pointer is still on the previous point', () => {
+    const r = snapPoint({ x: 1, y: 1 }, { corners: [], segments: [], previous: { x: 0, y: 0 } }, { ...off, angles: true, grid: true, gridSize: 5 }, 10);
+    expect(r.kind).not.toBe('angle');
+    expect(r.point).toEqual({ x: 0, y: 0 });
+  });
 });

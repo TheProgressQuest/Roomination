@@ -106,10 +106,7 @@ function WallEditor({ project, wallId, dispatch, onSelect }: SelectionEditorProp
         <button
           type="button"
           className="danger"
-          onClick={() => {
-            dispatch({ type: 'walls/delete', wallId, newPartitionId: createId() });
-            onSelect(null);
-          }}
+          onClick={() => dispatch({ type: 'walls/delete', wallId, newPartitionId: createId() })}
         >
           <Icon name="trash" /> <span className="truncate">{outer ? 'Delete wall (joins its neighbours)' : 'Delete this interior wall'}</span>
         </button>
@@ -118,7 +115,7 @@ function WallEditor({ project, wallId, dispatch, onSelect }: SelectionEditorProp
   );
 }
 
-function CornerEditor({ project, nodeId, dispatch, onSelect }: SelectionEditorProps & { nodeId: string }) {
+function CornerEditor({ project, nodeId, dispatch }: SelectionEditorProps & { nodeId: string }) {
   const node = [...project.room.outline, ...project.room.partitions.flatMap((p) => p.nodes)].find((n) => n.id === nodeId);
   if (!node) return null;
   const units = project.units;
@@ -143,10 +140,7 @@ function CornerEditor({ project, nodeId, dispatch, onSelect }: SelectionEditorPr
         <button
           type="button"
           className="danger"
-          onClick={() => {
-            dispatch({ type: 'walls/removeNode', nodeId });
-            onSelect(null);
-          }}
+          onClick={() => dispatch({ type: 'walls/removeNode', nodeId })}
         >
           <Icon name="trash" /> Remove corner (joins the two walls)
         </button>

@@ -50,7 +50,7 @@ const WALL_LABEL_SPACE = 18;
 const SNAP_PX = 12;
 
 export function FloorPlan(props: FloorPlanProps) {
-  const { project, conflicts, selection, palette, mode, draft, onSelect, onOpenEditor, onChangeFurniture, onChangeFeature, onChangeStair } = props;
+  const { project, conflicts, selection, palette, mode, draft, onSelect } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(containerRef);
   const drawing = mode !== 'select';
@@ -64,12 +64,17 @@ export function FloorPlan(props: FloorPlanProps) {
   }, [project, cornerDrag]);
   const { room, furniture, features, stairs } = shown;
 
-  // The view fits the room; while drawing it also fits the new points, with room to spare.
+  // The view fits the room. While drawing it adds a generous margin so you can draw beyond
+  // the old walls without the view re-zooming under your finger; it only grows if a typed
+  // point lands outside that margin.
   const bounds = useMemo<Box>(() => {
-    const box = boundingBox([...outlinePolygon(project.room), ...draft]);
+    const box = boundingBox(outlinePolygon(project.room));
     const thickest = Math.max(...project.room.outline.map((n) => n.thickness));
     const margin = drawing ? Math.max(box.maxX - box.minX, box.maxY - box.minY) * 0.2 : thickest;
-    return { minX: box.minX - margin, minY: box.minY - margin, maxX: box.maxX + margin, maxY: box.maxY + margin };
+    const view = { minX: box.minX - margin, minY: box.minY - margin, maxX: box.maxX + margin, maxY: box.maxY + margin };
+    if (!drawing || draft.length === 0) return view;
+    const drawn = boundingBox(draft);
+    return { minX: Math.min(view.minX, drawn.minX), minY: Math.min(view.minY, drawn.minY), maxX: Math.max(view.maxX, drawn.maxX), maxY: Math.max(view.maxY, drawn.maxY) };
   }, [project.room, draft, drawing]);
   const showCorners = !drawing && (selection?.kind === 'wall' || selection?.kind === 'corner');
   // Per-wall lengths: while editing walls, and for irregular rooms where width × length isn't enough.
@@ -99,7 +104,8 @@ export function FloorPlan(props: FloorPlanProps) {
    * and never produces repeated messages.
    */
   function updateLiveConflicts(variant: Project, movingId: string, isFurniture: boolean) {
-    const found = isFurniture ? findConflicts(variant, movingId) : findConflicts(variant).filter((c) => c.otherId === movingId);
+    // Only the moving thing is re-checked: as a piece of furniture, or as an obstacle.
+    const found = isFurniture ? findConflicts(variant, movingId) : findConflicts(variant, undefined, movingId);
     const ids = new Set<string>();
     for (const c of found) {
       if (c.accepted) continue;
@@ -124,7 +130,8 @@ export function FloorPlan(props: FloorPlanProps) {
   }, [drawing]);
   const tolerance = SNAP_PX / viewport.scale;
   function snapDraft(raw: Point): SnapResult {
-    const corners = [...wallSegments(project.room).flatMap((s) => [s.start, s.end]), ...draft];
+    // The point just placed isn't a target: snapping onto it would make a zero-length wall.
+    const corners = [...wallSegments(project.room).flatMap((s) => [s.start, s.end]), ...draft.slice(0, -1)];
     // When redrawing the room, the old walls are being replaced, so only snap to the new ones.
     const segments = mode === 'drawWall' ? wallSegments(project.room) : [];
     return snapPoint(raw, { corners, segments, previous: draft[draft.length - 1] }, props.snap, tolerance);
@@ -154,9 +161,9 @@ export function FloorPlan(props: FloorPlanProps) {
    * The latest room, project and view, for drag handlers. Shapes are memoised and may keep
    * an older handler; reading through this ref keeps every handler working on current data.
    */
-  const latest = useRef({ shown, room, viewport });
+  const latest = useRef({ shown, room, viewport, props });
   useLayoutEffect(() => {
-    latest.current = { shown, room, viewport };
+    latest.current = { shown, room, viewport, props };
   });
 
   /** Places a drawing point where the user clicked or tapped. */
@@ -205,8 +212,8 @@ export function FloorPlan(props: FloorPlanProps) {
       palette={palette}
       draggable={canDrag(item.id)}
       registerNode={registerNode(item.id)}
-      onSelect={() => onSelect({ kind: 'object', id: item.id })}
-      onOpenEditor={() => onOpenEditor(item.id)}
+      onSelect={() => latest.current.props.onSelect({ kind: 'object', id: item.id })}
+      onOpenEditor={() => latest.current.props.onOpenEditor(item.id)}
       dragBound={(pos) => {
         const { room, viewport } = latest.current;
         const placed = clampFurnitureToRoom({ ...item, ...toRoomPoint(viewport, pos) }, room, lastGood.current ?? item);
@@ -224,14 +231,14 @@ export function FloorPlan(props: FloorPlanProps) {
         lastGood.current = null;
         resetNode(node, { ...toScreen(viewport, item), angle: item.rotation });
         endLiveConflicts();
-        onChangeFurniture(item.id, { x, y });
+        latest.current.props.onChangeFurniture(item.id, { x, y });
       }}
       onTransformEnd={(node) => {
         // The piece rotates around a fixed centre while the handle is held; on release
         // the reducer slides it back inside the walls if it now overlaps one.
         const rotation = node.rotation();
         resetNode(node, { ...toScreen(latest.current.viewport, item), angle: item.rotation });
-        onChangeFurniture(item.id, { rotation });
+        latest.current.props.onChangeFurniture(item.id, { rotation });
       }}
     />
   );
@@ -266,8 +273,8 @@ export function FloorPlan(props: FloorPlanProps) {
         palette={palette}
         draggable={canDrag(feature.id)}
         registerNode={registerNode(feature.id)}
-        onSelect={() => onSelect({ kind: 'object', id: feature.id })}
-        onOpenEditor={() => onOpenEditor(feature.id)}
+        onSelect={() => latest.current.props.onSelect({ kind: 'object', id: feature.id })}
+        onOpenEditor={() => latest.current.props.onOpenEditor(feature.id)}
         dragBound={(pos) => {
           // Wall features slide along walls and hop to whichever wall is nearest.
           const { room, viewport } = latest.current;
@@ -287,12 +294,12 @@ export function FloorPlan(props: FloorPlanProps) {
           lastGood.current = null;
           resetNode(node, screenNow());
           endLiveConflicts();
-          if (placement) onChangeFeature(feature.id, { placement });
+          if (placement) latest.current.props.onChangeFeature(feature.id, { placement });
         }}
         onTransformEnd={(node) => {
           const rotation = node.rotation();
           resetNode(node, screenNow());
-          if (feature.placement.type === 'free') onChangeFeature(feature.id, { placement: { ...feature.placement, rotation } });
+          if (feature.placement.type === 'free') latest.current.props.onChangeFeature(feature.id, { placement: { ...feature.placement, rotation } });
         }}
       />
     );
@@ -309,12 +316,13 @@ export function FloorPlan(props: FloorPlanProps) {
       palette={palette}
       draggable={canDrag(stair.id)}
       registerNode={registerNode(stair.id)}
-      onSelect={() => onSelect({ kind: 'object', id: stair.id })}
-      onOpenEditor={() => onOpenEditor(stair.id)}
+      onSelect={() => latest.current.props.onSelect({ kind: 'object', id: stair.id })}
+      onOpenEditor={() => latest.current.props.onOpenEditor(stair.id)}
       dragBound={(pos) => {
         const { room, viewport } = latest.current;
-        const placed = clampStairToRoom({ ...stair, ...toRoomPoint(viewport, pos) }, room, stair);
-        return toScreen(viewport, placed ?? stair);
+        const placed = clampStairToRoom({ ...stair, ...toRoomPoint(viewport, pos) }, room, lastGood.current ?? stair);
+        if (placed) lastGood.current = { x: placed.x, y: placed.y };
+        return toScreen(viewport, lastGood.current ?? stair);
       }}
       onDragMove={(node) => {
         const { shown, viewport } = latest.current;
@@ -324,14 +332,15 @@ export function FloorPlan(props: FloorPlanProps) {
       onDragEnd={(node) => {
         const { viewport } = latest.current;
         const { x, y } = toRoomPoint(viewport, node.position());
+        lastGood.current = null;
         resetNode(node, { ...toScreen(viewport, stair), angle: stair.rotation });
         endLiveConflicts();
-        onChangeStair(stair.id, { x, y });
+        latest.current.props.onChangeStair(stair.id, { x, y });
       }}
       onTransformEnd={(node) => {
         const rotation = node.rotation();
         resetNode(node, { ...toScreen(latest.current.viewport, stair), angle: stair.rotation });
-        onChangeStair(stair.id, { rotation });
+        latest.current.props.onChangeStair(stair.id, { rotation });
       }}
     />
   );

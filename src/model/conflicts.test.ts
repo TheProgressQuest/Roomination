@@ -145,3 +145,15 @@ describe('stairs and interior walls', () => {
     expect(findConflicts({ ...base, features: [door] })).toEqual([]);
   });
 });
+
+describe('checking one moving obstacle', () => {
+  it('only reports conflicts with that obstacle', () => {
+    const stair = createStaircase('straight', { x: 200, y: 150 });
+    const a = createFurniture({ x: 100, y: 150, width: 60, depth: 60 });
+    const b = createFurniture({ x: 120, y: 150, width: 60, depth: 60 }); // overlaps a and the stair
+    const p = { ...project([a, b]), stairs: [stair] };
+    const only = findConflicts(p, undefined, stair.id);
+    expect(only.length).toBeGreaterThan(0);
+    expect(only.every((c) => c.otherId === stair.id)).toBe(true);
+  });
+});
