@@ -1,6 +1,8 @@
 import { featureDefaults } from './features';
-import type { FeatureKind, FloorStyle, Furniture, Placement, Project, Room, RoomFeature } from './types';
+import { DEFAULT_STAIR_WIDTH, stairPreset } from './stairs';
+import type { FeatureKind, FloorStyle, Furniture, Placement, Project, Room, RoomFeature, Staircase } from './types';
 import { CURRENT_SCHEMA_VERSION } from './types';
+import { rectangleOutline } from './walls';
 
 /** Warm, distinguishable furniture colours. Names are read out by screen readers. */
 export const FURNITURE_COLORS = [
@@ -44,11 +46,28 @@ export function createFeature(
   return { id: createId(), ...featureDefaults(kind, room), placement, ...overrides };
 }
 
+export function createStaircase(shape: 'straight' | 'L' | 'U', centre: { x: number; y: number }, overrides: Partial<Staircase> = {}): Staircase {
+  return {
+    id: createId(),
+    name: 'Stairs',
+    x: centre.x,
+    y: centre.y,
+    rotation: 0,
+    direction: 'up',
+    rise: 270,
+    sections: stairPreset(shape, DEFAULT_STAIR_WIDTH, createId),
+    ...overrides,
+  };
+}
+
 export const DEFAULT_FLOOR: FloorStyle = { preset: 'plain', color: '#fffaf2', scale: 1, angle: 0, intensity: 0.5 };
 
-export const DEFAULT_ROOM: Room = { width: 400, length: 350, height: 250, floor: DEFAULT_FLOOR };
+/** A rectangular room with fresh wall ids. Walls run clockwise: top, right, bottom, left. */
+export function createRectangularRoom(width: number, length: number, height = 250, floor: FloorStyle = DEFAULT_FLOOR): Room {
+  return { outline: rectangleOutline(width, length, createId), partitions: [], height, floor };
+}
 
-export function createEmptyProject(room: Room = DEFAULT_ROOM, name = 'My room'): Project {
+export function createEmptyProject(room: Room = createRectangularRoom(400, 350), name = 'My room'): Project {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     name,
@@ -56,19 +75,17 @@ export function createEmptyProject(room: Room = DEFAULT_ROOM, name = 'My room'):
     room,
     furniture: [],
     features: [],
+    stairs: [],
     acceptedOverlaps: [],
   };
 }
 
 /** A cosy living room so first-time visitors have something to play with. */
 export function createSampleProject(): Project {
-  const room: Room = {
-    width: 480,
-    length: 380,
-    height: 260,
-    floor: { preset: 'lightOak', color: '#e2c79f', scale: 1, angle: 0, intensity: 0.5 },
-  };
-  const wall = (wall: 'top' | 'right' | 'bottom' | 'left', offset: number): Placement => ({ type: 'wall', wall, offset });
+  const room = createRectangularRoom(480, 380, 260, { preset: 'lightOak', color: '#e2c79f', scale: 1, angle: 0, intensity: 0.5 });
+  const [top, right, , left] = room.outline;
+  // Offsets run from each wall's start corner, clockwise round the room.
+  const wall = (start: { id: string }, offset: number): Placement => ({ type: 'wall', wallId: start.id, offset });
   const free = (x: number, y: number, rotation = 0): Placement => ({ type: 'free', x, y, rotation });
 
   return {
@@ -86,15 +103,16 @@ export function createSampleProject(): Project {
       createFurniture({ name: 'Plant', category: 'decoration', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#8fb996' }),
     ],
     features: [
-      createFeature('door', wall('left', 320), room, { name: 'Front door', hinge: 'left' }),
-      createFeature('window', wall('top', 90), room, { width: 120 }),
-      createFeature('window', wall('right', 280), room, { name: 'Side window', width: 100 }),
-      createFeature('radiator', wall('top', 90), room, { width: 80 }),
+      createFeature('door', wall(left, 60), room, { name: 'Front door', hinge: 'left' }),
+      createFeature('window', wall(top, 90), room, { width: 120 }),
+      createFeature('window', wall(right, 280), room, { name: 'Side window', width: 100 }),
+      createFeature('radiator', wall(top, 90), room, { width: 80 }),
       createFeature('vent', free(380, 240), room),
-      createFeature('outlet', wall('right', 60), room),
-      createFeature('switch', wall('left', 255), room),
+      createFeature('outlet', wall(right, 60), room),
+      createFeature('switch', wall(left, 125), room),
       createFeature('light', free(240, 200), room),
     ],
+    stairs: [],
     acceptedOverlaps: [],
   };
 }

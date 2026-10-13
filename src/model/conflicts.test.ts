@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { conflictKey, describeConflict, findConflicts } from './conflicts';
-import { createEmptyProject, createFeature, createFurniture, createSampleProject, DEFAULT_FLOOR } from './sample';
+import { stairPolygons } from './stairs';
+import { createEmptyProject, createFeature, createFurniture, createRectangularRoom, createSampleProject, createStaircase } from './sample';
 import type { Furniture, Project, RoomFeature } from './types';
 
+const baseRoom = createRectangularRoom(400, 300);
+const [topWall, , , leftWall] = baseRoom.outline.map((n) => n.id);
+
 function project(furniture: Furniture[], features: RoomFeature[] = [], acceptedOverlaps: string[] = []): Project {
-  return { ...createEmptyProject({ width: 400, length: 300, height: 250, floor: DEFAULT_FLOOR }), furniture, features, acceptedOverlaps };
+  return { ...createEmptyProject(baseRoom), furniture, features, acceptedOverlaps };
 }
 
 const room = { height: 250 };
@@ -61,7 +65,7 @@ describe('findConflicts', () => {
   });
 
   it('flags furniture in a door swing, but not behind an outward door', () => {
-    const door = createFeature('door', { type: 'wall', wall: 'top', offset: 200 }, room, { width: 80 });
+    const door = createFeature('door', { type: 'wall', wallId: topWall, offset: 200 }, room, { width: 80 });
     const chair = createFurniture({ x: 180, y: 40, width: 40, depth: 40 });
     const p = project([chair], [door]);
     expect(describeConflict(findConflicts(p)[0], p)).toMatch(/swing path/);
@@ -71,7 +75,7 @@ describe('findConflicts', () => {
   });
 
   it('only tall furniture blocks a light switch', () => {
-    const sw = createFeature('switch', { type: 'wall', wall: 'left', offset: 150 }, room); // 110 cm up
+    const sw = createFeature('switch', { type: 'wall', wallId: leftWall, offset: 150 }, room); // 110 cm up
     const desk = createFurniture({ x: 40, y: 150, width: 60, depth: 80, height: 75 });
     const wardrobe = { ...desk, height: 200 };
     expect(findConflicts(project([desk], [sw]))).toEqual([]);
@@ -106,5 +110,38 @@ describe('describeConflict', () => {
     const [conflict] = findConflicts(p);
     expect(describeConflict(conflict, p, chair.id)).toBe('Armchair overlaps Coffee table.');
     expect(describeConflict(conflict, p, table.id)).toBe('Coffee table overlaps Armchair.');
+  });
+});
+
+describe('stairs and interior walls', () => {
+  it('flags furniture blocking a staircase, summing coverage across sections', () => {
+    const stair = createStaircase('L', { x: 200, y: 150 });
+    // Centre the desk on the first flight (the middle of an L's bounding box is empty floor).
+    const [firstFlight] = stairPolygons(stair);
+    const centre = { x: firstFlight.reduce((s, p) => s + p.x, 0) / 4, y: firstFlight.reduce((s, p) => s + p.y, 0) / 4 };
+    const desk = createFurniture({ name: 'Desk', ...centre, width: 60, depth: 60 });
+    const p = { ...project([desk]), stairs: [stair] };
+    const [conflict] = findConflicts(p);
+    expect(conflict).toMatchObject({ otherKind: 'stairs', type: 'obstruction', otherId: stair.id });
+    expect(describeConflict(conflict, p)).toMatch(/Desk blocks Stairs \(about \d+% of the stair footprint\)/);
+  });
+
+  it('a stair override is pair-specific like any other', () => {
+    const stair = createStaircase('straight', { x: 200, y: 150 });
+    const desk = createFurniture({ x: 200, y: 150, width: 60, depth: 60 });
+    const key = conflictKey(desk.id, stair.id, 'obstruction');
+    const [conflict] = findConflicts({ ...project([desk], [], [key]), stairs: [stair] });
+    expect(conflict.accepted).toBe(true);
+  });
+
+  it('treats interior walls as solid, except where a door opens', () => {
+    const room = { ...baseRoom, partitions: [{ id: 'p1', nodes: [{ id: 'w1', x: 200, y: 0, thickness: 10 }, { id: 'w2', x: 200, y: 300, thickness: 10 }] }] };
+    const chair = createFurniture({ name: 'Chair', x: 200, y: 60, width: 40, depth: 40 });
+    const base = { ...project([chair]), room };
+    expect(findConflicts(base)[0]).toMatchObject({ otherKind: 'wall', type: 'collision' });
+    expect(describeConflict(findConflicts(base)[0], base)).toBe('Chair overlaps an interior wall.');
+    // A door in the partition at the chair's spot removes that piece of solid wall.
+    const door = createFeature('door', { type: 'wall', wallId: 'w1', offset: 60 }, room, { width: 90, swing: 'out', clearance: 0 });
+    expect(findConflicts({ ...base, features: [door] })).toEqual([]);
   });
 });

@@ -35,11 +35,33 @@ export interface FloorStyle {
   intensity: number;
 }
 
+/**
+ * A corner in a chain of walls. Wall segment *i* runs from node *i* to node *i + 1*;
+ * the segment takes its id and thickness from its START node. Neighbouring segments
+ * share a node, so moving a corner always keeps both walls connected.
+ */
+export interface WallNode {
+  id: string;
+  /** Position of the wall's inner face corner, in cm. */
+  x: number;
+  y: number;
+  /** Thickness of the segment that starts here, in cm (drawn outside the room for outer walls). */
+  thickness: number;
+}
+
+/** A freestanding interior wall: an open chain of nodes (at least two). */
+export interface Partition {
+  id: string;
+  nodes: WallNode[];
+}
+
 export interface Room {
-  /** Interior width along the x axis, in cm. */
-  width: number;
-  /** Interior length along the y axis, in cm. */
-  length: number;
+  /**
+   * The room boundary: a closed chain of at least 3 nodes, stored clockwise on screen
+   * so every wall's right-hand side faces into the room.
+   */
+  outline: WallNode[];
+  partitions: Partition[];
   /** Ceiling height, in cm. Kept for future 3D. */
   height: number;
   floor: FloorStyle;
@@ -81,15 +103,14 @@ export interface Furniture {
 // Room features (doors, windows, outlets, …)
 // ---------------------------------------------------------------------------
 
-export type Wall = 'top' | 'right' | 'bottom' | 'left';
-
 /**
- * Attached to a wall. `offset` is the position of the feature's centre along the wall,
- * measured in room coordinates: x for the top/bottom walls, y for the left/right walls.
+ * Attached to one wall segment (outer or partition). `offset` is the distance in cm
+ * from the segment's start node to the feature's centre, so the feature moves and
+ * turns with its wall.
  */
 export interface WallPlacement {
   type: 'wall';
-  wall: Wall;
+  wallId: string;
   offset: number;
 }
 
@@ -156,10 +177,46 @@ export interface RoomFeature {
 }
 
 // ---------------------------------------------------------------------------
+// Staircases
+// ---------------------------------------------------------------------------
+
+/**
+ * One rectangular piece of a staircase. Sections are laid out one after another from
+ * the previous section's exit; a landing can turn the stair 90° left or right.
+ */
+export interface StairSection {
+  id: string;
+  kind: 'flight' | 'landing';
+  /** Length along the direction of travel, in cm. */
+  length: number;
+  /** Width across the direction of travel, in cm. */
+  width: number;
+  /** Number of treads (flights only). */
+  steps: number;
+  /** Where the next section goes (landings only; flights always continue straight). */
+  turn: 'straight' | 'left' | 'right';
+}
+
+export interface Staircase {
+  id: string;
+  name: string;
+  /** Centre of the staircase's footprint, in cm. */
+  x: number;
+  y: number;
+  /** Clockwise rotation in degrees. */
+  rotation: number;
+  /** Whether the stair goes up or down from the first section. */
+  direction: 'up' | 'down';
+  /** Total height climbed, in cm (approximate; used for the per-step estimate). */
+  rise: number;
+  sections: StairSection[];
+}
+
+// ---------------------------------------------------------------------------
 // Project
 // ---------------------------------------------------------------------------
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** Everything that makes up one saved design. */
 export interface Project {
@@ -170,6 +227,7 @@ export interface Project {
   room: Room;
   furniture: Furniture[];
   features: RoomFeature[];
+  stairs: Staircase[];
   /**
    * Overlaps the user has explicitly accepted. Each key names one specific pair of
    * objects and one kind of constraint (see `conflictKey`), never a global switch.

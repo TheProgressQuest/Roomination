@@ -1,25 +1,22 @@
 import { rotatedHalfExtents } from './geometry';
-import { arcPoints, type Polygon } from './polygon';
-import type { FeatureKind, FreePlacement, Point, Room, RoomFeature, Wall, WallPlacement } from './types';
+import { resolvePosition } from './placement';
+import { arcPoints, convexInsidePolygon, rectPolygon, type Polygon } from './polygon';
+import type { FeatureKind, FreePlacement, Point, Room, RoomFeature, WallPlacement } from './types';
+import { findSegment, nearestWall, outlinePolygon, outlineSegments, pointAlong, roomBounds, wallSegments } from './walls';
 
 /**
  * Geometry for architectural features (doors, windows, vents, …).
  *
  * Each feature is described in its own LOCAL frame and then placed in the room:
- *   - Wall features: local x runs along the wall, local y points INTO the room,
- *     and the origin is the feature's centre on the wall's inside face.
+ *   - Wall features: local x runs along the wall segment (start → end), local y points
+ *     to the segment's right — INTO the room for outer walls, which are stored
+ *     clockwise. The origin is the feature's centre on the wall's inner face.
  *   - Free features: local axes are the feature's own (rotated) axes, origin at its centre.
- * Both cases reduce to "origin + rotation", so drawing and collision code can share
- * one set of local shapes and one transform.
+ * Both reduce to "origin + rotation", so drawing and collision code share one set of
+ * local shapes and one transform — and a door's swing turns with its wall automatically.
  */
 
-export const WALLS: Wall[] = ['top', 'right', 'bottom', 'left'];
-
-/**
- * Rotation that maps local axes onto each wall. Local +x is the viewer's right when
- * standing in the room facing that wall, and local +y points back into the room.
- */
-export const WALL_ANGLE: Record<Wall, number> = { top: 0, right: 90, bottom: 180, left: 270 };
+type RoomWalls = Pick<Room, 'outline' | 'partitions'>;
 
 /** Which kinds may be wall-mounted vs free-standing. Vents can be either. */
 export function allowedPlacement(feature: Pick<RoomFeature, 'kind' | 'ventMount'>): 'wall' | 'free' {
@@ -43,10 +40,6 @@ export function isWallOpening(feature: Pick<RoomFeature, 'kind'>): boolean {
   return feature.kind === 'door' || feature.kind === 'window';
 }
 
-export function wallLength(wall: Wall, room: Pick<Room, 'width' | 'length'>): number {
-  return wall === 'top' || wall === 'bottom' ? room.width : room.length;
-}
-
 export interface Frame {
   x: number;
   y: number;
@@ -54,25 +47,18 @@ export interface Frame {
   angle: number;
 }
 
-/** Where a wall position sits in the room. */
-export function wallFrame(placement: Pick<WallPlacement, 'wall' | 'offset'>, room: Pick<Room, 'width' | 'length'>): Frame {
-  const { wall, offset } = placement;
-  const angle = WALL_ANGLE[wall];
-  switch (wall) {
-    case 'top':
-      return { x: offset, y: 0, angle };
-    case 'right':
-      return { x: room.width, y: offset, angle };
-    case 'bottom':
-      return { x: offset, y: room.length, angle };
-    case 'left':
-      return { x: 0, y: offset, angle };
-  }
+/** Where a wall position sits in the room, or null if the wall doesn't exist. */
+export function wallFrame(placement: Pick<WallPlacement, 'wallId' | 'offset'>, room: RoomWalls): Frame | null {
+  const segment = findSegment(room, placement.wallId);
+  if (!segment) return null;
+  return { ...pointAlong(segment, placement.offset), angle: segment.angle };
 }
 
-export function featureFrame(feature: RoomFeature, room: Pick<Room, 'width' | 'length'>): Frame {
+export function featureFrame(feature: RoomFeature, room: RoomWalls): Frame {
   const p = feature.placement;
-  return p.type === 'wall' ? wallFrame(p, room) : { x: p.x, y: p.y, angle: p.rotation };
+  if (p.type === 'free') return { x: p.x, y: p.y, angle: p.rotation };
+  // A missing wall only happens with invalid data, which the reducer never stores.
+  return wallFrame(p, room) ?? { x: 0, y: 0, angle: 0 };
 }
 
 /** Converts a point from a frame's local coordinates into room coordinates. */
@@ -160,7 +146,7 @@ const ACCESS_SIDE_MARGIN = 10;
 const HEIGHT_TOLERANCE = 10;
 
 /** Zones in room coordinates, most severe first. */
-export function featureZones(feature: RoomFeature, room: Pick<Room, 'width' | 'length'>): Zone[] {
+export function featureZones(feature: RoomFeature, room: RoomWalls): Zone[] {
   const frame = featureFrame(feature, room);
   return localZones(feature).map((zone) => ({ ...zone, polygon: zone.polygon.map((p) => toRoom(frame, p)) }));
 }
@@ -239,17 +225,11 @@ export function localZones(feature: RoomFeature): Zone[] {
 // Placement rules
 // ---------------------------------------------------------------------------
 
-/** Snaps a room point onto the nearest wall, keeping a feature of `width` fully on it. */
-export function snapToWall(point: Point, room: Pick<Room, 'width' | 'length'>, width: number): WallPlacement {
-  const distances: Record<Wall, number> = {
-    top: point.y,
-    bottom: room.length - point.y,
-    left: point.x,
-    right: room.width - point.x,
-  };
-  const wall = WALLS.reduce((best, w) => (distances[w] < distances[best] ? w : best), 'top' as Wall);
-  const along = wall === 'top' || wall === 'bottom' ? point.x : point.y;
-  return { type: 'wall', wall, offset: clampOffset(along, wallLength(wall, room), width) };
+/** Snaps a room point onto the nearest wall long enough to hold a feature of `width`. */
+export function snapToWall(point: Point, room: RoomWalls, width: number): WallPlacement | null {
+  const nearest = nearestWall(room, point, width);
+  if (!nearest) return null;
+  return { type: 'wall', wallId: nearest.segment.id, offset: clampOffset(nearest.offset, nearest.segment.length, width) };
 }
 
 export function clampOffset(offset: number, wallLen: number, width: number): number {
@@ -257,53 +237,61 @@ export function clampOffset(offset: number, wallLen: number, width: number): num
   return Math.min(Math.max(offset, width / 2), wallLen - width / 2);
 }
 
-/** Size of a free feature's floor footprint used for keeping it inside the room. */
+/** Floor footprint of a free feature centred at `centre`. Lights and round columns are circles. */
+export function freeFootprint(feature: RoomFeature, centre: Point, rotation: number): Polygon {
+  const round = feature.kind === 'light' || (feature.kind === 'column' && feature.shape === 'round');
+  if (round) return arcPoints(centre.x, centre.y, feature.width / 2, 0, 360, 16).slice(0, -1);
+  return rectPolygon(centre.x, centre.y, feature.width, feature.depth, rotation);
+}
+
 function freeExtents(feature: RoomFeature, rotation: number) {
   const round = feature.kind === 'light' || (feature.kind === 'column' && feature.shape === 'round');
-  return round
-    ? { halfX: feature.width / 2, halfY: feature.width / 2 }
-    : rotatedHalfExtents(feature.width, feature.depth, rotation);
+  return round ? { halfX: feature.width / 2, halfY: feature.width / 2 } : rotatedHalfExtents(feature.width, feature.depth, rotation);
 }
 
 /**
- * Returns the feature with its placement adjusted to sit fully inside the room
- * (or fully along its wall), or null if it is too big to fit at all.
+ * Returns the feature adjusted to sit fully inside the room (or fully along its wall),
+ * or null if it can't fit there at all. `from` is the last good position while dragging.
  */
-export function clampFeatureToRoom(feature: RoomFeature, room: Pick<Room, 'width' | 'length'>): RoomFeature | null {
+export function clampFeatureToRoom(feature: RoomFeature, room: RoomWalls, from?: Point): RoomFeature | null {
   const p = feature.placement;
   if (p.type === 'wall') {
-    const len = wallLength(p.wall, room);
-    if (feature.width > len + 1e-6) return null;
-    // Projection into the room must fit across the room too.
-    const across = p.wall === 'top' || p.wall === 'bottom' ? room.length : room.width;
-    if (feature.depth > across + 1e-6) return null;
-    return { ...feature, placement: { ...p, offset: clampOffset(p.offset, len, feature.width) } };
+    const segment = findSegment(room, p.wallId);
+    if (!segment || feature.width > segment.length + 1e-6) return null;
+    return { ...feature, placement: { ...p, offset: clampOffset(p.offset, segment.length, feature.width) } };
   }
-  const { halfX, halfY } = freeExtents(feature, p.rotation);
-  if (halfX * 2 > room.width + 1e-6 || halfY * 2 > room.length + 1e-6) return null;
-  const clamp = (v: number, half: number, max: number) => (half * 2 >= max ? max / 2 : Math.min(Math.max(v, half), max - half));
-  const placement: FreePlacement = { ...p, x: clamp(p.x, halfX, room.width), y: clamp(p.y, halfY, room.length) };
+  const poly = outlinePolygon(room);
+  const centre = resolvePosition(p, {
+    roomBox: roomBounds(room),
+    ...freeExtents(feature, p.rotation),
+    fits: (c) => convexInsidePolygon(freeFootprint(feature, c, p.rotation), poly),
+    from,
+  });
+  if (!centre) return null;
+  const placement: FreePlacement = { ...p, x: centre.x, y: centre.y };
   return { ...feature, placement };
 }
 
 /** Converts a feature between wall-mounted and free placement, keeping it near where it was. */
-export function convertPlacement(feature: RoomFeature, target: 'wall' | 'free', room: Pick<Room, 'width' | 'length'>): RoomFeature {
+export function convertPlacement(feature: RoomFeature, target: 'wall' | 'free', room: RoomWalls): RoomFeature {
   const p = feature.placement;
   if (p.type === target) return feature;
   if (p.type === 'free') {
-    return { ...feature, placement: snapToWall(p, room, feature.width) };
+    const placement = snapToWall(p, room, feature.width);
+    return placement ? { ...feature, placement } : feature;
   }
   // Step off the wall into the room, facing the same way.
   const frame = wallFrame(p, room);
+  if (!frame) return feature;
   const centre = toRoom(frame, { x: 0, y: feature.depth / 2 + 5 });
   return { ...feature, placement: { type: 'free', x: centre.x, y: centre.y, rotation: frame.angle } };
 }
 
-/** The interval a wall opening occupies along its wall. */
-export function openingSpan(feature: RoomFeature): { wall: Wall; start: number; end: number } | null {
+/** The stretch of wall a door or window occupies. */
+export function openingSpan(feature: RoomFeature): { wallId: string; start: number; end: number } | null {
   if (!isWallOpening(feature) || feature.placement.type !== 'wall') return null;
-  const { wall, offset } = feature.placement;
-  return { wall, start: offset - feature.width / 2, end: offset + feature.width / 2 };
+  const { wallId, offset } = feature.placement;
+  return { wallId, start: offset - feature.width / 2, end: offset + feature.width / 2 };
 }
 
 /** Another door or window on the same wall that this opening would overlap, if any. */
@@ -313,32 +301,32 @@ export function findOverlappingOpening(feature: RoomFeature, others: RoomFeature
   return findOpeningInSpan(span, others.filter((other) => other.id !== feature.id));
 }
 
-function findOpeningInSpan(span: { wall: Wall; start: number; end: number }, features: RoomFeature[]): RoomFeature | null {
+function findOpeningInSpan(span: { wallId: string; start: number; end: number }, features: RoomFeature[]): RoomFeature | null {
   for (const other of features) {
     const o = openingSpan(other);
     // Half a centimetre of tolerance lets openings sit exactly side by side.
-    if (o && o.wall === span.wall && span.start < o.end - 0.5 && o.start < span.end - 0.5) return other;
+    if (o && o.wallId === span.wallId && span.start < o.end - 0.5 && o.start < span.end - 0.5) return other;
   }
   return null;
 }
 
-/** Finds a spot along the walls where a new opening of `width` fits, preferring `preferred`. */
-export function findFreeWallSpot(
-  features: RoomFeature[],
-  room: Pick<Room, 'width' | 'length'>,
-  width: number,
-  preferred: Wall,
-): WallPlacement | null {
-  const order = [preferred, ...WALLS.filter((w) => w !== preferred)];
-  for (const wall of order) {
-    const len = wallLength(wall, room);
+/**
+ * Finds a spot where a new opening of `width` fits. Outer walls are tried first, starting
+ * with `preferredIndex` (e.g. the bottom wall of a rectangle for doors), then interior walls.
+ */
+export function findFreeWallSpot(features: RoomFeature[], room: RoomWalls, width: number, preferredIndex = 0): WallPlacement | null {
+  const outer = outlineSegments(room);
+  const ordered = [...outer.slice(preferredIndex % outer.length), ...outer.slice(0, preferredIndex % outer.length)];
+  const interior = wallSegments(room).filter((s) => s.chain !== 'outline');
+  for (const segment of [...ordered, ...interior]) {
+    const len = segment.length;
     if (width > len) continue;
     // Try the middle of the wall first, then step outwards towards the corners.
     for (let step = 0; step <= len / 2; step += 10) {
       for (const candidate of [len / 2 - step, len / 2 + step]) {
         const offset = clampOffset(candidate, len, width);
-        const span = { wall, start: offset - width / 2, end: offset + width / 2 };
-        if (!findOpeningInSpan(span, features)) return { type: 'wall', wall, offset };
+        const span = { wallId: segment.id, start: offset - width / 2, end: offset + width / 2 };
+        if (!findOpeningInSpan(span, features)) return { type: 'wall', wallId: segment.id, offset };
       }
     }
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSampleProject } from '../model/sample';
+import { featureFrame } from '../model/features';
+import { createSampleProject, createStaircase } from '../model/sample';
 import { parseProject, parseProjectFile, serializeProject } from './projectFile';
 
 /** Exactly what Phase 1 wrote to IndexedDB. */
@@ -16,7 +17,7 @@ describe('parseProject', () => {
     const result = parseProject(phase1Save);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.project.schemaVersion).toBe(2);
+    expect(result.project.schemaVersion).toBe(3);
     expect(result.project.furniture[0]).toMatchObject({ name: 'Sofa', category: 'furniture', texture: 'plain' });
     expect(result.project.features).toEqual([]);
     expect(result.project.room.floor.preset).toBe('plain');
@@ -70,5 +71,44 @@ describe('parseProject', () => {
     const door = { kind: 'door', name: 'Door', placement: { type: 'wall', wall: 'top', offset: 100 }, width: 80, depth: 0, height: 200, elevation: 0, clearance: 50 };
     const result = parseProject({ ...phase1Save, schemaVersion: 2, features: [door, { ...door, placement: { ...door.placement, offset: 120 } }] });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('schema migration and round-trips', () => {
+  it('converts Phase 2 named-wall placements to wall ids at the same positions', () => {
+    const phase2 = {
+      ...phase1Save,
+      schemaVersion: 2,
+      features: [
+        { kind: 'door', name: 'Door', placement: { type: 'wall', wall: 'left', offset: 320 }, width: 80, depth: 0, height: 200, elevation: 0, clearance: 50 },
+        { kind: 'window', name: 'Window', placement: { type: 'wall', wall: 'bottom', offset: 100 }, width: 80, depth: 0, height: 100, elevation: 90, clearance: 0 },
+      ],
+    };
+    const result = parseProject(phase2);
+    if (!result.ok) throw new Error(result.error);
+    const [door, window] = result.project.features;
+    // Room is 400 × 300: left wall runs upwards from (0,300), so y = 320 would be off the wall
+    // — it is clamped onto the 300 cm wall, and the bottom wall runs right-to-left.
+    expect(door.placement).toMatchObject({ wallId: 'wall-left' });
+    expect(featureFrame(window, result.project.room)).toMatchObject({ x: 100, y: 300, angle: 180 });
+  });
+
+  it('round-trips articulated walls, interior walls and stairs', () => {
+    const project = createSampleProject();
+    project.room.outline[1] = { ...project.room.outline[1], x: 520 };
+    project.room.partitions = [{ id: 'p', nodes: [{ id: 'p1', x: 100, y: 100, thickness: 10 }, { id: 'p2', x: 100, y: 200, thickness: 10 }] }];
+    project.stairs = [createStaircase('U', { x: 300, y: 150 })];
+    const result = parseProjectFile(serializeProject(project));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.project.room).toEqual(project.room);
+    expect(result.project.stairs).toEqual(project.stairs);
+  });
+
+  it('rejects files whose walls cross or reference missing walls', () => {
+    const project = createSampleProject();
+    const bowTie = { ...project, room: { ...project.room, outline: [project.room.outline[0], project.room.outline[2], project.room.outline[1], project.room.outline[3]] } };
+    expect(parseProjectFile(serializeProject(bowTie))).toMatchObject({ ok: false, error: expect.stringMatching(/cross/) });
+    const orphan = { ...project, features: [{ ...project.features[0], placement: { type: 'wall', wallId: 'nope', offset: 10 } }] };
+    expect(parseProjectFile(serializeProject(orphan as never))).toMatchObject({ ok: false, error: expect.stringMatching(/doesn’t exist/) });
   });
 });

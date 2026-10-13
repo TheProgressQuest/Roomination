@@ -5,15 +5,24 @@ import {
   convertPlacement,
   findOverlappingOpening,
 } from '../model/features';
+import { MIN_FURNITURE_SIZE, MIN_ROOM_SIZE, normalizeRotation, roundLength } from '../model/geometry';
+import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
+import { applyRoomChange } from '../model/roomChange';
+import type { FloorStyle, Furniture, Partition, Placement, Point, Project, Room, RoomFeature, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
-  MAX_ROOM_SIZE,
-  MIN_FURNITURE_SIZE,
-  MIN_ROOM_SIZE,
-  clampCenterToRoom,
-  normalizeRotation,
-  roundLength,
-} from '../model/geometry';
-import type { FloorStyle, Furniture, Placement, Project, Room, RoomFeature, UnitSystem } from '../model/types';
+  MAX_ROOM_SPAN,
+  deleteWall,
+  findSegment,
+  mergeWithNext,
+  moveNode,
+  normalizeOutline,
+  removeNode,
+  resizeRectangle,
+  setWallAngle,
+  setWallLength,
+  setWallThickness,
+  splitWall,
+} from '../model/walls';
 
 /**
  * The editor's state machine. Every change to a project goes through `editorReducer`,
@@ -64,7 +73,24 @@ export type EditorAction =
   | { type: 'project/replace'; project: Project; resetHistory?: boolean }
   | { type: 'project/rename'; name: string }
   | { type: 'units/set'; units: UnitSystem }
-  | { type: 'room/resize'; room: Partial<Pick<Room, 'width' | 'length' | 'height'>> }
+  /** Rectangular rooms only: change width/length (keeping the top-left corner). */
+  | { type: 'room/resize'; width: number; length: number }
+  | { type: 'room/setHeight'; height: number }
+  | { type: 'walls/moveNode'; nodeId: string; to: Point }
+  | { type: 'walls/setLength'; wallId: string; length: number }
+  | { type: 'walls/setAngle'; wallId: string; angle: number }
+  | { type: 'walls/setThickness'; wallId: string; thickness: number }
+  /** Inserts a corner `distance` cm along the wall (a new vertex). */
+  | { type: 'walls/split'; wallId: string; distance: number; newId: string }
+  | { type: 'walls/removeNode'; nodeId: string }
+  | { type: 'walls/merge'; wallId: string }
+  | { type: 'walls/delete'; wallId: string; newPartitionId: string }
+  /** Replaces the whole outline with newly drawn corners. */
+  | { type: 'walls/replaceOutline'; nodes: WallNode[] }
+  | { type: 'walls/addPartition'; partition: Partition }
+  | { type: 'stairs/add'; stair: Staircase }
+  | { type: 'stairs/update'; id: string; changes: Partial<Omit<Staircase, 'id'>> }
+  | { type: 'stairs/delete'; id: string }
   | { type: 'floor/set'; floor: Partial<FloorStyle>; mergeKey?: string }
   | { type: 'furniture/add'; furniture: Furniture }
   | { type: 'furniture/update'; id: string; changes: Partial<Omit<Furniture, 'id'>>; mergeKey?: string }
@@ -196,33 +222,62 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       return action.units === project.units ? project : { ...project, units: action.units };
 
     case 'room/resize': {
-      const room: Room = { ...project.room, ...action.room };
-      for (const value of [room.width, room.length, room.height]) {
-        if (!Number.isFinite(value) || value < MIN_ROOM_SIZE || value > MAX_ROOM_SIZE) {
-          return `Room dimensions must be between ${MIN_ROOM_SIZE} cm and ${MAX_ROOM_SIZE / 100} m.`;
+      for (const value of [action.width, action.length]) {
+        if (!Number.isFinite(value) || value < MIN_ROOM_SIZE || value > MAX_ROOM_SPAN) {
+          return `Room dimensions must be between ${MIN_ROOM_SIZE} cm and ${MAX_ROOM_SPAN / 100} m.`;
         }
       }
-      if (room.width === project.room.width && room.length === project.room.length && room.height === project.room.height) {
-        return project;
-      }
-      // Shrinking the room nudges everything inwards; things that can't fit block the change.
-      const furniture: Furniture[] = [];
-      for (const item of project.furniture) {
-        const placed = clampCenterToRoom(item, room);
-        if (!placed) return `“${item.name}” wouldn't fit in a room that size. Move or shrink it first.`;
-        furniture.push(placed);
-      }
-      const features: RoomFeature[] = [];
-      for (const feature of project.features) {
-        const placed = clampFeatureToRoom(feature, room);
-        if (!placed) return `“${feature.name}” wouldn't fit in a room that size.`;
-        features.push(placed);
-      }
-      for (const feature of features) {
-        const clash = findOverlappingOpening(feature, features);
-        if (clash) return `“${feature.name}” and “${clash.name}” would overlap on a wall that short.`;
-      }
-      return { ...project, room, furniture, features };
+      return roomEdit(project, resizeRectangle(project.room, roundLength(action.width), roundLength(action.length)));
+    }
+
+    case 'room/setHeight': {
+      if (!Number.isFinite(action.height) || action.height < MIN_ROOM_SIZE || action.height > 2000) return `Ceiling height must be between ${MIN_ROOM_SIZE} cm and 20 m.`;
+      return action.height === project.room.height ? project : { ...project, room: { ...project.room, height: roundLength(action.height) } };
+    }
+
+    case 'walls/moveNode':
+      return roomEdit(project, moveNode(project.room, action.nodeId, { x: roundLength(action.to.x), y: roundLength(action.to.y) }));
+    case 'walls/setLength':
+      return roomEdit(project, setWallLength(project.room, action.wallId, action.length));
+    case 'walls/setAngle':
+      return roomEdit(project, setWallAngle(project.room, action.wallId, action.angle));
+    case 'walls/setThickness':
+      return roomEdit(project, setWallThickness(project.room, action.wallId, action.thickness));
+    case 'walls/removeNode':
+      return roomEdit(project, removeNode(project.room, action.nodeId));
+    case 'walls/merge':
+      return roomEdit(project, mergeWithNext(project.room, action.wallId));
+    case 'walls/delete':
+      return roomEdit(project, deleteWall(project.room, action.wallId, action.newPartitionId), 'reject');
+    case 'walls/split':
+      return splitWallEdit(project, action.wallId, action.distance, action.newId);
+    case 'walls/replaceOutline':
+      return roomEdit(project, { ...project.room, outline: normalizeOutline(action.nodes) });
+    case 'walls/addPartition':
+      return roomEdit(project, { ...project.room, partitions: [...project.room.partitions, action.partition] });
+
+    case 'stairs/add': {
+      const placed = clampStairToRoom(sanitizeStair(action.stair), project.room);
+      if (!placed) return `“${action.stair.name}” doesn’t fit in this room.`;
+      return { ...project, stairs: [...project.stairs, placed] };
+    }
+
+    case 'stairs/update': {
+      const current = project.stairs.find((s) => s.id === action.id);
+      if (!current) return project;
+      const merged = sanitizeStair({ ...current, ...action.changes, id: current.id });
+      if (merged.sections.length === 0) return 'A staircase needs at least one section.';
+      const sizes = merged.sections.flatMap((s) => [s.length, s.width]);
+      if (!sizes.every((v) => Number.isFinite(v) && v >= 10 && v <= 2000)) return 'Stair sections must be between 10 cm and 20 m.';
+      if (![merged.x, merged.y, merged.rotation, merged.rise].every(Number.isFinite)) return 'Please enter a number.';
+      const placed = clampStairToRoom(merged, project.room, { x: current.x, y: current.y });
+      if (!placed) return `“${current.name}” wouldn’t fit in the room like that.`;
+      return { ...project, stairs: project.stairs.map((s) => (s.id === current.id ? placed : s)) };
+    }
+
+    case 'stairs/delete': {
+      if (!project.stairs.some((s) => s.id === action.id)) return project;
+      return { ...project, stairs: project.stairs.filter((s) => s.id !== action.id) };
     }
 
     case 'floor/set': {
@@ -234,7 +289,7 @@ function applyEdit(project: Project, action: EditAction): Project | string {
     }
 
     case 'furniture/add': {
-      const placed = clampCenterToRoom(sanitizeFurniture(action.furniture), project.room);
+      const placed = clampFurnitureToRoom(sanitizeFurniture(action.furniture), project.room);
       if (!placed) return `“${action.furniture.name}” is too big for this room.`;
       return { ...project, furniture: [...project.furniture, placed] };
     }
@@ -249,7 +304,8 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       if (!sizes.every((size) => Number.isFinite(size)) || merged.width < MIN_FURNITURE_SIZE || merged.depth < MIN_FURNITURE_SIZE || merged.height <= 0) {
         return `Furniture must be at least ${MIN_FURNITURE_SIZE} cm wide and deep.`;
       }
-      const placed = clampCenterToRoom(merged, project.room);
+      // Starting from where it last fitted lets it slide along walls instead of jumping.
+      const placed = clampFurnitureToRoom(merged, project.room, { x: current.x, y: current.y });
       if (!placed) return `“${current.name}” wouldn't fit in the room like that.`;
       if (sameValues(placed, current)) return project;
       return { ...project, furniture: project.furniture.map((f) => (f.id === current.id ? placed : f)) };
@@ -296,11 +352,54 @@ function applyEdit(project: Project, action: EditAction): Project | string {
   }
 }
 
-/** The furniture piece or feature that differs between two versions, if exactly one does. */
+/** The furniture piece, feature or staircase that differs between two versions, if exactly one does. */
 function changedObjectId(before: Project, after: Project): string | null {
-  const previous = new Map<string, unknown>([...before.furniture, ...before.features].map((o) => [o.id, o]));
-  const changed = [...after.furniture, ...after.features].filter((o) => previous.get(o.id) !== o);
+  const previous = new Map<string, unknown>([...before.furniture, ...before.features, ...before.stairs].map((o) => [o.id, o]));
+  const changed = [...after.furniture, ...after.features, ...after.stairs].filter((o) => previous.get(o.id) !== o);
   return changed.length === 1 ? changed[0].id : null;
+}
+
+/** Runs a wall edit and re-validates everything attached to the walls. */
+function roomEdit(project: Project, result: Room | string, orphans: 'reattach' | 'reject' = 'reattach'): Project | string {
+  if (typeof result === 'string') return result;
+  return applyRoomChange(project, result, orphans);
+}
+
+/**
+ * Splitting a wall: features beyond the split point move onto the new second half, so
+ * they stay exactly where they were. A split can't go through a feature.
+ */
+function splitWallEdit(project: Project, wallId: string, distance: number, newId: string): Project | string {
+  const result = splitWall(project.room, wallId, distance, newId);
+  if (typeof result === 'string') return result;
+  const blocking = project.features.find(
+    (f) => f.placement.type === 'wall' && f.placement.wallId === wallId && Math.abs(f.placement.offset - distance) < f.width / 2,
+  );
+  if (blocking) return `The split point runs through “${blocking.name}”. Move it or split the wall somewhere else.`;
+  const features = project.features.map((f) =>
+    f.placement.type === 'wall' && f.placement.wallId === wallId && f.placement.offset > distance
+      ? { ...f, placement: { ...f.placement, wallId: newId, offset: f.placement.offset - distance } }
+      : f,
+  );
+  return applyRoomChange({ ...project, features }, result.room);
+}
+
+function sanitizeStair(stair: Staircase): Staircase {
+  return {
+    ...stair,
+    name: stair.name.trim() || 'Stairs',
+    x: roundLength(stair.x),
+    y: roundLength(stair.y),
+    rotation: roundLength(normalizeRotation(stair.rotation)),
+    rise: Math.max(0, roundLength(stair.rise)),
+    sections: stair.sections.map((s) => ({
+      ...s,
+      length: roundLength(s.length),
+      width: roundLength(s.width),
+      steps: s.kind === 'flight' ? Math.max(1, Math.round(s.steps)) : 0,
+      turn: s.kind === 'landing' ? s.turn : 'straight',
+    })),
+  };
 }
 
 /** Validates a feature's numbers, keeps it inside the room, and stops openings overlapping. */
@@ -314,6 +413,7 @@ function placeFeature(feature: RoomFeature, project: Project): RoomFeature | str
   }
   if (feature.kind === 'column' && feature.shape === 'round') feature = { ...feature, depth: feature.width };
 
+  if (feature.placement.type === 'wall' && !findSegment(project.room, feature.placement.wallId)) return 'That wall no longer exists.';
   const placed = clampFeatureToRoom(feature, project.room);
   if (!placed) return `“${feature.name}” is too big for that spot.`;
   const clash = findOverlappingOpening(placed, project.features);
@@ -363,7 +463,7 @@ function sameValues<T extends object>(a: T, b: T): boolean {
 }
 
 function samePlacement(a: Placement, b: Placement): boolean {
-  if (a.type === 'wall' && b.type === 'wall') return a.wall === b.wall && a.offset === b.offset;
+  if (a.type === 'wall' && b.type === 'wall') return a.wallId === b.wallId && a.offset === b.offset;
   if (a.type === 'free' && b.type === 'free') return a.x === b.x && a.y === b.y && a.rotation === b.rotation;
   return false;
 }

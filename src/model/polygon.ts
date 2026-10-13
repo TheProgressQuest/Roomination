@@ -1,11 +1,12 @@
 import type { Point } from './types';
 
 /**
- * Convex polygon helpers used for collision detection.
+ * Polygon helpers for collision detection and room boundaries.
  *
- * Every shape we test (rotated rectangles, door swing sectors, clearance zones) is
- * convex, which lets us compute the exact overlap area with a simple clipping
- * algorithm instead of approximations. Polygons are lists of points in room cm.
+ * Furniture, door swings and clearance zones are convex, so overlaps between them are
+ * computed exactly by clipping. Rooms may be concave (L- or U-shaped); clipping a
+ * concave room by a convex shape still yields the exact shared area, which is how
+ * "is this piece fully inside the room?" is answered. Polygons are lists of points in cm.
  */
 
 export type Polygon = Point[];
@@ -59,7 +60,7 @@ function boxesOverlap(a: Box, b: Box): boolean {
 }
 
 /** Signed area ×2; positive when the polygon winds clockwise on screen (y down). */
-function signedArea2(poly: Polygon): number {
+export function signedArea2(poly: Polygon): number {
   let sum = 0;
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i];
@@ -117,4 +118,83 @@ export function arcPoints(cx: number, cy: number, radius: number, fromDeg: numbe
     points.push({ x: cx + radius * Math.cos(rad), y: cy + radius * Math.sin(rad) });
   }
   return points;
+}
+
+// ---------------------------------------------------------------------------
+// General (possibly concave) polygons
+// ---------------------------------------------------------------------------
+
+export function isClockwise(poly: Polygon): boolean {
+  return signedArea2(poly) > 0;
+}
+
+/** Even-odd ray casting. Points exactly on an edge may go either way. */
+export function pointInPolygon(p: Point, poly: Polygon): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function cross(o: Point, a: Point, b: Point): number {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+/** True when segments ab and cd cross or touch (including collinear overlap). */
+export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  const onSegment = (p: Point, q: Point, r: Point) =>
+    Math.min(p.x, q.x) - 1e-9 <= r.x && r.x <= Math.max(p.x, q.x) + 1e-9 && Math.min(p.y, q.y) - 1e-9 <= r.y && r.y <= Math.max(p.y, q.y) + 1e-9;
+  const eps = 1e-9;
+  return (
+    (Math.abs(d1) < eps && onSegment(c, d, a)) ||
+    (Math.abs(d2) < eps && onSegment(c, d, b)) ||
+    (Math.abs(d3) < eps && onSegment(a, b, c)) ||
+    (Math.abs(d4) < eps && onSegment(a, b, d))
+  );
+}
+
+/**
+ * The first pair of edges that cross in a closed polygon, or null if it is simple.
+ * Neighbouring edges share a corner, so only non-adjacent pairs are compared.
+ */
+export function findSelfIntersection(poly: Polygon): [number, number] | null {
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+      if (segmentsIntersect(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n])) return [i, j];
+    }
+  }
+  return null;
+}
+
+/** Closest point to `p` on segment ab, and how far along it is (0 = a, 1 = b). */
+export function projectOntoSegment(p: Point, a: Point, b: Point): { point: Point; t: number; distance: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq));
+  const point = { x: a.x + dx * t, y: a.y + dy * t };
+  return { point, t, distance: Math.hypot(p.x - point.x, p.y - point.y) };
+}
+
+/**
+ * Whether a convex shape lies entirely inside a (possibly concave) polygon: the part
+ * of the polygon inside the shape must be the whole shape. A small tolerance absorbs
+ * floating-point noise for pieces standing flush against a wall.
+ */
+export function convexInsidePolygon(shape: Polygon, container: Polygon): boolean {
+  const shapeArea = polygonArea(shape);
+  if (shapeArea === 0) return shape.every((p) => pointInPolygon(p, container));
+  const clipped = clipConvex(container, shape);
+  const inside = clipped.length < 3 ? 0 : polygonArea(clipped);
+  return inside >= shapeArea * (1 - 1e-6) - 1e-6;
 }

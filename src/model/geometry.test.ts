@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { clampCenterToRoom, fitsInRoom, furnitureBounds, normalizeRotation, rotatedHalfExtents } from './geometry';
+import { furnitureBounds, normalizeRotation, rotatedHalfExtents } from './geometry';
+import { clampFurnitureToRoom } from './placement';
+import type { WallNode } from './types';
 
-const room = { width: 400, length: 300, height: 250 };
+let nextId = 0;
+const makeId = () => `n${nextId++}`;
+const outlineOf = (...points: [number, number][]): { outline: WallNode[] } => ({
+  outline: points.map(([x, y]) => ({ id: makeId(), x, y, thickness: 12 })),
+});
+
+const rectangle = outlineOf([0, 0], [400, 0], [400, 300], [0, 300]);
+/** An L-shaped room: a 400×300 rectangle with the bottom-right 200×150 corner missing. */
+const lShape = outlineOf([0, 0], [400, 0], [400, 150], [200, 150], [200, 300], [0, 300]);
 const sofa = { x: 200, y: 150, width: 200, depth: 90, rotation: 0 };
 
 describe('normalizeRotation', () => {
@@ -21,40 +31,78 @@ describe('rotatedHalfExtents', () => {
   });
 
   it('grows the footprint at 45°', () => {
-    const { halfX } = rotatedHalfExtents(100, 100, 45);
-    expect(halfX).toBeCloseTo(Math.SQRT2 * 50);
+    expect(rotatedHalfExtents(100, 100, 45).halfX).toBeCloseTo(Math.SQRT2 * 50);
   });
 });
 
-describe('clampCenterToRoom', () => {
+describe('clampFurnitureToRoom — rectangular rooms (Phase 1 behaviour)', () => {
   it('leaves a piece that is already inside alone', () => {
-    expect(clampCenterToRoom(sofa, room)).toEqual(sofa);
+    expect(clampFurnitureToRoom(sofa, rectangle)).toEqual(sofa);
   });
 
-  it('pushes a piece back inside each wall', () => {
-    const clamped = clampCenterToRoom({ ...sofa, x: -50, y: 999 }, room)!;
+  it('pushes a piece back inside each wall by the minimum distance', () => {
+    const clamped = clampFurnitureToRoom({ ...sofa, x: -50, y: 999 }, rectangle)!;
     const bounds = furnitureBounds(clamped);
     expect(bounds.minX).toBeCloseTo(0);
-    expect(bounds.maxY).toBeCloseTo(room.length);
+    expect(bounds.maxY).toBeCloseTo(300);
   });
 
   it('uses the rotated footprint, not the raw width', () => {
-    // Rotated 90°, the sofa is only 90 cm wide on the floor, so it can sit 45 cm from the wall.
-    const clamped = clampCenterToRoom({ ...sofa, x: 0, rotation: 90 }, room)!;
+    const clamped = clampFurnitureToRoom({ ...sofa, x: 0, rotation: 90 }, rectangle)!;
     expect(clamped.x).toBeCloseTo(45);
     expect(clamped.y).toBeCloseTo(150);
   });
 
   it('refuses pieces that are too big', () => {
-    expect(clampCenterToRoom({ ...sofa, width: 401 }, room)).toBeNull();
-    // 350 wide fits flat, but not rotated 90° in a 300 cm long room.
-    expect(fitsInRoom({ width: 350, depth: 50, rotation: 0 }, room)).toBe(true);
-    expect(fitsInRoom({ width: 350, depth: 50, rotation: 90 }, room)).toBe(false);
+    expect(clampFurnitureToRoom({ ...sofa, width: 401 }, rectangle)).toBeNull();
+    expect(clampFurnitureToRoom({ ...sofa, width: 350, depth: 50, rotation: 90 }, rectangle)).toBeNull();
   });
 
   it('accepts an exact fit despite floating-point noise', () => {
-    const clamped = clampCenterToRoom({ x: 10, y: 10, width: 300, depth: 400, rotation: 90 }, room)!;
+    const clamped = clampFurnitureToRoom({ x: 10, y: 10, width: 300, depth: 400, rotation: 90 }, rectangle)!;
     expect(clamped.x).toBeCloseTo(200);
     expect(clamped.y).toBeCloseTo(150);
+  });
+});
+
+describe('clampFurnitureToRoom — concave rooms', () => {
+  it('accepts a piece fully inside either leg of an L', () => {
+    const table = { x: 100, y: 250, width: 80, depth: 60, rotation: 0 };
+    expect(clampFurnitureToRoom(table, lShape)).toEqual(table);
+  });
+
+  it('rejects positions in the missing corner, even though they are inside the bounding box', () => {
+    const table = { x: 300, y: 250, width: 80, depth: 60, rotation: 0 };
+    const placed = clampFurnitureToRoom(table, lShape)!;
+    expect(placed).not.toEqual(table);
+    // Moved to the nearest spot that really is inside the L.
+    const b = furnitureBounds(placed);
+    const inTopLeg = b.maxY <= 150 + 1e-6;
+    const inLeftLeg = b.maxX <= 200 + 1e-6;
+    expect(inTopLeg || inLeftLeg).toBe(true);
+    // Nearest valid spot: straight up into the top leg (130 cm); the left leg would be 140 cm.
+    expect(Math.hypot(placed.x - 300, placed.y - 250)).toBeCloseTo(130, 0);
+  });
+
+  it('a piece straddling the inner corner is pushed clear of it', () => {
+    // Centred right on the reflex corner (200,150): corners poke into the missing area.
+    const placed = clampFurnitureToRoom({ x: 210, y: 160, width: 60, depth: 60, rotation: 0 }, lShape)!;
+    const b = furnitureBounds(placed);
+    expect(b.maxY <= 150 + 1e-6 || b.maxX <= 200 + 1e-6).toBe(true);
+  });
+
+  it('slides along a wall while dragging instead of jumping', () => {
+    // Dragging right along the top leg, past the room's right wall.
+    const placed = clampFurnitureToRoom({ x: 500, y: 60, width: 80, depth: 60, rotation: 0 }, lShape, { x: 300, y: 60 })!;
+    expect(placed.x).toBeCloseTo(360);
+    expect(placed.y).toBeCloseTo(60);
+  });
+
+  it('handles rotated furniture against an angled wall', () => {
+    // A room with a slanted right wall.
+    const slanted = outlineOf([0, 0], [300, 0], [400, 300], [0, 300]);
+    const placed = clampFurnitureToRoom({ x: 380, y: 280, width: 60, depth: 40, rotation: 30 }, slanted)!;
+    expect(placed).not.toBeNull();
+    expect(placed.x).toBeLessThan(380);
   });
 });

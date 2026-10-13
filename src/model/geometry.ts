@@ -1,4 +1,4 @@
-import type { Furniture, Room } from './types';
+import type { Furniture } from './types';
 
 /**
  * Geometry rules shared by every way of changing furniture (dragging, rotating,
@@ -8,10 +8,8 @@ import type { Furniture, Room } from './types';
 
 /** Smallest allowed furniture dimension, in cm. */
 export const MIN_FURNITURE_SIZE = 5;
-/** Smallest allowed room dimension, in cm. */
+/** Smallest allowed width/length when resizing a rectangular room, in cm. */
 export const MIN_ROOM_SIZE = 50;
-/** Largest allowed room dimension, in cm (100 m — keeps the canvas sane). */
-export const MAX_ROOM_SIZE = 10_000;
 
 export interface Bounds {
   minX: number;
@@ -53,34 +51,6 @@ export function furnitureBounds(item: Pick<Furniture, 'x' | 'y' | 'width' | 'dep
     maxX: item.x + halfX,
     maxY: item.y + halfY,
   };
-}
-
-/** Whether a piece, at its current size and rotation, could fit in the room at all. */
-export function fitsInRoom(item: Pick<Furniture, 'width' | 'depth' | 'rotation'>, room: Pick<Room, 'width' | 'length'>): boolean {
-  const { halfX, halfY } = rotatedHalfExtents(item.width, item.depth, item.rotation);
-  // Tiny tolerance so floating-point noise (e.g. cos(90°) ≈ 6e-17) never rejects a perfect fit.
-  const epsilon = 1e-6;
-  return halfX * 2 <= room.width + epsilon && halfY * 2 <= room.length + epsilon;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-/**
- * Moves a piece's centre the minimum distance needed to keep it fully inside the
- * room. Returns null when the piece is too big to fit at its current rotation.
- */
-export function clampCenterToRoom<T extends Pick<Furniture, 'x' | 'y' | 'width' | 'depth' | 'rotation'>>(
-  item: T,
-  room: Pick<Room, 'width' | 'length'>,
-): T | null {
-  if (!fitsInRoom(item, room)) return null;
-  const { halfX, halfY } = rotatedHalfExtents(item.width, item.depth, item.rotation);
-  // When a piece exactly fills a dimension, min and max can cross by a rounding hair.
-  const x = halfX * 2 >= room.width ? room.width / 2 : clamp(item.x, halfX, room.width - halfX);
-  const y = halfY * 2 >= room.length ? room.length / 2 : clamp(item.y, halfY, room.length - halfY);
-  return { ...item, x, y };
 }
 
 /** Rounds a length to 0.01 mm so stored numbers stay tidy without losing precision. */

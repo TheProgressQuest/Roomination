@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { furnitureBounds } from '../model/geometry';
 import { conflictKey } from '../model/conflicts';
-import { DEFAULT_FLOOR, createEmptyProject, createFeature, createFurniture } from '../model/sample';
+import { createEmptyProject, createFeature, createFurniture, createRectangularRoom, createStaircase } from '../model/sample';
+import { featureFrame } from '../model/features';
+import { roomBounds, wallSegments } from '../model/walls';
 import type { Project } from '../model/types';
 import { canRedo, canUndo, createEditorState, editorReducer, type EditorAction, type EditorState } from './editor';
 
 function setup(): { state: EditorState; id: string } {
-  const project: Project = createEmptyProject({ width: 400, length: 300, height: 250, floor: DEFAULT_FLOOR });
+  const project: Project = createEmptyProject(createRectangularRoom(400, 300));
   const table = createFurniture({ name: 'Table', x: 200, y: 150, width: 120, depth: 80 });
   const state = editorReducer(createEditorState(project), { type: 'furniture/add', furniture: table });
   return { state, id: table.id };
@@ -21,8 +23,9 @@ function expectInsideRoom(project: Project) {
     const b = furnitureBounds(item);
     expect(b.minX).toBeGreaterThanOrEqual(-1e-6);
     expect(b.minY).toBeGreaterThanOrEqual(-1e-6);
-    expect(b.maxX).toBeLessThanOrEqual(project.room.width + 1e-6);
-    expect(b.maxY).toBeLessThanOrEqual(project.room.length + 1e-6);
+    const box = roomBounds(project.room);
+    expect(b.maxX).toBeLessThanOrEqual(box.maxX + 1e-6);
+    expect(b.maxY).toBeLessThanOrEqual(box.maxY + 1e-6);
   }
 }
 
@@ -82,11 +85,11 @@ describe('editorReducer', () => {
 
   it('shrinking the room nudges furniture inwards, but refuses if something cannot fit', () => {
     const { state } = setup();
-    const smaller = run(state, { type: 'room/resize', room: { width: 200 } });
-    expect(smaller.present.room.width).toBe(200);
+    const smaller = run(state, { type: 'room/resize', width: 200, length: 300 });
+    expect(roomBounds(smaller.present.room).maxX).toBe(200);
     expectInsideRoom(smaller.present);
 
-    const tooSmall = run(state, { type: 'room/resize', room: { width: 100 } });
+    const tooSmall = run(state, { type: 'room/resize', width: 100, length: 300 });
     expect(tooSmall.present).toBe(state.present);
     expect(tooSmall.notice?.message).toMatch(/Table/);
   });
@@ -130,11 +133,13 @@ describe('editorReducer', () => {
 });
 
 describe('room features', () => {
-  const onWall = (wall: 'top' | 'left', offset: number) => ({ type: 'wall' as const, wall, offset });
+  // Walls of the 400×300 test room, clockwise from the top-left corner.
+  const ids = (state: EditorState) => state.present.room.outline.map((n) => n.id);
+  const onWall = (state: EditorState, index: number, offset: number) => ({ type: 'wall' as const, wallId: ids(state)[index], offset });
 
   it('adds, edits, and undoes a door', () => {
     const { state } = setup();
-    const door = createFeature('door', onWall('top', 100), { height: 250 });
+    const door = createFeature('door', onWall(state, 0, 100), { height: 250 });
     const added = run(state, { type: 'feature/add', feature: door });
     const wider = run(added, { type: 'feature/update', id: door.id, changes: { width: 100 } });
     expect(wider.present.features[0].width).toBe(100);
@@ -144,17 +149,17 @@ describe('room features', () => {
 
   it('keeps wall features on their wall and inside its length', () => {
     const { state } = setup();
-    const window = createFeature('window', onWall('top', 100), { height: 250 }, { width: 100 });
-    const moved = run(state, { type: 'feature/add', feature: window }, { type: 'feature/update', id: window.id, changes: { placement: onWall('top', 9999) } });
-    expect(moved.present.features[0].placement).toEqual(onWall('top', 350));
+    const window = createFeature('window', onWall(state, 0, 100), { height: 250 }, { width: 100 });
+    const moved = run(state, { type: 'feature/add', feature: window }, { type: 'feature/update', id: window.id, changes: { placement: onWall(state, 0, 9999) } });
+    expect(moved.present.features[0].placement).toEqual(onWall(state, 0, 350));
   });
 
   it('refuses to overlap two openings on one wall', () => {
     const { state } = setup();
-    const a = createFeature('window', onWall('top', 100), { height: 250 }, { width: 100 });
-    const b = createFeature('door', onWall('top', 300), { height: 250 }, { width: 80 });
+    const a = createFeature('window', onWall(state, 0, 100), { height: 250 }, { width: 100 });
+    const b = createFeature('door', onWall(state, 0, 300), { height: 250 }, { width: 80 });
     const both = run(state, { type: 'feature/add', feature: a }, { type: 'feature/add', feature: b });
-    const clash = run(both, { type: 'feature/update', id: b.id, changes: { placement: onWall('top', 160) } });
+    const clash = run(both, { type: 'feature/update', id: b.id, changes: { placement: onWall(state, 0, 160) } });
     expect(clash.present).toBe(both.present);
     expect(clash.notice?.message).toMatch(/overlap/);
   });
@@ -163,14 +168,14 @@ describe('room features', () => {
     const { state } = setup();
     const vent = createFeature('vent', { type: 'free', x: 20, y: 150, rotation: 0 }, { height: 250 });
     const next = run(state, { type: 'feature/add', feature: vent }, { type: 'feature/update', id: vent.id, changes: { ventMount: 'wall' } });
-    expect(next.present.features[0].placement).toMatchObject({ type: 'wall', wall: 'left', offset: 150 });
+    expect(next.present.features[0].placement).toMatchObject({ type: 'wall', wallId: ids(state)[3], offset: 150 });
   });
 
   it('shrinking the room keeps features attached and inside', () => {
     const { state } = setup();
-    const window = createFeature('window', onWall('top', 340), { height: 250 }, { width: 100 });
-    const next = run(state, { type: 'feature/add', feature: window }, { type: 'room/resize', room: { width: 300 } });
-    expect(next.present.features[0].placement).toEqual(onWall('top', 250));
+    const window = createFeature('window', onWall(state, 0, 340), { height: 250 }, { width: 100 });
+    const next = run(state, { type: 'feature/add', feature: window }, { type: 'room/resize', width: 300, length: 300 });
+    expect(next.present.features[0].placement).toEqual(onWall(state, 0, 250));
   });
 });
 
@@ -259,5 +264,127 @@ describe('merged edits', () => {
       { type: 'furniture/update', id, changes: { color: '#222222' }, mergeKey: 'c' },
     );
     expect(run(next, { type: 'history/undo' }).present.furniture[0].color).toBe('#111111');
+  });
+});
+
+describe('articulated walls', () => {
+  function withDoorAndWindow() {
+    const { state } = setup();
+    const [top, right] = state.present.room.outline;
+    const door = createFeature('door', { type: 'wall', wallId: top.id, offset: 100 }, { height: 250 }, { width: 80 });
+    const window = createFeature('window', { type: 'wall', wallId: right.id, offset: 150 }, { height: 250 }, { width: 100 });
+    return { state: run(state, { type: 'feature/add', feature: door }, { type: 'feature/add', feature: window }), door, window, top, right };
+  }
+  const frameOf = (state: EditorState, id: string) => featureFrame(state.present.features.find((f) => f.id === id)!, state.present.room);
+
+  it('a door moves and turns with its wall when a corner is dragged', () => {
+    const { state, door, right } = withDoorAndWindow();
+    // Drag the top-right corner down: the top wall now slopes, so the door must slope too.
+    const next = run(state, { type: 'walls/moveNode', nodeId: right.id, to: { x: 400, y: 100 } });
+    const frame = frameOf(next, door.id);
+    const slope = (Math.atan2(100, 400) * 180) / Math.PI;
+    expect(frame.angle).toBeCloseTo(slope);
+    expect(frame.x).toBeCloseTo((100 / Math.hypot(400, 100)) * 400);
+  });
+
+  it('a window stays on its wall when that wall is lengthened', () => {
+    const { state, window, right } = withDoorAndWindow();
+    const next = run(state, { type: 'walls/setLength', wallId: right.id, length: 400 });
+    expect(next.present.features.find((f) => f.id === window.id)!.placement).toMatchObject({ wallId: right.id, offset: 150 });
+    expect(frameOf(next, window.id).y).toBeCloseTo(150);
+  });
+
+  it('refuses to shorten a wall below a feature on it, explaining why', () => {
+    const { state, right } = withDoorAndWindow();
+    const next = run(state, { type: 'walls/setLength', wallId: right.id, length: 60 });
+    expect(next.present).toBe(state.present);
+    expect(next.notice?.message).toMatch(/needs 100 cm of wall/);
+  });
+
+  it('refuses walls that would cross, explaining why', () => {
+    const { state } = setup();
+    const [, , c] = state.present.room.outline;
+    // Pull the bottom-right corner above the top wall: the right wall now crosses it.
+    const next = run(state, { type: 'walls/moveNode', nodeId: c.id, to: { x: 200, y: -100 } });
+    expect(next.present).toBe(state.present);
+    expect(next.notice?.message).toMatch(/cross/);
+  });
+
+  it('splitting a wall keeps every feature exactly where it was', () => {
+    const { state, door, top } = withDoorAndWindow();
+    const before = frameOf(state, door.id);
+    const next = run(state, { type: 'walls/split', wallId: top.id, distance: 50, newId: 'mid' });
+    expect(next.present.features.find((f) => f.id === door.id)!.placement).toMatchObject({ wallId: 'mid', offset: 50 });
+    expect(frameOf(next, door.id)).toEqual(before);
+    // …but not through the door itself.
+    expect(run(state, { type: 'walls/split', wallId: top.id, distance: 100, newId: 'x' }).notice?.message).toMatch(/runs through/);
+  });
+
+  it('merging walls re-attaches features to the merged wall', () => {
+    const { state, door, top } = withDoorAndWindow();
+    const split = run(state, { type: 'walls/split', wallId: top.id, distance: 50, newId: 'mid' });
+    const merged = run(split, { type: 'walls/merge', wallId: top.id });
+    expect(merged.present.features.find((f) => f.id === door.id)!.placement).toMatchObject({ wallId: top.id });
+    expect(frameOf(merged, door.id).x).toBeCloseTo(100);
+  });
+
+  it('redrawing the room as an L moves furniture out of the missing corner and keeps features', () => {
+    const { state, id } = setup(); // table 120×80 at the centre (200,150)
+    const lShape = [[0, 0], [400, 0], [400, 150], [200, 150], [200, 300], [0, 300]].map(([x, y], i) => ({ id: `L${i}`, x, y, thickness: 12 }));
+    const moved = run(state, { type: 'furniture/update', id, changes: { x: 320, y: 240 } });
+    const next = run(moved, { type: 'walls/replaceOutline', nodes: lShape });
+    expect(next.notice).toBeNull();
+    const table = next.present.furniture[0];
+    const b = furnitureBounds(table);
+    expect(b.maxY <= 150 + 1e-6 || b.maxX <= 200 + 1e-6).toBe(true);
+  });
+
+  it('interior walls: added, then a door placed in them', () => {
+    const { state } = setup();
+    const partition = { id: 'p', nodes: [{ id: 'p1', x: 200, y: 0, thickness: 10 }, { id: 'p2', x: 200, y: 300, thickness: 10 }] };
+    const withWall = run(state, { type: 'walls/addPartition', partition });
+    expect(wallSegments(withWall.present.room).map((w) => w.id)).toContain('p1');
+    const door = createFeature('door', { type: 'wall', wallId: 'p1', offset: 250 }, { height: 250 }, { width: 80 });
+    expect(run(withWall, { type: 'feature/add', feature: door }).present.features).toHaveLength(1);
+    // Deleting the wall the door sits in is refused (nothing is deleted silently).
+    const withDoor = run(withWall, { type: 'feature/add', feature: door });
+    expect(run(withDoor, { type: 'walls/delete', wallId: 'p1', newPartitionId: 'q' }).notice?.message).toMatch(/Move or delete it first/);
+  });
+
+  it('wall edits undo and redo as single steps', () => {
+    const { state, right } = withDoorAndWindow();
+    const moved = run(state, { type: 'walls/moveNode', nodeId: right.id, to: { x: 450, y: 0 } });
+    expect(run(moved, { type: 'history/undo' }).present).toBe(state.present);
+    expect(run(moved, { type: 'history/undo' }, { type: 'history/redo' }).present).toBe(moved.present);
+  });
+});
+
+describe('stairs in the editor', () => {
+  it('adds, edits, rotates and deletes a staircase, undoably', () => {
+    const { state } = setup();
+    const stair = createStaircase('L', { x: 200, y: 150 }); // 265 × 265: fits at any right angle
+    const added = run(state, { type: 'stairs/add', stair });
+    expect(added.present.stairs).toHaveLength(1);
+    const rotated = run(added, { type: 'stairs/update', id: stair.id, changes: { rotation: 90 } });
+    expect(rotated.present.stairs[0].rotation).toBe(90);
+    const deleted = run(rotated, { type: 'stairs/delete', id: stair.id });
+    expect(deleted.present.stairs).toHaveLength(0);
+    expect(run(deleted, { type: 'history/undo' }).present.stairs[0].rotation).toBe(90);
+  });
+
+  it('keeps stairs inside the room and refuses ones that cannot fit', () => {
+    const { state } = setup();
+    const stair = createStaircase('straight', { x: 380, y: 150 }); // 350 cm long: pokes out of the right wall
+    const added = run(state, { type: 'stairs/add', stair });
+    expect(added.present.stairs[0].x).toBeLessThanOrEqual(400 - 175 + 1e-6);
+    const huge = run(added, { type: 'stairs/update', id: stair.id, changes: { sections: stair.sections.map((s) => ({ ...s, length: 900 })) } });
+    expect(huge.notice?.message).toMatch(/wouldn’t fit/);
+  });
+
+  it('furniture placed on the stairs raises the usual overlap prompt', () => {
+    const { state, id } = setup();
+    const stair = createStaircase('straight', { x: 200, y: 60 });
+    const next = run(state, { type: 'stairs/add', stair }, { type: 'furniture/update', id, changes: { y: 60 } });
+    expect(next.prompt?.conflicts[0]).toMatchObject({ otherKind: 'stairs' });
   });
 });
