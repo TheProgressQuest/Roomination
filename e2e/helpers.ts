@@ -107,3 +107,11 @@ export async function settle(page: Page) {
     await page.waitForTimeout(50);
   }
 }
+
+/** Imports a project file through the Projects dialog (it becomes the open project). */
+export async function importProject(page: Page, file: string) {
+  await page.getByRole('button', { name: /^Projects/ }).click();
+  await page.getByRole('dialog').locator('input[type=file]').setInputFiles(file);
+  await expect(page.getByRole('dialog').locator('.import-message')).toContainText('Imported');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+}

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { serializeProject } from '../src/storage/projectFile';
 import { lShapedStudio, overcrowded } from '../src/optimizer/testRooms';
-import { exportProject, objectRows, openApp, props, saveAndReload, selectInList, tools } from './helpers';
+import { exportProject, importProject, objectRows, openApp, props, saveAndReload, selectInList, tools } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Optimize layout' });
 
@@ -10,13 +10,6 @@ async function findLayouts(page: Page) {
   await page.getByRole('button', { name: 'Optimize layout' }).first().click();
   await dialog(page).getByRole('button', { name: 'Find layouts' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Find layouts again' })).toBeVisible({ timeout: 60_000 });
-}
-
-async function importProject(page: Page, file: string) {
-  await page.getByRole('button', { name: /^Projects/ }).click();
-  await page.getByRole('dialog').locator('input[type=file]').setInputFiles(file);
-  await expect(page.getByRole('dialog').locator('.import-message')).toContainText('Imported');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
 }
 
 test.describe('Optimize Layout', () => {

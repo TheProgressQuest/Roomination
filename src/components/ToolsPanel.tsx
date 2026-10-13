@@ -148,7 +148,7 @@ export function ToolsPanel(props: ToolsPanelProps) {
         </ul>
       </Collapsible>
 
-      <Collapsible title="Floor">
+      <Collapsible title="Floor & walls">
         <FloorSettings project={project} dispatch={dispatch} />
       </Collapsible>
 

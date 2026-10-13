@@ -126,6 +126,62 @@ Typical times on a laptop:
 - **Standard:** 0.6–1.7 s.
 - **Thorough:** 2–5.5 s (rooms with up to 11 movable pieces).
 
+### 3D view (Phase 3B)
+Switch between **2D Plan** and **3D View** above the canvas. Both show the same project: the 3D
+view has no data of its own and updates instantly when you change anything in the plan. Editing
+stays in 2D. In 3D you can look around and select furniture.
+
+- **Room:**
+  - The floor follows the real room outline, including L-shaped, U-shaped and angled rooms, with
+    the same floor pattern at the same real-world scale as the plan.
+  - Walls have their real thickness and mitered corners. Interior walls are included.
+  - Walls rise to the room's **ceiling height** (Room → Ceiling); changing it never changes the
+    plan's measurements.
+  - **Wall colour (3D)** lives under Floor & walls.
+- **Doors and windows:**
+  - They cut real openings through the wall.
+  - Doors show their hinge side and swing (shown slightly open), double doors have two leaves,
+    and sliding doors have panels.
+  - Windows use their width, height and sill height, with a frame and glass.
+- **Stairs:** straight, L-shaped, U-shaped and custom stairs are built step by step from their
+  rise, with landings. Stairs going down cut through the floor. There is no second floor, and
+  nothing here is a building-code check.
+- **Furniture:** simple shapes per type, such as a table with legs, a sofa with back and arms, a
+  bed with mattress and pillows, or a bookshelf with shelves. Each stays inside the piece's real
+  width, depth and height, keeping its colour and rotation.
+- **Camera:**
+  - Drag to orbit, scroll or pinch to zoom, and right-drag or two-finger drag to pan.
+  - Buttons zoom and fit the room, and three angles are offered: **Isometric**, **Top-down** and
+    **Eye level**.
+  - Camera moves are short and can be interrupted. With *reduce motion* switched on, they jump
+    instead.
+- **Walls display:**
+  - **Show all walls**.
+  - **Dollhouse view** hides the walls between you and the room as you orbit (display only).
+- **Selection:**
+  - Click or tap furniture to select it. The same piece is selected in the plan, and its name and
+    size are shown.
+  - On phones and tablets, **Edit** opens the properties.
+- **Performance:**
+  - Three.js (MIT licence) is bundled with the app, not loaded from a CDN, and only downloads the
+    first time you open 3D.
+  - It draws only when something changes, and frees all graphics memory when you go back to 2D.
+  - Soft shadows can be switched off. They start off on touch devices.
+- **If WebGL is unavailable** (or the device reclaims graphics memory), the 3D view explains
+  this and offers a way back. The 2D plan always keeps working.
+
+Design and trade-offs: [ADR-0003](docs/adr/0003-3d-view.md).
+
+Measured with a stress project (40 walls, 150 pieces, 4 doors, 5 windows and 3 staircases), on
+the production build:
+
+| | Apple M3 Pro (GPU) | Software rendering (CI) |
+| --- | --- | --- |
+| Open 3D (first frame) | 0.26 s | 2.3 s |
+| Scene build | 7 ms | 8 ms |
+| Frame rate while orbiting | 60 fps (display limit) | 35 fps |
+| Draw calls / triangles | 53 / 16,772 | 53 / 16,772 |
+
 ### Smart overlaps
 - Items have categories: **furniture**, **rugs & mats** (floor coverings) and **décor**.
 - Rugs sit underneath furniture and may overlap anything.
@@ -178,7 +234,7 @@ npm run dev      # then open http://localhost:5173
 Other commands:
 
 ```bash
-npm test          # unit tests: geometry, walls, stairs, overlaps, editor/undo, storage, performance
+npm test          # unit tests: geometry, walls, stairs, overlaps, editor/undo, storage, 3D scene, performance
 npm run test:e2e  # browser tests (Playwright) on the dev server AND the production build
 npm run build     # production build into dist/ (static files)
 npm run preview   # serve the production build locally
@@ -207,7 +263,8 @@ configuration. GitHub Pages is free for public repositories.
 | `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
 | `src/state/` | `editor.ts`, the single reducer every change goes through (validation, overlap prompts, undo history), plus selection, display preferences and the optimizer run state. |
 | `src/optimizer/` | The layout optimizer. Main modules: walking-space grid (`circulation.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations (`explain.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
-| `src/storage/` | IndexedDB persistence (Dexie) and import/export validation and migration (schema v1–v4). |
+| `src/storage/` | IndexedDB persistence (Dexie) and import/export validation and migration (schema v1–v5). |
+| `src/scene3d/` | The 3D view. `model.ts` turns a project into plain shapes (pure, unit-tested, in cm, using the same wall and stair geometry as the plan); `furnitureParts.ts` gives each furniture type its shape; `three/RoomViewer.ts` draws them with Three.js. |
 | `src/render/` | Canvas colours per theme and the locally generated floor/rug textures. |
 | `src/components/` | The interface. `plan/` holds the floor plan canvas (React Konva). |
 | `e2e/` | Browser tests (Playwright). |
@@ -221,16 +278,20 @@ configuration. GitHub Pages is free for public repositories.
 - **Wall features:** store which wall they're on and their distance from that wall's start, so they
   move with it.
 - **Pixels:** exist only inside `components/plan/`.
+- **3D:** uses metres, with height pointing up. Plan x becomes 3D x, plan y becomes 3D z, and
+  height becomes 3D y. The conversion lives in one function, `toScene`.
 
 Projects saved by earlier versions (rectangles with named walls, no furniture types or locks) are
 converted automatically. Older pieces get a type guessed from their name, are unlocked, and have no
-preferences.
+preferences. Projects from before the 3D view get the default wall colour (and a 240 cm ceiling if
+one is ever missing). No measurement changes.
 
 ## Privacy
 
 Roomination makes no network requests of its own. Project data leaves your device only when you
 export a file yourself. The layout optimizer runs entirely in your browser (in a bundled Web
-Worker), with no AI service, API or account.
+Worker), with no AI service, API or account. The 3D view is drawn entirely on your device by the
+bundled Three.js, with no external textures, models or services.
 
 ## Known limitations
 
@@ -243,9 +304,20 @@ Worker), with no AI service, API or account.
 - **Optimizer — taste:** aesthetic measures encode common conventions (pieces square to walls,
   storage against walls, seating facing the TV). They are a guide, not objective facts.
 - **Optimizer — large plans:** very large plans (30+ movable pieces) take proportionally longer.
+- **3D — editing:** the 3D view is for looking and selecting; moving, resizing and editing
+  happen in the 2D plan.
+- **3D — looks:** furniture is made of simple boxes per type. There are no ceilings, per-wall
+  colours, wall-height variations or upper floors. Stairs going down show their stairwell, but
+  not the room below.
+- **3D — window views:** glass is see-through but nothing is shown outside the room.
+- **3D — browsers:** the 3D view needs WebGL. Very old devices, some locked-down workplace
+  browsers, and browsers with hardware acceleration turned off fall back to a message (the 2D
+  plan keeps working). Shadows are switched off automatically on touch devices for very large
+  scenes.
 - **Testing coverage:** browser tests run in Chromium, including simulated phones and tablets.
   Safari, Firefox and real touch devices haven't been tested automatically, and screen readers
-  haven't been tested with real assistive software.
+  haven't been tested with real assistive software. The 3D tests use software WebGL, so they check
+  behaviour and accuracy rather than real-device speed.
 
 ## Licence
 

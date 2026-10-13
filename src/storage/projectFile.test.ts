@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { featureFrame } from '../model/features';
-import { createSampleProject, createStaircase } from '../model/sample';
+import { DEFAULT_WALL_COLOR, createSampleProject, createStaircase } from '../model/sample';
 import { parseProject, parseProjectFile, serializeProject } from './projectFile';
 
 /** Exactly what Phase 1 wrote to IndexedDB. */
@@ -17,7 +17,7 @@ describe('parseProject', () => {
     const result = parseProject(phase1Save);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.project.schemaVersion).toBe(4);
+    expect(result.project.schemaVersion).toBe(5);
     expect(result.project.furniture[0]).toMatchObject({ kind: 'sofa', locked: false, preferences: [] });
     expect(result.project.relationships).toEqual([]);
     expect(result.project.furniture[0]).toMatchObject({ name: 'Sofa', category: 'furniture', texture: 'plain' });
@@ -140,5 +140,36 @@ describe('saved layouts in files', () => {
     const result = parseProjectFile(file);
     if (!result.ok) throw new Error(result.error);
     expect(new Set(result.project.savedLayouts.map((l) => l.id)).size).toBe(2);
+  });
+});
+
+describe('3D fields (schema 5)', () => {
+  it('gives version 4 rooms the default wall colour without changing any dimension', () => {
+    const project = createSampleProject();
+    const { wallColor: _omitted, ...v4Room } = project.room;
+    const result = parseProject({ ...project, schemaVersion: 4, room: v4Room });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.project.room.wallColor).toBe(DEFAULT_WALL_COLOR);
+    expect(result.project.room.outline).toEqual(project.room.outline);
+    expect(result.project.room.height).toBe(project.room.height);
+  });
+
+  it('defaults a missing ceiling height to 240 cm', () => {
+    const project = createSampleProject();
+    const { height: _omitted, ...room } = project.room;
+    const result = parseProject({ ...project, room });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.project.room.height).toBe(240);
+  });
+
+  it('keeps a chosen wall colour and replaces an unsafe one', () => {
+    const project = createSampleProject();
+    const kept = parseProjectFile(serializeProject({ ...project, room: { ...project.room, wallColor: '#336699' } }));
+    const unsafe = parseProject({ ...project, room: { ...project.room, wallColor: 'url(javascript:x)' } });
+    expect(kept.ok && kept.project.room.wallColor).toBe('#336699');
+    expect(unsafe.ok && unsafe.project.room.wallColor).toBe(DEFAULT_WALL_COLOR);
+    // Only #rrggbb works in the colour picker and the 3D view.
+    const translucent = parseProject({ ...project, room: { ...project.room, wallColor: '#336699cc' } });
+    expect(translucent.ok && translucent.project.room.wallColor).toBe(DEFAULT_WALL_COLOR);
   });
 });

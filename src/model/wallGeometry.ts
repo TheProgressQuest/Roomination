@@ -20,12 +20,14 @@ export interface WallBody {
 /** Miters longer than this many thicknesses are cut flat (very sharp corners). */
 const MITER_LIMIT = 4;
 
-const unit = (s: WallSegment): Point => ({ x: (s.end.x - s.start.x) / s.length, y: (s.end.y - s.start.y) / s.length });
+/** Unit vector from a wall's start to its end. */
+export const wallDirection = (s: WallSegment): Point => ({ x: (s.end.x - s.start.x) / s.length, y: (s.end.y - s.start.y) / s.length });
 /** Outward normal of an outer wall (outline is clockwise, so outward is to the left). */
-const outward = (s: WallSegment): Point => {
-  const d = unit(s);
+export const wallOutward = (s: WallSegment): Point => {
+  const d = wallDirection(s);
   return { x: d.y, y: -d.x };
 };
+
 const offsetPoint = (p: Point, n: Point, t: number): Point => ({ x: p.x + n.x * t, y: p.y + n.y * t });
 
 /**
@@ -35,10 +37,10 @@ const offsetPoint = (p: Point, n: Point, t: number): Point => ({ x: p.x + n.x * 
  */
 function miter(a: WallSegment, b: WallSegment, side: 'arriving' | 'leaving'): Point {
   const corner = b.start;
-  const pa = offsetPoint(corner, outward(a), a.thickness);
-  const pb = offsetPoint(corner, outward(b), b.thickness);
-  const da = unit(a);
-  const db = unit(b);
+  const pa = offsetPoint(corner, wallOutward(a), a.thickness);
+  const pb = offsetPoint(corner, wallOutward(b), b.thickness);
+  const da = wallDirection(a);
+  const db = wallDirection(b);
   const denominator = da.x * db.y - da.y * db.x;
   const square = side === 'arriving' ? pa : pb;
   if (Math.abs(denominator) < 1e-9) return square; // straight continuation
@@ -73,7 +75,7 @@ export function wallBodies(room: Pick<Room, 'outline' | 'partitions'>, features:
     const next = outer[(i + 1) % outer.length];
     const startOuter = miter(previous, segment, 'leaving');
     const endOuter = miter(segment, next, 'arriving');
-    const n = outward(segment);
+    const n = wallOutward(segment);
     for (const [from, to] of solidStretches(segment, features)) {
       const a = pointAlong(segment, from);
       const b = pointAlong(segment, to);
@@ -85,7 +87,7 @@ export function wallBodies(room: Pick<Room, 'outline' | 'partitions'>, features:
 
   for (const partition of room.partitions) {
     for (const segment of partitionSegments(partition)) {
-      const n = outward(segment);
+      const n = wallOutward(segment);
       const half = segment.thickness / 2;
       for (const [from, to] of solidStretches(segment, features)) {
         // Extend by half a thickness at the chain's joints so corners close neatly.

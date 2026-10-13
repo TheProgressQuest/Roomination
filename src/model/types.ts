@@ -62,9 +62,11 @@ export interface Room {
    */
   outline: WallNode[];
   partitions: Partition[];
-  /** Ceiling height, in cm. Kept for future 3D. */
+  /** Ceiling height, in cm (the height walls are drawn in 3D). */
   height: number;
   floor: FloorStyle;
+  /** Wall surface colour in the 3D view. Purely visual. */
+  wallColor: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +307,7 @@ export interface SavedLayout {
   positions: { id: string; x: number; y: number; rotation: number }[];
 }
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 /** Everything that makes up one saved design. */
 export interface Project {

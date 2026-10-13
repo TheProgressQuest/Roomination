@@ -76,6 +76,8 @@ export type EditorAction =
   /** Rectangular rooms only: change width/length (keeping the top-left corner). */
   | { type: 'room/resize'; width: number; length: number }
   | { type: 'room/setHeight'; height: number }
+  /** Wall colour in the 3D view (purely visual). */
+  | { type: 'room/setWallColor'; color: string; mergeKey?: string }
   | { type: 'walls/moveNode'; nodeId: string; to: Point }
   | { type: 'walls/setLength'; wallId: string; length: number }
   | { type: 'walls/setAngle'; wallId: string; angle: number }
@@ -254,6 +256,10 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       if (!Number.isFinite(action.height) || action.height < MIN_ROOM_SIZE || action.height > 2000) return `Ceiling height must be between ${MIN_ROOM_SIZE} cm and 20 m.`;
       return action.height === project.room.height ? project : { ...project, room: { ...project.room, height: roundLength(action.height) } };
     }
+
+    case 'room/setWallColor':
+      if (!/^#[0-9a-f]{6}$/i.test(action.color)) return 'That colour isn’t valid.';
+      return action.color === project.room.wallColor ? project : { ...project, room: { ...project.room, wallColor: action.color } };
 
     case 'walls/moveNode':
       return roomEdit(project, moveNode(project.room, action.nodeId, { x: roundLength(action.to.x), y: roundLength(action.to.y) }));

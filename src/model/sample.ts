@@ -65,10 +65,13 @@ export function createStaircase(shape: 'straight' | 'L' | 'U', centre: { x: numb
 }
 
 export const DEFAULT_FLOOR: FloorStyle = { preset: 'plain', color: '#fffaf2', scale: 1, angle: 0, intensity: 0.5 };
+export const DEFAULT_WALL_COLOR = '#f1ece4';
+/** Ceiling height given to saved rooms that don't have one. */
+export const DEFAULT_CEILING_HEIGHT = 240;
 
 /** A rectangular room with fresh wall ids. Walls run clockwise: top, right, bottom, left. */
 export function createRectangularRoom(width: number, length: number, height = 250, floor: FloorStyle = DEFAULT_FLOOR): Room {
-  return { outline: rectangleOutline(width, length, createId), partitions: [], height, floor };
+  return { outline: rectangleOutline(width, length, createId), partitions: [], height, floor, wallColor: DEFAULT_WALL_COLOR };
 }
 
 export function createEmptyProject(room: Room = createRectangularRoom(400, 350), name = 'My room'): Project {

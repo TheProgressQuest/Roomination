@@ -12,6 +12,8 @@ const PATHS = {
   monitor: 'M3 4h18v12H3zM8 20h8M12 16v4',
   folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z',
   plus: 'M12 5v14M5 12h14',
+  minus: 'M5 12h14',
+  fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   download: 'M12 3v12M7 10l5 5 5-5M5 21h14',
   upload: 'M12 21V9M7 14l5-5 5 5M5 3h14',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',

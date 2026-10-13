@@ -23,7 +23,7 @@ const BOARD_STYLES: { value: BoardStyle; label: string }[] = [
 ];
 
 /**
- * Floor settings belong to the project (saved, undoable, exported).
+ * Floor and wall colour settings belong to the project (saved, undoable, exported).
  * Board and grid settings are this device's display preferences.
  * Neither ever changes any measurement.
  */
@@ -49,6 +49,7 @@ export function FloorSettings({ project, dispatch }: Pick<AppearanceProps, 'proj
         ))}
       </div>
       <ColorField label="Floor colour" value={floor.color} onChange={(color) => set({ color }, 'floor.color')} />
+      <ColorField label="Wall colour (3D)" value={project.room.wallColor} onChange={(color) => dispatch({ type: 'room/setWallColor', color, mergeKey: 'room.wallColor' })} />
       {floor.preset !== 'plain' && (
         <>
           <RangeField label="Pattern size" min={0.5} max={2.5} step={0.1} value={floor.scale} format={(v) => `${v.toFixed(1)}×`} onChange={(scale) => set({ scale }, 'floor.scale')} />

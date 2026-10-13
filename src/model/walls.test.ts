@@ -27,6 +27,7 @@ const room = (outline: WallNode[], partitions: Room['partitions'] = []): Room =>
   partitions,
   height: 250,
   floor: { preset: 'plain', color: '#ffffff', scale: 1, angle: 0, intensity: 0.5 },
+  wallColor: '#ffffff',
 });
 const asRoom = (r: Room | string): Room => {
   if (typeof r === 'string') throw new Error(r);

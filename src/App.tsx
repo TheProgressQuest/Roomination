@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { FeatureButtons, FurnitureButtons, StairButtons, StructureButtons, type FurniturePreset } from './components/AddCatalog';
 import { DrawingBar } from './components/DrawingBar';
 import { ConflictBanner } from './components/ConflictBanner';
@@ -14,6 +14,7 @@ import { SelectionBar } from './components/SelectionBar';
 import { SelectionEditor } from './components/StructureEditors';
 import { Toast } from './components/Toast';
 import { ToolsPanel } from './components/ToolsPanel';
+import { View3DBoundary } from './components/view3d/View3DBoundary';
 import { findConflicts } from './model/conflicts';
 import { withPoses } from './optimizer/search';
 import { allowedPlacement, findFreeWallSpot } from './model/features';
@@ -41,12 +42,17 @@ import {
 
 const AUTOSAVE_DELAY_MS = 400;
 
+/** The 3D view (and Three.js) only downloads the first time someone opens it. */
+const View3D = lazy(() => import('./components/view3d/View3D'));
+
 export function App() {
   const [state, dispatch] = useReducer(editorReducer, null, () => createEditorState(createSampleProject()));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [selection, setSelection] = useState<Selection>(null);
   const [mode, setMode] = useState<ToolMode>('select');
+  /** Which view of the same project is showing. The plan is always the one you edit in. */
+  const [view, setView] = useState<'2d' | '3d'>('2d');
   const [draft, setDraftState] = useState<Point[]>([]);
   /**
    * The drawing in progress. Taps can arrive faster than React re-renders (especially on
@@ -272,6 +278,7 @@ export function App() {
   // ---------------------------------------------------------------------------
 
   function startDrawing(next: 'drawRoom' | 'drawWall') {
+    setView('2d');
     setMode(next);
     setDraft([]);
     setSelection(null);
@@ -531,6 +538,23 @@ export function App() {
           )}
 
           <div className="canvas-column">
+            <div className="segmented view-switch" role="radiogroup" aria-label="View">
+              {(['2d', '3d'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={view === value}
+                  className={view === value ? 'is-active' : ''}
+                  onClick={() => {
+                    if (value === '3d' && mode !== 'select') cancelDrawing();
+                    setView(value);
+                  }}
+                >
+                  {value === '2d' ? '2D Plan' : '3D View'}
+                </button>
+              ))}
+            </div>
             {preview && (
               <PreviewBar
                 title={preview.title}
@@ -557,38 +581,55 @@ export function App() {
                 compact={!isTablet && !isDesktop}
               />
             )}
-            <section
-              className="canvas-panel"
-              aria-label="Floor plan"
-              style={
-                {
-                  ...board.style,
-                  // Phones size the plan to the room's shape (plus room for labels).
-                  '--room-aspect': `${roomBox.maxX - roomBox.minX + 90} / ${roomBox.maxY - roomBox.minY + 90}`,
-                } as CSSProperties
-              }
-            >
-              <FloorPlan
-                project={previewProject ?? project}
-                readOnly={previewProject !== null}
-                conflicts={previewConflicts ?? conflicts}
-                selection={selection}
-                palette={palette}
-                showMeasurementGrid={preferences.showMeasurementGrid}
-                showClearances={preferences.showClearances}
-                mode={mode}
-                draft={draft}
-                snap={preferences.snap}
-                touch={isTouch}
-                onSelect={select}
-                onOpenEditor={openEditor}
-                onChangeFurniture={(id, changes) => dispatch({ type: 'furniture/update', id, changes })}
-                onChangeFeature={(id, changes) => dispatch({ type: 'feature/update', id, changes })}
-                onChangeStair={(id, changes) => dispatch({ type: 'stairs/update', id, changes })}
-                onMoveCorner={(nodeId, to) => dispatch({ type: 'walls/moveNode', nodeId, to })}
-                onDraftPoint={addDraftPoint}
-              />
-            </section>
+            {view === '3d' ? (
+              <View3DBoundary onExit={() => setView('2d')}>
+                <Suspense fallback={<section className="canvas-panel view3d-loading" aria-label="3D view" aria-busy="true">Loading the 3D view…</section>}>
+                  <View3D
+                    project={previewProject ?? project}
+                    selectedId={selectedId}
+                    theme={theme}
+                    preferences={preferences.view3d}
+                    touch={isTouch}
+                    onPreferences={(changes) => updatePreferences({ view3d: { ...preferences.view3d, ...changes } })}
+                    onSelect={(id) => setSelection(id ? { kind: 'object', id } : null)}
+                    onExit={() => setView('2d')}
+                  />
+                </Suspense>
+              </View3DBoundary>
+            ) : (
+              <section
+                className="canvas-panel"
+                aria-label="Floor plan"
+                style={
+                  {
+                    ...board.style,
+                    // Phones size the plan to the room's shape (plus room for labels).
+                    '--room-aspect': `${roomBox.maxX - roomBox.minX + 90} / ${roomBox.maxY - roomBox.minY + 90}`,
+                  } as CSSProperties
+                }
+              >
+                <FloorPlan
+                  project={previewProject ?? project}
+                  readOnly={previewProject !== null}
+                  conflicts={previewConflicts ?? conflicts}
+                  selection={selection}
+                  palette={palette}
+                  showMeasurementGrid={preferences.showMeasurementGrid}
+                  showClearances={preferences.showClearances}
+                  mode={mode}
+                  draft={draft}
+                  snap={preferences.snap}
+                  touch={isTouch}
+                  onSelect={select}
+                  onOpenEditor={openEditor}
+                  onChangeFurniture={(id, changes) => dispatch({ type: 'furniture/update', id, changes })}
+                  onChangeFeature={(id, changes) => dispatch({ type: 'feature/update', id, changes })}
+                  onChangeStair={(id, changes) => dispatch({ type: 'stairs/update', id, changes })}
+                  onMoveCorner={(nodeId, to) => dispatch({ type: 'walls/moveNode', nodeId, to })}
+                  onDraftPoint={addDraftPoint}
+                />
+              </section>
+            )}
             {!isDesktop && mode === 'select' && !preview && (
               <SelectionBar
                 selectedName={selectedName}

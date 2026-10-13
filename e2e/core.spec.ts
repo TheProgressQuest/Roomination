@@ -16,6 +16,7 @@ import {
   setNum,
   toast,
   tools,
+  settle,
 } from './helpers';
 
 test.describe('Phase 1 & 2 features still work', () => {
@@ -157,7 +158,7 @@ test.describe('Phase 1 & 2 features still work', () => {
     const wide = await contrast();
     expect(wide.grout).toBeLessThan(wide.tile - 8);
     await page.setViewportSize({ width: 1180, height: 760 });
-    await page.waitForTimeout(300);
+    await settle(page);
     const narrow = await contrast();
     expect(narrow.grout).toBeLessThan(narrow.tile - 8);
   });

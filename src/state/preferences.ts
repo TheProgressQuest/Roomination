@@ -30,6 +30,21 @@ export interface Preferences {
   showClearances: boolean;
   /** How points snap while drawing walls and dragging corners. */
   snap: SnapSettings;
+  view3d: View3DPreferences;
+}
+
+export type WallMode = 'all' | 'dollhouse';
+export type CameraPreset = 'isometric' | 'top' | 'eye';
+
+/** How the 3D view looks on this device. */
+export interface View3DPreferences {
+  wallMode: WallMode;
+  /** The camera angle the 3D view opens with. */
+  camera: CameraPreset;
+  /** Soft shadows (off by default on touch devices, which are often less powerful). */
+  shadows: boolean;
+  /** The "drag to orbit" hint has been dismissed. */
+  hintSeen: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -38,6 +53,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showMeasurementGrid: true,
   showClearances: true,
   snap: DEFAULT_SNAP,
+  view3d: { wallMode: 'dollhouse', camera: 'isometric', shadows: true, hintSeen: false },
 };
 
 const STORAGE_KEY = 'roomination.preferences';
@@ -46,7 +62,7 @@ const BOARD_STYLES: BoardStyle[] = ['solid', 'dots', 'squares', 'graph', 'drafti
 function readPreferences(): Preferences {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
-    if (typeof raw !== 'object' || raw === null) return DEFAULT_PREFERENCES;
+    if (typeof raw !== 'object' || raw === null) return { ...DEFAULT_PREFERENCES, view3d: readView3D(null) };
     const board = typeof raw.board === 'object' && raw.board !== null ? raw.board : {};
     const d = DEFAULT_PREFERENCES;
     return {
@@ -61,9 +77,10 @@ function readPreferences(): Preferences {
       showMeasurementGrid: typeof raw.showMeasurementGrid === 'boolean' ? raw.showMeasurementGrid : d.showMeasurementGrid,
       showClearances: typeof raw.showClearances === 'boolean' ? raw.showClearances : d.showClearances,
       snap: readSnap(raw.snap),
+      view3d: readView3D(raw.view3d),
     };
   } catch {
-    return DEFAULT_PREFERENCES;
+    return { ...DEFAULT_PREFERENCES, view3d: readView3D(null) };
   }
 }
 
@@ -79,6 +96,19 @@ function readSnap(raw: unknown): SnapSettings {
     angles: flag('angles'),
     gridSize: inRange(r.gridSize, 1, 100) ? r.gridSize : DEFAULT_SNAP.gridSize,
     angleStep: inRange(r.angleStep, 5, 90) ? r.angleStep : DEFAULT_SNAP.angleStep,
+  };
+}
+
+function readView3D(raw: unknown): View3DPreferences {
+  // Shadows start off on touch devices, which are often phones with less graphics power.
+  const d = { ...DEFAULT_PREFERENCES.view3d, shadows: !window.matchMedia('(pointer: coarse)').matches };
+  if (typeof raw !== 'object' || raw === null) return d;
+  const r = raw as Record<string, unknown>;
+  return {
+    wallMode: r.wallMode === 'all' || r.wallMode === 'dollhouse' ? r.wallMode : d.wallMode,
+    camera: r.camera === 'isometric' || r.camera === 'top' || r.camera === 'eye' ? r.camera : d.camera,
+    shadows: typeof r.shadows === 'boolean' ? r.shadows : d.shadows,
+    hintSeen: typeof r.hintSeen === 'boolean' ? r.hintSeen : d.hintSeen,
   };
 }
 

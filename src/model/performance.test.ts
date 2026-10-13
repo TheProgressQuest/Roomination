@@ -16,7 +16,7 @@ function bigProject(): Project {
   const outline: WallNode[] = [];
   for (let i = 0; i <= 36; i++) outline.push({ id: `t${i}`, x: (i * 1200) / 36, y: i % 2 === 0 ? 0 : 30, thickness: 12 });
   outline.push({ id: 'r', x: 1200, y: 800, thickness: 12 }, { id: 'b', x: 0, y: 800, thickness: 12 });
-  const project = createEmptyProject({ outline, partitions: [], height: 260, floor: { preset: 'plain', color: '#ffffff', scale: 1, angle: 0, intensity: 0.5 } });
+  const project = createEmptyProject({ outline, partitions: [], height: 260, floor: { preset: 'plain', color: '#ffffff', scale: 1, angle: 0, intensity: 0.5 }, wallColor: '#ffffff' });
   const furniture = Array.from({ length: 150 }, (_, i) =>
     createFurniture({ x: 60 + (i % 15) * 75, y: 120 + Math.floor(i / 15) * 65, width: 60, depth: 50, rotation: (i * 15) % 360 }),
   );

@@ -185,6 +185,144 @@ h3 {
   touch-action: none;
 }
 
+/* ---------- 3D view ---------- */
+.view-switch {
+  flex: none;
+}
+
+.view3d {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.view3d-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.view3d-toolbar .segmented button:disabled {
+  opacity: 0.5;
+}
+
+.view3d-panel,
+.view3d-loading {
+  background: var(--surface-sunk);
+}
+
+.view3d-loading {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.view3d-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* The canvas owns every touch inside it (orbit, pinch); the page scrolls normally outside. */
+.room-3d-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  outline: none;
+}
+
+.view3d-selected {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: calc(100% - 80px);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.view3d-selected strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view3d-selected span {
+  color: var(--text-muted);
+}
+
+.view3d-camera-buttons {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.view3d-camera-buttons .icon-button {
+  box-shadow: var(--shadow);
+}
+
+.view3d-hint {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 80px);
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.view3d-hint p {
+  margin: 0;
+}
+
+.view3d-hint button {
+  white-space: nowrap;
+}
+
+.view3d-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text);
+  background: var(--surface-sunk);
+}
+
+.view3d-message p {
+  max-width: 42ch;
+  margin: 0;
+}
+
+.view3d-message .button-row {
+  justify-content: center;
+}
+
 .loading {
   display: grid;
   place-items: center;
@@ -1962,6 +2100,17 @@ select {
     max-height: 68vh;
     min-height: 260px;
     border-radius: var(--radius);
+  }
+  .view3d {
+    flex: none;
+  }
+  .canvas-panel.view3d-panel,
+  .canvas-panel.view3d-loading {
+    aspect-ratio: 4 / 5;
+  }
+  .view3d-hint {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .tools-panel {
     order: 2;

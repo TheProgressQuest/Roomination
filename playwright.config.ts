@@ -20,7 +20,8 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 900 },
-    launchOptions: { executablePath },
+    // Software WebGL, so the 3D view can be tested on machines (and CI) without a GPU.
+    launchOptions: { executablePath, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] },
   },
   projects: [
     { name: 'dev', use: { baseURL: 'http://localhost:5173/' } },

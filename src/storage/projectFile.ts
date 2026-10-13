@@ -2,7 +2,7 @@ import { allowedPlacement, clampFeatureToRoom, convertPlacement, findOverlapping
 import { normalizeRotation } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { DEFAULT_OPTIMIZER, FURNITURE_KIND_LABELS, PREFERENCE_LABELS, guessKind } from '../model/furnitureKinds';
-import { DEFAULT_FLOOR, createId } from '../model/sample';
+import { DEFAULT_CEILING_HEIGHT, DEFAULT_FLOOR, DEFAULT_WALL_COLOR, createId } from '../model/sample';
 import {
   CURRENT_SCHEMA_VERSION,
   type FloorStyle,
@@ -98,7 +98,7 @@ function parseUnsafe(data: unknown): ParseResult {
   if (version > CURRENT_SCHEMA_VERSION) {
     return { ok: false, error: 'This project was made with a newer version of Roomination. Please update the app.' };
   }
-  if (![1, 2, 3, 4].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
+  if (![1, 2, 3, 4, 5].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
 
   try {
     return { ok: true, project: buildProject(data, version) };
@@ -238,19 +238,29 @@ function parseLegacyRoom(raw: unknown): Room {
     partitions: [],
     height,
     floor: parseFloor(raw.floor),
+    wallColor: DEFAULT_WALL_COLOR,
   };
 }
 
 function parseRoom(raw: unknown, uniqueId: (id: unknown) => string): Room {
   if (!isRecord(raw)) fail('The room’s walls are missing.');
-  const height = positive(raw.height, 'ceiling height');
+  // Ceiling height has always been saved, but a hand-edited file may lack it.
+  const height = raw.height === undefined ? DEFAULT_CEILING_HEIGHT : positive(raw.height, 'ceiling height');
+  if (height > MAX_ROOM_SPAN) fail('The ceiling in this file is unrealistically high.');
   if (!Array.isArray(raw.outline) || raw.outline.length < 3) fail('The room’s outline needs at least three walls.');
   const outline = parseNodes(raw.outline, uniqueId, 'outline');
   const partitions: Partition[] = optionalArray(raw.partitions, 'interior walls').map((p) => {
     if (!isRecord(p) || !Array.isArray(p.nodes) || p.nodes.length < 2) fail('An interior wall in this file is damaged.');
     return { id: uniqueId(p.id), nodes: parseNodes(p.nodes, uniqueId, 'interior wall') };
   });
-  return { outline, partitions, height, floor: parseFloor(raw.floor) };
+  return {
+    outline,
+    partitions,
+    height,
+    floor: parseFloor(raw.floor),
+    // The colour picker and the 3D renderer only understand #rrggbb.
+    wallColor: typeof raw.wallColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.wallColor) ? raw.wallColor : DEFAULT_WALL_COLOR,
+  };
 }
 
 function parseNodes(raw: unknown[], uniqueId: (id: unknown) => string, what: string): WallNode[] {
