@@ -6,6 +6,7 @@ import type { RGBAImage } from './imageOps';
 import { encodeImage, imageFromFile, imageToUrl } from './imageIO';
 import { PhotoEditor } from './PhotoEditor';
 import { stopPhotoWorker } from './photoClient';
+import { stopSmartRemove } from './segmentClient';
 
 /**
  * "Create furniture from photos": choose photos of one piece (front, side, top, or any
@@ -45,6 +46,7 @@ export default function PhotoWorkshop({ onDone, onCancel }: { onDone: (photos: W
   useEffect(
     () => () => {
       stopPhotoWorker();
+      stopSmartRemove();
       for (const url of urls.current) URL.revokeObjectURL(url);
     },
     [],

@@ -36,7 +36,8 @@ import { objectId, type Selection, type ToolMode } from './state/selection';
 import { useOptimizer } from './state/useOptimizer';
 import { useMediaQuery, usePreferences, useResolvedTheme, type BoardPreferences, type ResolvedTheme } from './state/preferences';
 import { StorageFullError } from './storage/assets';
-import { exportProjectFile, importProjectFile, type ImportResult } from './storage/projectPackage';
+import type { ImportResult } from './storage/projectPackage';
+import { projectAssetIds } from './storage/projectFile';
 import {
   deleteProject,
   getActiveProjectId,
@@ -212,6 +213,8 @@ export function App() {
   /** Downloads the project: plain JSON, or a ZIP with its photos when it has any. */
   async function exportProject() {
     try {
+      // The ZIP code only downloads when someone exports or imports.
+      const { exportProjectFile } = await import('./storage/projectPackage');
       const { blob, filename, missing } = await exportProjectFile(project);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -229,6 +232,7 @@ export function App() {
   async function importProject(file: File) {
     let result: ImportResult;
     try {
+      const { importProjectFile } = await import('./storage/projectPackage');
       result = await importProjectFile(file);
     } catch (error) {
       setImportMessage({ kind: 'error', text: error instanceof StorageFullError ? error.message : 'That file couldn’t be imported.' });
@@ -315,28 +319,41 @@ export function App() {
     [project.furniture],
   );
 
-  async function saveStudio({ template, saveToLibrary: alsoLibrary }: StudioResult) {
+  /**
+   * Applies what the studio made. Returns a reason if the room can't take it (e.g. it no
+   * longer fits), in which case the studio stays open with everything the person drew.
+   */
+  async function saveStudio({ template, saveToLibrary: alsoLibrary }: StudioResult): Promise<string | null> {
     const session = studio;
-    if (!session) return;
-    setStudio(null);
+    if (!session) return null;
     const { request } = session;
-    try {
-      if (request.mode === 'edit') {
-        const { name, kind, category, height, color, shape, clearance, appearance } = template;
-        dispatch({ type: 'furniture/update', id: request.furnitureId, changes: { name, kind, category, height, color, shape, clearance, appearance } });
-      } else if (request.mode === 'library') {
-        await saveToLibrary(template, request.libraryId);
-      } else {
-        placeTemplate(template);
-      }
-      if (alsoLibrary && request.mode !== 'library') await saveToLibrary(template);
-      if (alsoLibrary || request.mode === 'library') {
-        libraryChanged();
-        dispatch({ type: 'notice/show', message: `Saved “${template.name}” to your furniture library.` });
-      }
-    } catch {
-      dispatch({ type: 'notice/show', message: 'The furniture library couldn’t be saved. Browser storage may be full or blocked.' });
+    let action: EditorAction | null = null;
+    if (request.mode === 'edit') {
+      const { name, kind, category, height, color, shape, clearance, appearance } = template;
+      action = { type: 'furniture/update', id: request.furnitureId, changes: { name, kind, category, height, color, shape, clearance, appearance } };
+    } else if (request.mode !== 'library') {
+      const cascade = (project.furniture.length % 5) * 15;
+      const centre = roomCentre(project);
+      action = { type: 'furniture/add', furniture: createFurniture({ ...template, x: centre.x + cascade, y: centre.y + cascade }) };
     }
+    if (action) {
+      // Try it first: a refusal leaves the studio open rather than losing the drawing.
+      const tried = editorReducer(state, action);
+      if (tried.notice && tried.notice !== state.notice) return tried.notice.message;
+    }
+    try {
+      if (request.mode === 'library' || alsoLibrary) await saveToLibrary(template, request.mode === 'library' ? request.libraryId : undefined);
+    } catch {
+      return 'The furniture library couldn’t be saved. Browser storage may be full or blocked.';
+    }
+    setStudio(null);
+    if (action) dispatch(action);
+    if (action?.type === 'furniture/add') setSelection({ kind: 'object', id: action.furniture.id });
+    if (request.mode === 'library' || alsoLibrary) {
+      libraryChanged();
+      dispatch({ type: 'notice/show', message: `Saved “${template.name}” to your furniture library.` });
+    }
+    return null;
   }
 
   function addStairs(shape: 'straight' | 'L' | 'U' | 'custom') {
@@ -781,7 +798,7 @@ export function App() {
                 touch={isTouch}
                 offerLibrary={studio.request.mode !== 'library'}
                 saveLabel={studio.request.mode === 'edit' ? 'Save changes' : studio.request.mode === 'library' ? 'Save to library' : 'Add to room'}
-                onSave={(result) => void saveStudio(result)}
+                onSave={saveStudio}
                 onCancel={() => setStudio(null)}
               />
             </Suspense>
@@ -803,6 +820,7 @@ export function App() {
             onExport={exportProject}
             onImport={(file) => void importProject(file)}
             onDelete={(id) => void removeProject(id)}
+          photosInUse={() => [state.present, ...state.past, ...state.future].flatMap(projectAssetIds)}
           />
         )}
 

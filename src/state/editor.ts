@@ -388,7 +388,9 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       }
       const problem = changes.shape && shapeProblem(changes.shape);
       if (problem) return problem;
-      const merged = sanitizeFurniture({ ...current, ...changes, id: current.id });
+      // Only a new outline needs re-centring; an unchanged one keeps its identity, so its
+      // footprint (flattened curves, convex pieces) stays cached.
+      const merged = sanitizeFurniture({ ...current, ...changes, id: current.id }, changes.shape !== undefined);
       if (![merged.x, merged.y, merged.rotation].every(Number.isFinite)) return 'Please enter a number.';
       const sizes = [merged.width, merged.depth, merged.height];
       // Rugs can be very thin, so height only needs to be positive.
@@ -528,7 +530,7 @@ function placeFeature(feature: RoomFeature, project: Project): RoomFeature | str
 }
 
 /** Normalises rotation and rounds lengths so stored values stay tidy and comparable. */
-function sanitizeFurniture(item: Furniture): Furniture {
+function sanitizeFurniture(item: Furniture, newOutline = true): Furniture {
   const clean: Furniture = {
     ...item,
     name: item.name.trim() || 'Untitled piece',
@@ -548,6 +550,7 @@ function sanitizeFurniture(item: Furniture): Furniture {
     delete clean.shape;
     return clean;
   }
+  if (!newOutline) return { ...clean, width: item.width, depth: item.depth };
   // A drawn outline: re-centre it on its bounding box (moving the piece by the same amount, so
   // nothing shifts on screen); width and depth always equal the outline's real extent.
   const normal = normaliseShape(clean.shape);

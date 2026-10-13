@@ -58,8 +58,14 @@ interface PieceRecord {
   footprint: SceneFurniture;
   instanced: InstancedPiece[];
   extruded: Mesh | null;
-  /** Materials owned by this piece (extruded pieces), disposed with it. */
+  /** Materials owned by this piece (extruded pieces), disposed with it. Their textures are cached separately. */
   owned: MeshStandardMaterial[];
+}
+
+/** Something kept between rebuilds, and the rebuild that last used it. */
+interface Cached<T> {
+  value: T;
+  generation: number;
 }
 
 export class FurnitureLayer {
@@ -72,6 +78,12 @@ export class FurnitureLayer {
   private selectedId: string | null = null;
   /** Bumped on every rebuild, so photos that finish loading late don't land on stale meshes. */
   private generation = 0;
+  /**
+   * Extruded shapes and photo textures survive rebuilds: moving one piece doesn't re-make
+   * every other piece's mesh or re-upload its photos. Anything a rebuild didn't use is freed.
+   */
+  private readonly geometries = new Map<string, Cached<BufferGeometry>>();
+  private readonly photos = new Map<string, Cached<CanvasTexture>>();
 
   constructor(
     private readonly unitBox: BoxGeometry,
@@ -99,6 +111,16 @@ export class FurnitureLayer {
     for (const { kind, finish, pieces } of byMaterial.values()) this.addInstanced(kind, finish, pieces);
     this.partCount = furniture.reduce((sum, f) => sum + Math.max(1, f.parts.length), 0);
     this.applySelection();
+    // Free shapes and photos that nothing in this rebuild used. (Photos still loading are
+    // claimed when they arrive, so they're kept until the following rebuild.)
+    for (const cache of [this.geometries, this.photos] as Map<string, Cached<{ dispose(): void }>>[]) {
+      for (const [key, entry] of cache) {
+        if (entry.generation < generation) {
+          entry.value.dispose();
+          cache.delete(key);
+        }
+      }
+    }
   }
 
   setSelection(id: string | null) {
@@ -121,16 +143,12 @@ export class FurnitureLayer {
     return this.pieces.get(id)?.footprint;
   }
 
+  /** Removes every mesh. Cached shapes and photos stay for the next rebuild. */
   clear() {
     this.generation++;
     this.removeOutline();
-    for (const record of this.pieces.values()) {
-      record.extruded?.geometry.dispose();
-      for (const material of record.owned) {
-        material.map?.dispose();
-        material.dispose();
-      }
-    }
+    // Owned materials' textures are shared (material details) or cached (photos): not freed here.
+    for (const record of this.pieces.values()) for (const material of record.owned) material.dispose();
     for (const mesh of this.instanceOwners.keys()) mesh.dispose();
     this.group.clear();
     this.pieces.clear();
@@ -140,6 +158,10 @@ export class FurnitureLayer {
 
   dispose() {
     this.clear();
+    for (const cache of [this.geometries, this.photos] as Map<string, Cached<{ dispose(): void }>>[]) {
+      for (const entry of cache.values()) entry.value.dispose();
+      cache.clear();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -173,7 +195,9 @@ export class FurnitureLayer {
   private addExtruded(piece: SceneFurniture, generation: number) {
     const { outline, height, color } = piece.extruded!;
     const textures = piece.textures;
-    const geometry = extrudedGeometry(outline, height, textures, this.materials.repeatsFor(piece.material, 1));
+    const repeats = this.materials.repeatsFor(piece.material, 1);
+    const key = `${outline.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(';')}|${height}|${repeats}|${Object.keys(textures).sort().join(',')}`;
+    const geometry = this.cached(this.geometries, key, generation, () => extrudedGeometry(outline, height, textures, repeats));
     const body = this.materials.create(piece.material, piece.finish, color);
     const surfaces: MeshStandardMaterial[] = [body, body, body, body];
     const owned = [body];
@@ -188,11 +212,21 @@ export class FurnitureLayer {
       material.map = null;
       surfaces[slot] = material;
       owned.push(material);
-      loadAssetImage(id).then((image) => {
-        if (!image || generation !== this.generation) return;
-        material.map = photoTexture(image, color);
+      const photoKey = `${id}|${color}`;
+      const show = (texture: CanvasTexture) => {
+        material.map = texture;
         material.color.set('#ffffff');
         material.needsUpdate = true;
+      };
+      const ready = this.photos.get(photoKey);
+      if (ready) {
+        ready.generation = generation;
+        show(ready.value);
+        continue;
+      }
+      loadAssetImage(id).then((image) => {
+        if (!image || generation !== this.generation) return;
+        show(this.cached(this.photos, photoKey, generation, () => photoTexture(image, color)));
         this.onChange();
       });
     }
@@ -207,6 +241,18 @@ export class FurnitureLayer {
     record.extruded = mesh;
     record.owned = owned;
     this.group.add(mesh);
+  }
+
+  /** A value from a cache (made if missing), marked as used by this rebuild. */
+  private cached<T>(cache: Map<string, Cached<T>>, key: string, generation: number, make: () => T): T {
+    const hit = cache.get(key);
+    if (hit) {
+      hit.generation = generation;
+      return hit.value;
+    }
+    const value = make();
+    cache.set(key, { value, generation });
+    return value;
   }
 
   private applySelection() {

@@ -140,6 +140,28 @@ test.describe('Draw custom furniture', () => {
     expect([piece.width, piece.depth]).toEqual([120, 80]);
   });
 
+  test('a refused change keeps the studio open with everything drawn; a look-only change keeps a standard piece standard', async ({ page }) => {
+    await openApp(page);
+    await page.locator('.tools-panel .object-list').first().getByText('Sofa').click();
+    await props(page).getByRole('button', { name: 'Edit shape & look' }).click();
+    const dialog = studio(page, 'Edit Sofa');
+    // Far too wide for the 4.8 m room: refused, and the studio stays open with the drawing.
+    await dialog.getByLabel('Width', { exact: true }).fill('900');
+    await dialog.getByLabel('Width', { exact: true }).press('Enter');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await expect(dialog.getByRole('status').first()).toContainText(/wouldn.t fit/);
+    await expect(dialog.getByLabel('Width', { exact: true })).toHaveValue('900');
+    // Undo the stretch and change only the material: the sofa stays a standard piece.
+    await dialog.getByRole('button', { name: 'Undo' }).click();
+    await dialog.getByLabel('Material').selectOption('leather');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(props(page).locator('.origin-badge')).toHaveText('Standard');
+    const sofa = (await exportProject(page)).furniture.find((f: { name: string }) => f.name === 'Sofa');
+    expect(sofa.shape).toBeUndefined();
+    expect(sofa.appearance).toMatchObject({ material: 'leather' });
+  });
+
   test('custom pieces appear in 3D with the same footprint and can be selected there', { tag: '@3d' }, async ({ page }) => {
     await openApp(page);
     await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();

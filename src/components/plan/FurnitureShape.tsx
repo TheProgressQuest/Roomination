@@ -46,15 +46,17 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
   const outline = useMemo(() => (item.shape ? drawnOutline(item) : null), [item]);
   // A top photo (photo-assisted furniture) is shown as the piece's surface, stretched to its size.
   const photo = useAssetImage(item.appearance?.textures?.top);
-  const photoFill = photo
-    ? {
-        fillPriority: 'pattern' as const,
-        fillPatternImage: photo,
-        fillPatternRepeat: 'no-repeat',
-        fillPatternScale: { x: w / photo.naturalWidth, y: h / photo.naturalHeight },
-        fillPatternOffset: { x: photo.naturalWidth / 2, y: photo.naturalHeight / 2 },
-      }
-    : null;
+  // Drawn outlines are centred on the piece's origin; the Rect's own origin is its top-left corner.
+  const photoFill = (centred: boolean) =>
+    photo
+      ? {
+          fillPriority: 'pattern' as const,
+          fillPatternImage: photo,
+          fillPatternRepeat: 'no-repeat',
+          fillPatternScale: { x: w / photo.naturalWidth, y: h / photo.naturalHeight },
+          fillPatternOffset: centred ? { x: photo.naturalWidth / 2, y: photo.naturalHeight / 2 } : { x: 0, y: 0 },
+        }
+      : null;
   const labelAt = outline ? { x: outline.label.x * scale, y: outline.label.y * scale } : { x: 0, y: 0 };
 
   return (
@@ -66,7 +68,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
             points={outline.points.flatMap((p) => [p.x * scale, p.y * scale])}
             closed
             fill={item.color}
-            {...photoFill}
+            {...photoFill(true)}
             stroke={stroke}
             strokeWidth={strokeWidth}
             dash={status === 'accepted' ? [6, 4] : undefined}
@@ -106,7 +108,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
         // Konva performance: draw the shadow once (fill only) and skip the extra buffer canvas.
         shadowForStrokeEnabled={false}
         perfectDrawEnabled={false}
-        {...photoFill}
+        {...photoFill(false)}
       />
       )}
       {isRug && item.texture === 'bordered' && (

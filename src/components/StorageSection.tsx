@@ -5,7 +5,8 @@ import { deleteAssets, storageUsage, unusedAssets, type StorageUsage } from '../
  * How much of this browser's storage Roomination uses, and a clean-up for photos nothing
  * uses any more. Nothing is deleted without the person confirming the exact count first.
  */
-export function StorageSection() {
+/** `inUse` lists photos the open project's undo history may still need. */
+export function StorageSection({ inUse }: { inUse: () => string[] }) {
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [unused, setUnused] = useState<{ id: string; bytes: number }[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -20,7 +21,7 @@ export function StorageSection() {
 
   async function findUnused() {
     setMessage(null);
-    const list = await unusedAssets();
+    const list = await unusedAssets(inUse());
     setUnused(list);
     if (list.length === 0) setMessage('Every stored photo is used by a project or the furniture library.');
   }

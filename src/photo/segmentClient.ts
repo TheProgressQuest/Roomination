@@ -12,34 +12,59 @@ export interface SegmentRun {
 }
 
 /**
- * Runs "Smart remove" in its own worker. The first run downloads the model and runtime
- * (about 19 MB, from this site) — the browser caches them afterwards. Cancel stops at once.
+ * One worker is kept while the photo tools are open, so the model is loaded once and reused
+ * for every photo. Cancelling stops the worker at once (the next run starts a fresh one).
+ */
+let worker: Worker | null = null;
+let active: { resolve: (m: Uint8Array) => void; reject: (e: Error) => void; onProgress: (stage: 'download' | 'prepare' | 'run', fraction: number) => void } | null = null;
+
+function getWorker(): Worker {
+  if (worker) return worker;
+  const created = new Worker(new URL('./segment.worker.ts', import.meta.url), { type: 'module' });
+  created.onmessage = (event: MessageEvent<SegmentMessage>) => {
+    const message = event.data;
+    if (!active) return;
+    if (message.type === 'progress') {
+      active.onProgress(message.stage, message.fraction);
+      return;
+    }
+    const job = active;
+    active = null;
+    if (message.type === 'done') job.resolve(message.mask);
+    else job.reject(new Error(message.message));
+  };
+  created.onerror = (event) => {
+    const job = active;
+    stopSmartRemove();
+    job?.reject(new Error(event.message || 'Smart remove couldn’t start in this browser.'));
+  };
+  worker = created;
+  return created;
+}
+
+/**
+ * Runs "Smart remove". The first run downloads the model and runtime (about 19 MB, from
+ * this site; the browser caches them afterwards). One run at a time.
  */
 export function smartRemove(image: RGBAImage, onProgress: (stage: 'download' | 'prepare' | 'run', fraction: number) => void): SegmentRun {
-  const worker = new Worker(new URL('./segment.worker.ts', import.meta.url), { type: 'module' });
-  let settle: { resolve: (m: Uint8Array) => void; reject: (e: Error) => void };
+  if (active) active.reject(new Error('Cancelled'));
   const result = new Promise<Uint8Array>((resolve, reject) => {
-    settle = { resolve, reject };
+    active = { resolve, reject, onProgress };
   });
-  worker.onmessage = (event: MessageEvent<SegmentMessage>) => {
-    const message = event.data;
-    if (message.type === 'progress') onProgress(message.stage, message.fraction);
-    else {
-      worker.terminate();
-      if (message.type === 'done') settle.resolve(message.mask);
-      else settle.reject(new Error(message.message));
-    }
-  };
-  worker.onerror = (event) => {
-    worker.terminate();
-    settle.reject(new Error(event.message || 'Smart remove couldn’t start in this browser.'));
-  };
-  worker.postMessage({ image, modelUrl: modelUrl() });
+  getWorker().postMessage({ image, modelUrl: modelUrl() });
   return {
     result,
     cancel: () => {
-      worker.terminate();
-      settle.reject(new Error('Cancelled'));
+      const job = active;
+      stopSmartRemove();
+      job?.reject(new Error('Cancelled'));
     },
   };
+}
+
+/** Stops the worker and frees the model (when the photo tools close, or on cancel). */
+export function stopSmartRemove() {
+  worker?.terminate();
+  worker = null;
+  active = null;
 }

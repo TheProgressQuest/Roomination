@@ -52,6 +52,13 @@ describe('photo storage', () => {
     expect((await unusedAssets()).map((a) => a.id)).toEqual([unused]);
     await db.projects.put({ id: 'broken', savedAt: 1, project: { nonsense: true } });
     expect(await unusedAssets()).toEqual([]);
+    // Photos the open project's undo history still needs are protected too.
+    await db.projects.delete('broken');
+    expect(await unusedAssets([unused])).toEqual([]);
+    // So are photos of a library item that can't be read.
+    await db.library.put({ id: 'damaged', savedAt: 1, item: { width: -1 } });
+    expect(await unusedAssets()).toEqual([]);
+    await db.library.delete('damaged');
     await deleteAssets([unused]);
     expect(await existingAssetIds([used, unused])).toEqual(new Set([used]));
   });

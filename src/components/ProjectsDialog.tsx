@@ -19,6 +19,8 @@ interface ProjectsDialogProps {
   onExport: () => void;
   onImport: (file: File) => void;
   onDelete: (id: string) => void;
+  /** Photos the open project (including its undo history) still refers to. */
+  photosInUse: () => string[];
 }
 
 /**
@@ -147,7 +149,7 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
         <p className="hint">Imports are always added as a new project — nothing existing is overwritten.</p>
       </section>
 
-      <StorageSection />
+      <StorageSection inUse={props.photosInUse} />
     </Dialog>
   );
 }

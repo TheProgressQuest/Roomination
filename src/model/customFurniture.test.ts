@@ -82,6 +82,14 @@ describe('collisions with the true footprint', () => {
     expect(findConflicts({ ...project, furniture: [{ ...sofa, clearance: undefined }, table] })).toEqual([]);
   });
 
+  it('reports two facing pieces’ clearances separately, so accepting one doesn’t accept the other', () => {
+    const a = createFurniture({ name: 'Chair A', x: 200, y: 100, width: 60, depth: 60, clearance: 60 });
+    const b = createFurniture({ name: 'Chair B', x: 200, y: 180, width: 60, depth: 60, rotation: 180, clearance: 60 });
+    const conflicts = findConflicts({ ...createEmptyProject(createRectangularRoom(500, 400)), furniture: [a, b] });
+    expect(conflicts).toHaveLength(2);
+    expect(new Set(conflicts.map((c) => c.key)).size).toBe(2);
+  });
+
   it('keeps custom pieces inside irregular rooms by their real outline', () => {
     const project = customShapes();
     for (const item of project.furniture) expect(footprintInside(roomFootprint(item).parts, outlinePolygon(project.room))).toBe(true);

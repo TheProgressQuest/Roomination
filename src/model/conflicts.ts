@@ -54,6 +54,11 @@ const ZONE_TO_CONFLICT: Record<ZoneType, ConflictType> = {
 };
 const SEVERITY: ZoneType[] = ['solid', 'footprint', 'clearance'];
 
+/** Key for a piece standing in the space another piece keeps clear in front of it (order matters). */
+export function furnitureClearanceKey(itemId: string, ownerId: string): string {
+  return `${itemId}|in-front-of|${ownerId}`;
+}
+
 /** Key for one specific relationship; order-independent. */
 export function conflictKey(a: string, b: string, type: ConflictType): string {
   const [first, second] = a < b ? [a, b] : [b, a];
@@ -149,8 +154,7 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
   const others = onlyObstacleId ? obstacles(project).filter((o) => o.id === onlyObstacleId) : obstacles(project);
   const conflicts: Conflict[] = [];
 
-  const add = (itemId: string, otherId: string, otherKind: ObstacleKind, type: ConflictType, coverage: number) => {
-    const key = conflictKey(itemId, otherId, type);
+  const add = (itemId: string, otherId: string, otherKind: ObstacleKind, type: ConflictType, coverage: number, key = conflictKey(itemId, otherId, type)) => {
     conflicts.push({ key, itemId, otherId, otherKind, type, coverage: Math.min(1, coverage), accepted: accepted.has(key) });
   };
 
@@ -174,7 +178,8 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
     for (const { owner, zone } of onlyObstacleId ? [] : clearances) {
       if (owner.id === item.id || (onlyItemId && item.id !== onlyItemId && owner.id !== onlyItemId)) continue;
       const area = footprintOverlap(itemPrint.parts, [zone]);
-      if (area > MIN_OVERLAP_AREA) add(item.id, owner.id, 'furniture', 'clearance', area / polygonArea(zone));
+      // Directional: "A in front of B" and "B in front of A" are different things to accept.
+      if (area > MIN_OVERLAP_AREA) add(item.id, owner.id, 'furniture', 'clearance', area / polygonArea(zone), furnitureClearanceKey(item.id, owner.id));
     }
 
     // Furniture vs obstacles: report only the most severe kind of intrusion per obstacle.

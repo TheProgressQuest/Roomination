@@ -123,18 +123,23 @@ export async function storageUsage(): Promise<StorageUsage> {
 }
 
 /**
- * Photos no project and no library item refers to. Unreadable projects count as using
- * everything, so a damaged project never loses its photos to a clean-up.
+ * Photos nothing refers to: no saved project, no library item, and nothing in `inUse` (the
+ * open project's undo/redo history, so Undo can never bring back a piece whose photo is
+ * gone). If any project or library item can't be read, nothing is offered for removal, so
+ * a damaged record never loses its photos to a clean-up.
  */
-export async function unusedAssets(): Promise<{ id: string; bytes: number }[]> {
-  const used = new Set<string>();
+export async function unusedAssets(inUse: Iterable<string> = []): Promise<{ id: string; bytes: number }[]> {
+  const used = new Set<string>(inUse);
   let unreadable = false;
   await db.projects.each((record) => {
     const result = parseProject(record.project);
     if (!result.ok) unreadable = true;
     else for (const f of result.project.furniture) for (const id of furnitureAssetIds(f)) used.add(id);
   });
-  for (const item of await listLibraryRecords()) for (const id of furnitureAssetIds(item.template)) used.add(id);
+  const libraryRecords = await db.library.count();
+  const library = await listLibraryRecords();
+  if (library.length !== libraryRecords) unreadable = true;
+  for (const item of library) for (const id of furnitureAssetIds(item.template)) used.add(id);
   if (unreadable) return [];
   const unused: { id: string; bytes: number }[] = [];
   await db.assets.each((a) => {

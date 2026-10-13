@@ -42,7 +42,8 @@ interface FurnitureStudioProps {
   /** Offer "Also save to my furniture library" (off when already editing a library item). */
   offerLibrary: boolean;
   saveLabel: string;
-  onSave: (result: StudioResult) => void;
+  /** Applies the result; resolves to a reason if it couldn't be applied (the studio then stays open). */
+  onSave: (result: StudioResult) => Promise<string | null>;
   onCancel: () => void;
 }
 
@@ -254,7 +255,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
     );
   }
 
-  function save() {
+  async function save() {
     if (!draft.closed) {
       setMessage('Close the outline first: click its first corner, or press Close shape.');
       return;
@@ -263,7 +264,10 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       setMessage(problem);
       return;
     }
-    const { width, depth } = shapeSize(draft.points);
+    // A standard piece whose outline wasn't touched stays standard (keeping its per-type 3D
+    // look, e.g. a sofa's back and arms) even if its colour, material or photos changed.
+    const outlineUntouched = !initial.shape && JSON.stringify(draft.points) === JSON.stringify(start.points);
+    const { width, depth } = outlineUntouched ? { width: initial.width, depth: initial.depth } : shapeSize(draft.points);
     const textures = Object.fromEntries(Object.entries(draft.textures).filter(([, v]) => v));
     const appearance =
       draft.material || draft.photos.length > 0 || Object.keys(textures).length > 0
@@ -278,11 +282,12 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       color: draft.color,
       width,
       depth,
-      shape: { points: draft.points },
+      shape: outlineUntouched ? undefined : { points: draft.points },
       ...(draft.clearance > 0 ? { clearance: draft.clearance } : { clearance: undefined }),
       appearance,
     };
-    props.onSave({ template, saveToLibrary });
+    const refused = await props.onSave({ template, saveToLibrary });
+    if (refused) setMessage(refused);
   }
 
   // Keyboard shortcuts while the studio is open.
@@ -321,7 +326,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
             <button type="button" className="secondary" onClick={props.onCancel}>
               Cancel
             </button>
-            <button type="button" className="primary" onClick={save}>
+            <button type="button" className="primary" onClick={() => void save()}>
               {props.saveLabel}
             </button>
           </div>
