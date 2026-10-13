@@ -56,7 +56,7 @@ export function furnitureBounds(item: Pick<Furniture, 'x' | 'y' | 'width' | 'dep
 }
 
 /** Whether a piece, at its current size and rotation, could fit in the room at all. */
-export function fitsInRoom(item: Pick<Furniture, 'width' | 'depth' | 'rotation'>, room: Room): boolean {
+export function fitsInRoom(item: Pick<Furniture, 'width' | 'depth' | 'rotation'>, room: Pick<Room, 'width' | 'length'>): boolean {
   const { halfX, halfY } = rotatedHalfExtents(item.width, item.depth, item.rotation);
   // Tiny tolerance so floating-point noise (e.g. cos(90°) ≈ 6e-17) never rejects a perfect fit.
   const epsilon = 1e-6;
@@ -73,7 +73,7 @@ function clamp(value: number, min: number, max: number): number {
  */
 export function clampCenterToRoom<T extends Pick<Furniture, 'x' | 'y' | 'width' | 'depth' | 'rotation'>>(
   item: T,
-  room: Room,
+  room: Pick<Room, 'width' | 'length'>,
 ): T | null {
   if (!fitsInRoom(item, room)) return null;
   const { halfX, halfY } = rotatedHalfExtents(item.width, item.depth, item.rotation);

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { furnitureBounds } from '../model/geometry';
-import { createEmptyProject, createFurniture } from '../model/sample';
+import { conflictKey } from '../model/conflicts';
+import { DEFAULT_FLOOR, createEmptyProject, createFeature, createFurniture } from '../model/sample';
 import type { Project } from '../model/types';
 import { canRedo, canUndo, createEditorState, editorReducer, type EditorAction, type EditorState } from './editor';
 
 function setup(): { state: EditorState; id: string } {
-  const project: Project = createEmptyProject({ width: 400, length: 300, height: 250 });
+  const project: Project = createEmptyProject({ width: 400, length: 300, height: 250, floor: DEFAULT_FLOOR });
   const table = createFurniture({ name: 'Table', x: 200, y: 150, width: 120, depth: 80 });
   const state = editorReducer(createEditorState(project), { type: 'furniture/add', furniture: table });
   return { state, id: table.id };
@@ -75,6 +76,7 @@ describe('editorReducer', () => {
   it('rejects invalid sizes', () => {
     const { state, id } = setup();
     expect(run(state, { type: 'furniture/update', id, changes: { width: 0 } }).present).toBe(state.present);
+    expect(run(state, { type: 'furniture/update', id, changes: { height: 0 } }).present).toBe(state.present);
     expect(run(state, { type: 'furniture/update', id, changes: { depth: Number.NaN } }).present).toBe(state.present);
   });
 
@@ -124,5 +126,138 @@ describe('editorReducer', () => {
     const { state, id } = setup();
     const next = run(state, { type: 'furniture/update', id, changes: { x: 200 } });
     expect(next).toBe(state);
+  });
+});
+
+describe('room features', () => {
+  const onWall = (wall: 'top' | 'left', offset: number) => ({ type: 'wall' as const, wall, offset });
+
+  it('adds, edits, and undoes a door', () => {
+    const { state } = setup();
+    const door = createFeature('door', onWall('top', 100), { height: 250 });
+    const added = run(state, { type: 'feature/add', feature: door });
+    const wider = run(added, { type: 'feature/update', id: door.id, changes: { width: 100 } });
+    expect(wider.present.features[0].width).toBe(100);
+    expect(run(wider, { type: 'history/undo' }).present.features[0].width).toBe(80);
+    expect(run(wider, { type: 'history/undo' }, { type: 'history/undo' }).present.features).toHaveLength(0);
+  });
+
+  it('keeps wall features on their wall and inside its length', () => {
+    const { state } = setup();
+    const window = createFeature('window', onWall('top', 100), { height: 250 }, { width: 100 });
+    const moved = run(state, { type: 'feature/add', feature: window }, { type: 'feature/update', id: window.id, changes: { placement: onWall('top', 9999) } });
+    expect(moved.present.features[0].placement).toEqual(onWall('top', 350));
+  });
+
+  it('refuses to overlap two openings on one wall', () => {
+    const { state } = setup();
+    const a = createFeature('window', onWall('top', 100), { height: 250 }, { width: 100 });
+    const b = createFeature('door', onWall('top', 300), { height: 250 }, { width: 80 });
+    const both = run(state, { type: 'feature/add', feature: a }, { type: 'feature/add', feature: b });
+    const clash = run(both, { type: 'feature/update', id: b.id, changes: { placement: onWall('top', 160) } });
+    expect(clash.present).toBe(both.present);
+    expect(clash.notice?.message).toMatch(/overlap/);
+  });
+
+  it('switching a vent to wall-mounted snaps it to a wall', () => {
+    const { state } = setup();
+    const vent = createFeature('vent', { type: 'free', x: 20, y: 150, rotation: 0 }, { height: 250 });
+    const next = run(state, { type: 'feature/add', feature: vent }, { type: 'feature/update', id: vent.id, changes: { ventMount: 'wall' } });
+    expect(next.present.features[0].placement).toMatchObject({ type: 'wall', wall: 'left', offset: 150 });
+  });
+
+  it('shrinking the room keeps features attached and inside', () => {
+    const { state } = setup();
+    const window = createFeature('window', onWall('top', 340), { height: 250 }, { width: 100 });
+    const next = run(state, { type: 'feature/add', feature: window }, { type: 'room/resize', room: { width: 300 } });
+    expect(next.present.features[0].placement).toEqual(onWall('top', 250));
+  });
+});
+
+describe('overlap prompts and overrides', () => {
+  function withShelf() {
+    const { state, id } = setup(); // table 120×80 at (200,150)
+    const shelf = createFurniture({ name: 'Shelf', x: 60, y: 60, width: 80, depth: 35 });
+    return { state: run(state, { type: 'furniture/add', furniture: shelf }), tableId: id, shelfId: shelf.id };
+  }
+
+  it('raises one prompt when a change creates a new overlap', () => {
+    const { state, shelfId } = withShelf();
+    expect(state.prompt).toBeNull();
+    const overlapping = run(state, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    expect(overlapping.prompt?.conflicts).toHaveLength(1);
+    // Moving again while still overlapping the same piece doesn't nag again.
+    const nudged = run(overlapping, { type: 'furniture/update', id: shelfId, changes: { x: 185 } });
+    expect(nudged.prompt).toBeNull();
+  });
+
+  it('"Move it back" reverts the change', () => {
+    const { state, shelfId } = withShelf();
+    const overlapping = run(state, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    const reverted = run(overlapping, { type: 'conflict/revert' });
+    expect(reverted.present).toBe(state.present);
+    expect(reverted.prompt).toBeNull();
+  });
+
+  it('accepting stores a pair-specific override that is undoable', () => {
+    const { state, shelfId, tableId } = withShelf();
+    const overlapping = run(state, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    const accepted = run(overlapping, { type: 'overlap/accept', keys: overlapping.prompt!.conflicts.map((c) => c.key) });
+    expect(accepted.present.acceptedOverlaps).toEqual([conflictKey(shelfId, tableId, 'collision')]);
+    expect(accepted.prompt).toBeNull();
+    expect(run(accepted, { type: 'history/undo' }).present.acceptedOverlaps).toEqual([]);
+  });
+
+  it('a new overlap with a different piece still prompts after accepting one', () => {
+    const { state, shelfId } = withShelf();
+    const lamp = createFurniture({ name: 'Lamp', x: 350, y: 250, width: 30, depth: 30 });
+    let next = run(state, { type: 'furniture/add', furniture: lamp }, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    next = run(next, { type: 'overlap/accept', keys: next.prompt!.conflicts.map((c) => c.key) });
+    next = run(next, { type: 'furniture/update', id: lamp.id, changes: { x: 180, y: 150 } });
+    expect(next.prompt?.conflicts.length).toBeGreaterThan(0);
+  });
+
+  it('forgets an override once the pieces no longer overlap', () => {
+    const { state, shelfId } = withShelf();
+    let next = run(state, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    next = run(next, { type: 'overlap/accept', keys: next.prompt!.conflicts.map((c) => c.key) });
+    next = run(next, { type: 'furniture/update', id: shelfId, changes: { x: 60, y: 60 } });
+    expect(next.present.acceptedOverlaps).toEqual([]);
+    // …so overlapping again asks again.
+    next = run(next, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    expect(next.prompt).not.toBeNull();
+  });
+
+  it('deleting a piece removes its overrides', () => {
+    const { state, shelfId } = withShelf();
+    let next = run(state, { type: 'furniture/update', id: shelfId, changes: { x: 180, y: 150 } });
+    next = run(next, { type: 'overlap/accept', keys: next.prompt!.conflicts.map((c) => c.key) });
+    next = run(next, { type: 'furniture/delete', id: shelfId });
+    expect(next.present.acceptedOverlaps).toEqual([]);
+  });
+});
+
+describe('merged edits', () => {
+  it('turns a burst of colour-picker changes into one undo step', () => {
+    const { state, id } = setup();
+    const next = run(
+      state,
+      { type: 'furniture/update', id, changes: { color: '#111111' }, mergeKey: `color:${id}` },
+      { type: 'furniture/update', id, changes: { color: '#222222' }, mergeKey: `color:${id}` },
+      { type: 'furniture/update', id, changes: { color: '#333333' }, mergeKey: `color:${id}` },
+    );
+    expect(next.present.furniture[0].color).toBe('#333333');
+    expect(run(next, { type: 'history/undo' }).present.furniture[0].color).toBe(state.present.furniture[0].color);
+  });
+
+  it('a different edit in between starts a new undo step', () => {
+    const { state, id } = setup();
+    const next = run(
+      state,
+      { type: 'furniture/update', id, changes: { color: '#111111' }, mergeKey: 'c' },
+      { type: 'furniture/update', id, changes: { x: 100 } },
+      { type: 'furniture/update', id, changes: { color: '#222222' }, mergeKey: 'c' },
+    );
+    expect(run(next, { type: 'history/undo' }).present.furniture[0].color).toBe('#111111');
   });
 });

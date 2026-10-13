@@ -1,4 +1,5 @@
-import { Icon } from './Icon';
+import type { ThemePreference } from '../state/preferences';
+import { Icon, type IconName } from './Icon';
 
 export type SaveStatus = 'saved' | 'saving' | 'error';
 
@@ -7,51 +8,67 @@ interface HeaderProps {
   saveStatus: SaveStatus;
   canUndo: boolean;
   canRedo: boolean;
+  theme: ThemePreference;
   onUndo: () => void;
   onRedo: () => void;
-  onRename: (name: string) => void;
+  onOpenProjects: () => void;
+  onTheme: (theme: ThemePreference) => void;
 }
 
 const SAVE_LABELS: Record<SaveStatus, string> = {
   saved: 'Saved on this device',
   saving: 'Saving…',
-  error: "Couldn't save — storage may be blocked",
+  error: 'Couldn’t save — storage may be blocked',
 };
 
-export function Header({ projectName, saveStatus, canUndo, canRedo, onUndo, onRedo, onRename }: HeaderProps) {
+const THEMES: { value: ThemePreference; icon: IconName; label: string }[] = [
+  { value: 'light', icon: 'sun', label: 'Light theme' },
+  { value: 'dark', icon: 'moon', label: 'Dark theme' },
+  { value: 'system', icon: 'monitor', label: 'Match system theme' },
+];
+
+export function Header(props: HeaderProps) {
   return (
     <header className="app-header">
       <div className="brand">
         <Logo />
-        <div>
+        <div className="brand-text">
           <h1>Roomination</h1>
           <p className="tagline">A little less guessing. A lot more room for living.</p>
         </div>
       </div>
 
-      <input
-        // Remount when the saved name changes (e.g. after undo) so the field stays in sync.
-        key={projectName}
-        className="project-name"
-        aria-label="Project name"
-        defaultValue={projectName}
-        maxLength={60}
-        onBlur={(e) => onRename(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-        }}
-      />
+      <button type="button" className="project-button" onClick={props.onOpenProjects} aria-label={`Projects. Current project: ${props.projectName}`}>
+        <Icon name="folder" />
+        <span className="truncate">{props.projectName}</span>
+      </button>
 
       <div className="header-actions">
-        <span className={`save-status is-${saveStatus}`} role="status">
+        <span className={`save-status is-${props.saveStatus}`} role="status" title={SAVE_LABELS[props.saveStatus]}>
           <span className="save-dot" aria-hidden="true" />
-          {SAVE_LABELS[saveStatus]}
+          <span className="save-label">{SAVE_LABELS[props.saveStatus]}</span>
         </span>
+        <div className="segmented theme-toggle" role="radiogroup" aria-label="Theme">
+          {THEMES.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              role="radio"
+              aria-checked={props.theme === t.value}
+              aria-label={t.label}
+              title={t.label}
+              className={props.theme === t.value ? 'is-active' : ''}
+              onClick={() => props.onTheme(t.value)}
+            >
+              <Icon name={t.icon} size={16} />
+            </button>
+          ))}
+        </div>
         <div className="button-row tight">
-          <button type="button" className="icon-button" onClick={onUndo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl/⌘ Z)">
+          <button type="button" className="icon-button" onClick={props.onUndo} disabled={!props.canUndo} aria-label="Undo" title="Undo (Ctrl/⌘ Z)">
             <Icon name="undo" />
           </button>
-          <button type="button" className="icon-button" onClick={onRedo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)">
+          <button type="button" className="icon-button" onClick={props.onRedo} disabled={!props.canRedo} aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)">
             <Icon name="redo" />
           </button>
         </div>
@@ -62,7 +79,7 @@ export function Header({ projectName, saveStatus, canUndo, canRedo, onUndo, onRe
 
 function Logo() {
   return (
-    <svg className="logo" viewBox="0 0 40 40" width="40" height="40" aria-hidden="true">
+    <svg className="logo" viewBox="0 0 40 40" width="36" height="36" aria-hidden="true">
       <rect x="2" y="2" width="36" height="36" rx="10" fill="#d9643a" />
       <path d="M10 30V18l10-8 10 8v12" fill="none" stroke="#fffaf2" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
       <rect x="15" y="22" width="10" height="5" rx="2" fill="#f2c879" />

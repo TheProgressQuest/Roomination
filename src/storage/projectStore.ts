@@ -1,20 +1,30 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Furniture, Project } from '../model/types';
+import { createId } from '../model/sample';
+import type { Project } from '../model/types';
+import { parseProject } from './projectFile';
 
 /**
  * Local persistence. Projects live in the browser's IndexedDB on this device only —
  * nothing is ever sent over the network.
  *
- * Phase 1 keeps a single "current" project. The table is keyed by id so multiple
- * projects and layout variations can be added later without a migration.
+ * Each project is one record. Phase 1 stored a single record with the id "current";
+ * it is still read like any other project (and migrated to the new format on load).
  */
-
-const CURRENT_PROJECT_ID = 'current';
 
 interface StoredProject {
   id: string;
   savedAt: number;
-  project: Project;
+  /** Stored as written; validated and migrated every time it is read. */
+  project: unknown;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  savedAt: number;
+  furnitureCount: number;
+  /** False when the record couldn't be read; it is listed (never silently deleted) but can't be opened. */
+  readable: boolean;
 }
 
 const db = new Dexie('roomination') as Dexie & {
@@ -25,55 +35,66 @@ db.version(1).stores({
   projects: 'id, savedAt',
 });
 
-export async function saveCurrentProject(project: Project): Promise<void> {
-  await db.projects.put({ id: CURRENT_PROJECT_ID, savedAt: Date.now(), project });
+const ACTIVE_PROJECT_KEY = 'roomination.activeProjectId';
+
+export function newProjectId(): string {
+  return createId();
 }
 
-/** Returns the saved project, or null if there is none or it can't be read. */
-export async function loadCurrentProject(): Promise<Project | null> {
-  const stored = await db.projects.get(CURRENT_PROJECT_ID);
+export async function saveProject(id: string, project: Project): Promise<void> {
+  await db.projects.put({ id, savedAt: Date.now(), project });
+}
+
+/** Returns the project, migrated to the current format, or null if missing or unreadable. */
+export async function loadProject(id: string): Promise<Project | null> {
+  const stored = await db.projects.get(id);
   if (!stored) return null;
-  return parseProject(stored.project);
+  const result = parseProject(stored.project);
+  return result.ok ? result.project : null;
 }
 
-/**
- * Checks that unknown data (from storage today, from imported files later) really
- * is a project. Returns null rather than trusting malformed data.
- */
-export function parseProject(data: unknown): Project | null {
-  if (!isRecord(data) || data.schemaVersion !== 1) return null;
-  const { name, units, room, furniture } = data;
-  if (typeof name !== 'string' || (units !== 'metric' && units !== 'imperial')) return null;
-  if (!isRecord(room) || !allPositiveNumbers(room.width, room.length, room.height)) return null;
-  if (!Array.isArray(furniture) || !furniture.every(isFurniture)) return null;
-  return {
-    schemaVersion: 1,
-    name,
-    units,
-    room: { width: room.width as number, length: room.length as number, height: room.height as number },
-    furniture: furniture.map((f) => ({ ...f })),
-  };
+export async function deleteProject(id: string): Promise<void> {
+  await db.projects.delete(id);
 }
 
-function isFurniture(value: unknown): value is Furniture {
-  return (
-    isRecord(value) &&
-    typeof value.id === 'string' &&
-    typeof value.name === 'string' &&
-    typeof value.color === 'string' &&
-    allFiniteNumbers(value.x, value.y, value.rotation) &&
-    allPositiveNumbers(value.width, value.depth, value.height)
-  );
+/** All saved projects, most recently saved first. */
+export async function listProjects(): Promise<ProjectSummary[]> {
+  const records = await db.projects.orderBy('savedAt').reverse().toArray();
+  return records.map((record) => {
+    const result = parseProject(record.project);
+    return {
+      id: record.id,
+      name: result.ok ? result.project.name : 'Unreadable project',
+      savedAt: record.savedAt,
+      furnitureCount: result.ok ? result.project.furniture.length : 0,
+      readable: result.ok,
+    };
+  });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+/** Which project was open last. Kept in localStorage; failures are harmless. */
+export function getActiveProjectId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_PROJECT_KEY);
+  } catch {
+    return null;
+  }
 }
 
-function allFiniteNumbers(...values: unknown[]): boolean {
-  return values.every((v) => typeof v === 'number' && Number.isFinite(v));
+export function setActiveProjectId(id: string): void {
+  try {
+    localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+  } catch {
+    // Storage blocked (e.g. private mode): the app still works, it just won't remember.
+  }
 }
 
-function allPositiveNumbers(...values: unknown[]): boolean {
-  return allFiniteNumbers(...values) && values.every((v) => (v as number) > 0);
+/** Picks a name that doesn't clash with existing projects, e.g. "Studio (2)". */
+export function uniqueProjectName(name: string, existing: string[]): string {
+  const taken = new Set(existing);
+  if (!taken.has(name)) return name;
+  for (let n = 2; ; n++) {
+    const candidate = `${name} (${n})`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }

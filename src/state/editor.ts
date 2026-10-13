@@ -1,3 +1,10 @@
+import { findConflicts, type Conflict } from '../model/conflicts';
+import {
+  allowedPlacement,
+  clampFeatureToRoom,
+  convertPlacement,
+  findOverlappingOpening,
+} from '../model/features';
 import {
   MAX_ROOM_SIZE,
   MIN_FURNITURE_SIZE,
@@ -6,22 +13,34 @@ import {
   normalizeRotation,
   roundLength,
 } from '../model/geometry';
-import type { Furniture, Project, Room, UnitSystem } from '../model/types';
+import type { FloorStyle, Furniture, Placement, Project, Room, RoomFeature, UnitSystem } from '../model/types';
 
 /**
  * The editor's state machine. Every change to a project goes through `editorReducer`,
- * which (1) validates it against the geometry rules and (2) records undo history.
+ * which (1) validates it against the geometry rules, (2) records undo history and
+ * (3) checks whether the change created new overlaps the user should know about.
  *
  * Undo works by keeping whole snapshots of the project: projects are small, and
  * snapshots can never get out of sync the way hand-written "reverse" operations can.
  */
 
 const HISTORY_LIMIT = 100;
+/** Smallest width allowed for a room feature, in cm (outlets are small). */
+const MIN_FEATURE_SIZE = 2;
+const MAX_CLEARANCE = 500;
 
 export interface Notice {
   /** Increments on every notice so the UI can tell two identical messages apart. */
   id: number;
   message: string;
+}
+
+/** Raised when a change creates overlaps the user hasn't accepted yet. */
+export interface ConflictPrompt {
+  id: number;
+  conflicts: Conflict[];
+  /** The object whose change caused the conflicts, so messages can name it first. */
+  focusId: string | null;
 }
 
 export interface EditorState {
@@ -30,21 +49,47 @@ export interface EditorState {
   future: Project[];
   /** Explains the most recent rejected change, e.g. "Sofa wouldn't fit". */
   notice: Notice | null;
+  /** New, unaccepted overlaps caused by the most recent change. */
+  prompt: ConflictPrompt | null;
+  /**
+   * Merge key of the last commit. Consecutive edits with the same key (e.g. dragging
+   * a colour picker or slider) become a single undo step.
+   */
+  lastMergeKey: string | null;
 }
+
+type FeatureChanges = Partial<Omit<RoomFeature, 'id' | 'kind'>>;
 
 export type EditorAction =
   | { type: 'project/replace'; project: Project; resetHistory?: boolean }
   | { type: 'project/rename'; name: string }
   | { type: 'units/set'; units: UnitSystem }
-  | { type: 'room/resize'; room: Partial<Room> }
+  | { type: 'room/resize'; room: Partial<Pick<Room, 'width' | 'length' | 'height'>> }
+  | { type: 'floor/set'; floor: Partial<FloorStyle>; mergeKey?: string }
   | { type: 'furniture/add'; furniture: Furniture }
-  | { type: 'furniture/update'; id: string; changes: Partial<Omit<Furniture, 'id'>> }
+  | { type: 'furniture/update'; id: string; changes: Partial<Omit<Furniture, 'id'>>; mergeKey?: string }
   | { type: 'furniture/delete'; id: string }
+  | { type: 'feature/add'; feature: RoomFeature }
+  | { type: 'feature/update'; id: string; changes: FeatureChanges }
+  | { type: 'feature/delete'; id: string }
+  | { type: 'overlap/accept'; keys: string[] }
+  | { type: 'overlap/revoke'; key: string }
+  /** Close the conflict prompt, keeping the change (the warning stays visible). */
+  | { type: 'conflict/dismiss' }
+  /** "Move it back": undo the change that raised the prompt. */
+  | { type: 'conflict/revert' }
+  /** Explain something to the user without changing the project. */
+  | { type: 'notice/show'; message: string }
   | { type: 'history/undo' }
   | { type: 'history/redo' };
 
+type EditAction = Exclude<
+  EditorAction,
+  { type: 'history/undo' | 'history/redo' | 'project/replace' | 'conflict/dismiss' | 'conflict/revert' | 'notice/show' }
+>;
+
 export function createEditorState(project: Project): EditorState {
-  return { past: [], present: project, future: [], notice: null };
+  return { past: [], present: project, future: [], notice: null, prompt: null, lastMergeKey: null };
 }
 
 export function canUndo(state: EditorState): boolean {
@@ -57,13 +102,16 @@ export function canRedo(state: EditorState): boolean {
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
-    case 'history/undo': {
-      if (!canUndo(state)) return state;
+    case 'history/undo':
+    case 'conflict/revert': {
+      if (!canUndo(state)) return { ...state, prompt: null };
       return {
         past: state.past.slice(0, -1),
         present: state.past[state.past.length - 1],
         future: [state.present, ...state.future],
         notice: null,
+        prompt: null,
+        lastMergeKey: null,
       };
     }
     case 'history/redo': {
@@ -73,30 +121,63 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         present: state.future[0],
         future: state.future.slice(1),
         notice: null,
+        prompt: null,
+        lastMergeKey: null,
       };
     }
+    case 'conflict/dismiss':
+      return state.prompt ? { ...state, prompt: null } : state;
+    case 'notice/show':
+      return { ...state, notice: { id: (state.notice?.id ?? 0) + 1, message: action.message } };
     case 'project/replace': {
       if (action.resetHistory) return createEditorState(action.project);
-      return commit(state, action.project);
+      return commit(state, action.project, { promptForConflicts: false });
     }
     default: {
       const result = applyEdit(state.present, action);
       if (typeof result === 'string') {
         return { ...state, notice: { id: (state.notice?.id ?? 0) + 1, message: result } };
       }
-      return commit(state, result);
+      const mergeKey = 'mergeKey' in action ? (action.mergeKey ?? null) : null;
+      return commit(state, result, { promptForConflicts: true, mergeKey });
     }
   }
 }
 
-/** Records a new project version, unless nothing actually changed. */
-function commit(state: EditorState, next: Project): EditorState {
+/**
+ * Records a new project version (unless nothing changed). Also forgets accepted
+ * overlaps that no longer exist — so if two pieces are moved apart and later
+ * overlap again, the user is asked again — and raises a prompt for new conflicts.
+ */
+function commit(
+  state: EditorState,
+  next: Project,
+  options: { promptForConflicts: boolean; mergeKey?: string | null },
+): EditorState {
   if (next === state.present) return state;
+
+  const after = findConflicts(next);
+  const live = new Set(after.map((c) => c.key));
+  const acceptedOverlaps = next.acceptedOverlaps.filter((key) => live.has(key));
+  if (acceptedOverlaps.length !== next.acceptedOverlaps.length) next = { ...next, acceptedOverlaps };
+
+  let prompt: ConflictPrompt | null = null;
+  if (options.promptForConflicts) {
+    const before = new Set(findConflicts(state.present).map((c) => c.key));
+    const fresh = after.filter((c) => !c.accepted && !before.has(c.key));
+    if (fresh.length > 0) prompt = { id: (state.prompt?.id ?? 0) + 1, conflicts: fresh, focusId: changedObjectId(state.present, next) };
+  }
+
+  const mergeKey = options.mergeKey ?? null;
+  const merging = mergeKey !== null && mergeKey === state.lastMergeKey && state.past.length > 0;
   return {
-    past: [...state.past, state.present].slice(-HISTORY_LIMIT),
+    // When merging, the previous snapshot already marks the start of this gesture.
+    past: merging ? state.past : [...state.past, state.present].slice(-HISTORY_LIMIT),
     present: next,
     future: [],
     notice: null,
+    prompt: merging && !prompt ? state.prompt : prompt,
+    lastMergeKey: mergeKey,
   };
 }
 
@@ -104,10 +185,7 @@ function commit(state: EditorState, next: Project): EditorState {
  * Applies a single edit. Returns the new project, the same project if the edit
  * changed nothing, or an explanation string if the edit was rejected.
  */
-function applyEdit(
-  project: Project,
-  action: Exclude<EditorAction, { type: 'history/undo' | 'history/redo' | 'project/replace' }>,
-): Project | string {
+function applyEdit(project: Project, action: EditAction): Project | string {
   switch (action.type) {
     case 'project/rename': {
       const name = action.name.trim() || 'Untitled room';
@@ -124,15 +202,35 @@ function applyEdit(
           return `Room dimensions must be between ${MIN_ROOM_SIZE} cm and ${MAX_ROOM_SIZE / 100} m.`;
         }
       }
-      if (sameRoom(room, project.room)) return project;
-      // Shrinking the room nudges furniture inwards; pieces that can't fit block the change.
+      if (room.width === project.room.width && room.length === project.room.length && room.height === project.room.height) {
+        return project;
+      }
+      // Shrinking the room nudges everything inwards; things that can't fit block the change.
       const furniture: Furniture[] = [];
       for (const item of project.furniture) {
         const placed = clampCenterToRoom(item, room);
         if (!placed) return `“${item.name}” wouldn't fit in a room that size. Move or shrink it first.`;
         furniture.push(placed);
       }
-      return { ...project, room, furniture };
+      const features: RoomFeature[] = [];
+      for (const feature of project.features) {
+        const placed = clampFeatureToRoom(feature, room);
+        if (!placed) return `“${feature.name}” wouldn't fit in a room that size.`;
+        features.push(placed);
+      }
+      for (const feature of features) {
+        const clash = findOverlappingOpening(feature, features);
+        if (clash) return `“${feature.name}” and “${clash.name}” would overlap on a wall that short.`;
+      }
+      return { ...project, room, furniture, features };
+    }
+
+    case 'floor/set': {
+      const floor = { ...project.room.floor, ...action.floor };
+      floor.scale = clampNumber(floor.scale, 0.25, 4);
+      floor.intensity = clampNumber(floor.intensity, 0, 1);
+      floor.angle = normalizeRotation(floor.angle);
+      return { ...project, room: { ...project.room, floor } };
     }
 
     case 'furniture/add': {
@@ -147,23 +245,80 @@ function applyEdit(
       const merged = sanitizeFurniture({ ...current, ...action.changes, id: current.id });
       if (![merged.x, merged.y, merged.rotation].every(Number.isFinite)) return 'Please enter a number.';
       const sizes = [merged.width, merged.depth, merged.height];
-      if (!sizes.every((size) => Number.isFinite(size) && size >= MIN_FURNITURE_SIZE)) {
-        return `Furniture must be at least ${MIN_FURNITURE_SIZE} cm in every direction.`;
+      // Rugs can be very thin, so height only needs to be positive.
+      if (!sizes.every((size) => Number.isFinite(size)) || merged.width < MIN_FURNITURE_SIZE || merged.depth < MIN_FURNITURE_SIZE || merged.height <= 0) {
+        return `Furniture must be at least ${MIN_FURNITURE_SIZE} cm wide and deep.`;
       }
       const placed = clampCenterToRoom(merged, project.room);
       if (!placed) return `“${current.name}” wouldn't fit in the room like that.`;
-      if (sameFurniture(placed, current)) return project;
-      return {
-        ...project,
-        furniture: project.furniture.map((f) => (f.id === current.id ? placed : f)),
-      };
+      if (sameValues(placed, current)) return project;
+      return { ...project, furniture: project.furniture.map((f) => (f.id === current.id ? placed : f)) };
     }
 
     case 'furniture/delete': {
       if (!project.furniture.some((f) => f.id === action.id)) return project;
       return { ...project, furniture: project.furniture.filter((f) => f.id !== action.id) };
     }
+
+    case 'feature/add': {
+      const result = placeFeature(sanitizeFeature(action.feature), project);
+      if (typeof result === 'string') return result;
+      return { ...project, features: [...project.features, result] };
+    }
+
+    case 'feature/update': {
+      const current = project.features.find((f) => f.id === action.id);
+      if (!current) return project;
+      let merged: RoomFeature = { ...current, ...action.changes, id: current.id, kind: current.kind };
+      // Changing a vent between wall / floor / ceiling changes how it is placed.
+      merged = convertPlacement(merged, allowedPlacement(merged), project.room);
+      const result = placeFeature(sanitizeFeature(merged), project);
+      if (typeof result === 'string') return result;
+      if (sameValues(result, current) && samePlacement(result.placement, current.placement)) return project;
+      return { ...project, features: project.features.map((f) => (f.id === current.id ? result : f)) };
+    }
+
+    case 'feature/delete': {
+      if (!project.features.some((f) => f.id === action.id)) return project;
+      return { ...project, features: project.features.filter((f) => f.id !== action.id) };
+    }
+
+    case 'overlap/accept': {
+      const keys = action.keys.filter((key) => !project.acceptedOverlaps.includes(key));
+      if (keys.length === 0) return project;
+      return { ...project, acceptedOverlaps: [...project.acceptedOverlaps, ...keys] };
+    }
+
+    case 'overlap/revoke': {
+      if (!project.acceptedOverlaps.includes(action.key)) return project;
+      return { ...project, acceptedOverlaps: project.acceptedOverlaps.filter((key) => key !== action.key) };
+    }
   }
+}
+
+/** The furniture piece or feature that differs between two versions, if exactly one does. */
+function changedObjectId(before: Project, after: Project): string | null {
+  const previous = new Map<string, unknown>([...before.furniture, ...before.features].map((o) => [o.id, o]));
+  const changed = [...after.furniture, ...after.features].filter((o) => previous.get(o.id) !== o);
+  return changed.length === 1 ? changed[0].id : null;
+}
+
+/** Validates a feature's numbers, keeps it inside the room, and stops openings overlapping. */
+function placeFeature(feature: RoomFeature, project: Project): RoomFeature | string {
+  const numbers = [feature.width, feature.depth, feature.height, feature.elevation, feature.clearance];
+  if (!numbers.every(Number.isFinite)) return 'Please enter a number.';
+  if (feature.width < MIN_FEATURE_SIZE) return `${feature.name} must be at least ${MIN_FEATURE_SIZE} cm wide.`;
+  if (feature.depth < 0 || feature.height < 0 || feature.elevation < 0) return 'Sizes and heights can’t be negative.';
+  if (feature.clearance < 0 || feature.clearance > MAX_CLEARANCE) {
+    return `Clearance must be between 0 and ${MAX_CLEARANCE / 100} m.`;
+  }
+  if (feature.kind === 'column' && feature.shape === 'round') feature = { ...feature, depth: feature.width };
+
+  const placed = clampFeatureToRoom(feature, project.room);
+  if (!placed) return `“${feature.name}” is too big for that spot.`;
+  const clash = findOverlappingOpening(placed, project.features);
+  if (clash) return `“${placed.name}” would overlap “${clash.name}” on that wall.`;
+  return placed;
 }
 
 /** Normalises rotation and rounds lengths so stored values stay tidy and comparable. */
@@ -180,10 +335,35 @@ function sanitizeFurniture(item: Furniture): Furniture {
   };
 }
 
-function sameRoom(a: Room, b: Room): boolean {
-  return a.width === b.width && a.length === b.length && a.height === b.height;
+function sanitizeFeature(feature: RoomFeature): RoomFeature {
+  const p = feature.placement;
+  const placement: Placement =
+    p.type === 'wall'
+      ? { ...p, offset: roundLength(p.offset) }
+      : { ...p, x: roundLength(p.x), y: roundLength(p.y), rotation: roundLength(normalizeRotation(p.rotation)) };
+  return {
+    ...feature,
+    name: feature.name.trim() || 'Untitled feature',
+    placement,
+    width: roundLength(feature.width),
+    depth: roundLength(feature.depth),
+    height: roundLength(feature.height),
+    elevation: roundLength(feature.elevation),
+    clearance: roundLength(feature.clearance),
+  };
 }
 
-function sameFurniture(a: Furniture, b: Furniture): boolean {
-  return (Object.keys(a) as (keyof Furniture)[]).every((key) => a[key] === b[key]);
+function clampNumber(value: number, min: number, max: number): number {
+  return Number.isFinite(value) ? Math.min(Math.max(value, min), max) : min;
+}
+
+/** Shallow comparison of every primitive field (placement is compared separately). */
+function sameValues<T extends object>(a: T, b: T): boolean {
+  return (Object.keys(a) as (keyof T)[]).every((key) => key === 'placement' || a[key] === b[key]);
+}
+
+function samePlacement(a: Placement, b: Placement): boolean {
+  if (a.type === 'wall' && b.type === 'wall') return a.wall === b.wall && a.offset === b.offset;
+  if (a.type === 'free' && b.type === 'free') return a.x === b.x && a.y === b.y && a.rotation === b.rotation;
+  return false;
 }

@@ -1,143 +1,150 @@
-import type { Furniture, Project, Room, UnitSystem } from '../model/types';
+import type { Dispatch, ReactNode } from 'react';
+import type { Conflict } from '../model/conflicts';
+import { FEATURE_LABELS } from '../model/features';
+import type { FeatureKind, Project, Room } from '../model/types';
 import { cmToInput, formatLength, inputToCm, inputUnitLabel } from '../model/units';
+import type { EditorAction } from '../state/editor';
+import type { Preferences } from '../state/preferences';
+import { FeatureButtons, FurnitureButtons, type FurniturePreset } from './AddCatalog';
+import { BoardSettings, FloorSettings } from './AppearanceSettings';
+import { ChecksList } from './ChecksList';
+import { Icon } from './Icon';
 import { NumberField } from './NumberField';
-
-/** Quick-add shapes. All are simple rectangles in Phase 1; sizes in cm. */
-export const FURNITURE_PRESETS: Pick<Furniture, 'name' | 'width' | 'depth' | 'height' | 'color'>[] = [
-  { name: 'Rectangle', width: 80, depth: 50, height: 75, color: '#e9a178' },
-  { name: 'Sofa', width: 200, depth: 90, height: 85, color: '#e9a178' },
-  { name: 'Bed', width: 160, depth: 200, height: 50, color: '#9bb7d4' },
-  { name: 'Table', width: 120, depth: 80, height: 75, color: '#f2c879' },
-  { name: 'Desk', width: 120, depth: 60, height: 75, color: '#c9a7d8' },
-  { name: 'Chair', width: 50, depth: 50, height: 90, color: '#8fb996' },
-];
+import { SegmentedControl } from './SegmentedControl';
 
 interface ToolsPanelProps {
   project: Project;
   selectedId: string | null;
-  onResizeRoom: (room: Partial<Room>) => void;
-  onSetUnits: (units: UnitSystem) => void;
-  onAddPreset: (preset: (typeof FURNITURE_PRESETS)[number]) => void;
+  conflicts: Conflict[];
+  dispatch: Dispatch<EditorAction>;
+  preferences: Preferences;
+  onPreferences: (changes: Partial<Preferences>) => void;
+  onAddFurniture: (preset: FurniturePreset) => void;
+  onAddFeature: (kind: FeatureKind) => void;
   onSelect: (id: string) => void;
-  onLoadSample: () => void;
-  onNewRoom: () => void;
+  /** Tablet layout: lets the panel fold away to give the plan more room. */
+  onCollapse?: () => void;
 }
 
-export function ToolsPanel({
-  project,
-  selectedId,
-  onResizeRoom,
-  onSetUnits,
-  onAddPreset,
-  onSelect,
-  onLoadSample,
-  onNewRoom,
-}: ToolsPanelProps) {
+export function ToolsPanel(props: ToolsPanelProps) {
+  const { project, selectedId, conflicts, dispatch } = props;
   const { room, units } = project;
   const unit = inputUnitLabel(units);
+  const resize = (changes: Partial<Room>) => dispatch({ type: 'room/resize', room: changes });
+  const warningIds = new Set(conflicts.filter((c) => !c.accepted).flatMap((c) => [c.itemId, c.otherId]));
+  const openChecks = conflicts.filter((c) => !c.accepted).length;
 
   return (
     <aside className="panel tools-panel" aria-label="Room and furniture tools">
-      <section className="panel-section">
-        <h2>Room</h2>
-        <div className="unit-toggle" role="radiogroup" aria-label="Measurement units">
-          {(['metric', 'imperial'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="radio"
-              aria-checked={units === option}
-              className={units === option ? 'is-active' : ''}
-              onClick={() => onSetUnits(option)}
-            >
-              {option === 'metric' ? 'cm' : 'ft / in'}
-            </button>
-          ))}
+      {props.onCollapse && (
+        <div className="panel-toolbar">
+          <button type="button" className="icon-button" onClick={props.onCollapse} aria-label="Hide tools panel">
+            <Icon name="panelLeft" />
+          </button>
         </div>
+      )}
+
+      <Collapsible title="Room" defaultOpen>
+        <SegmentedControl
+          label="Units"
+          hideLabel
+          value={units}
+          options={[
+            { value: 'metric', label: 'cm' },
+            { value: 'imperial', label: 'ft / in' },
+          ]}
+          onChange={(value) => dispatch({ type: 'units/set', units: value })}
+        />
         <div className="field-grid">
-          <NumberField
-            label="Width"
-            suffix={unit}
-            min={0}
-            value={cmToInput(room.width, units)}
-            onCommit={(v) => onResizeRoom({ width: inputToCm(v, units) })}
-          />
-          <NumberField
-            label="Length"
-            suffix={unit}
-            min={0}
-            value={cmToInput(room.length, units)}
-            onCommit={(v) => onResizeRoom({ length: inputToCm(v, units) })}
-          />
-          <NumberField
-            label="Ceiling"
-            suffix={unit}
-            min={0}
-            value={cmToInput(room.height, units)}
-            onCommit={(v) => onResizeRoom({ height: inputToCm(v, units) })}
-          />
+          <NumberField label="Width" suffix={unit} min={0} value={cmToInput(room.width, units)} onCommit={(v) => resize({ width: inputToCm(v, units) })} />
+          <NumberField label="Length" suffix={unit} min={0} value={cmToInput(room.length, units)} onCommit={(v) => resize({ length: inputToCm(v, units) })} />
+          <NumberField label="Ceiling" suffix={unit} min={0} value={cmToInput(room.height, units)} onCommit={(v) => resize({ height: inputToCm(v, units) })} />
         </div>
         <p className="hint">
-          {formatLength(room.width, units)} × {formatLength(room.length, units)} ·{' '}
-          {formatArea(room, units)}
+          {formatLength(room.width, units)} × {formatLength(room.length, units)} · {formatArea(room, units)}
         </p>
-      </section>
+      </Collapsible>
 
-      <section className="panel-section">
-        <h2>Add furniture</h2>
-        <div className="preset-grid">
-          {FURNITURE_PRESETS.map((preset) => (
-            <button key={preset.name} type="button" className="preset" onClick={() => onAddPreset(preset)}>
-              <span className="preset-swatch" style={{ background: preset.color }} aria-hidden="true" />
-              {preset.name}
-            </button>
-          ))}
-        </div>
-      </section>
+      <Collapsible title="Room features" defaultOpen>
+        <FeatureButtons onAdd={props.onAddFeature} />
+      </Collapsible>
 
-      <section className="panel-section">
-        <h2>In this room</h2>
-        {project.furniture.length === 0 ? (
-          <p className="hint">Nothing here yet. Add a piece above to get started.</p>
+      <Collapsible title="Add furniture" defaultOpen>
+        <FurnitureButtons onAdd={props.onAddFurniture} />
+      </Collapsible>
+
+      <Collapsible title={`Checks${openChecks > 0 ? ` (${openChecks})` : ''}`} defaultOpen>
+        <ChecksList project={project} conflicts={conflicts} onSelect={props.onSelect} />
+      </Collapsible>
+
+      <Collapsible title="In this room" defaultOpen>
+        {project.furniture.length + project.features.length === 0 ? (
+          <p className="hint">Nothing here yet. Add a room feature or a piece of furniture above.</p>
         ) : (
-          <ul className="furniture-list">
+          <ul className="object-list">
+            {project.features.map((f) => (
+              <ObjectRow key={f.id} id={f.id} selected={f.id === selectedId} warning={warningIds.has(f.id)} onSelect={props.onSelect}>
+                <Icon name={f.kind} size={14} />
+                <span className="object-name">{f.name}</span>
+                <span className="object-meta">{FEATURE_LABELS[f.kind]}</span>
+              </ObjectRow>
+            ))}
             {project.furniture.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  aria-pressed={item.id === selectedId}
-                  className={item.id === selectedId ? 'is-selected' : ''}
-                  onClick={() => onSelect(item.id)}
-                >
-                  <span className="preset-swatch" style={{ background: item.color }} aria-hidden="true" />
-                  <span className="furniture-list-name">{item.name}</span>
-                  <span className="furniture-list-size">
-                    {formatLength(item.width, units)} × {formatLength(item.depth, units)}
-                  </span>
-                </button>
-              </li>
+              <ObjectRow key={item.id} id={item.id} selected={item.id === selectedId} warning={warningIds.has(item.id)} onSelect={props.onSelect}>
+                <span className={`preset-swatch ${item.category === 'floorCovering' ? 'is-rug' : ''}`} style={{ background: item.color }} aria-hidden="true" />
+                <span className="object-name">{item.name}</span>
+                <span className="object-meta">
+                  {formatLength(item.width, units)} × {formatLength(item.depth, units)}
+                </span>
+              </ObjectRow>
             ))}
           </ul>
         )}
-      </section>
+      </Collapsible>
 
-      <section className="panel-section">
-        <h2>Project</h2>
-        <div className="button-row">
-          <button type="button" className="secondary" onClick={onLoadSample}>
-            Load sample room
-          </button>
-          <button type="button" className="secondary" onClick={onNewRoom}>
-            Start empty room
-          </button>
-        </div>
-        <p className="hint">Both can be undone.</p>
-      </section>
+      <Collapsible title="Floor">
+        <FloorSettings project={project} dispatch={dispatch} />
+      </Collapsible>
+
+      <Collapsible title="Board & display">
+        <BoardSettings preferences={props.preferences} onPreferences={props.onPreferences} />
+      </Collapsible>
+
+      <p className="panel-footer">
+        Made by The Progress Quest · Your rooms stay on this device.
+      </p>
     </aside>
   );
 }
 
-function formatArea(room: Room, units: UnitSystem): string {
+function Collapsible({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details className="panel-section collapsible" open={defaultOpen}>
+      <summary>
+        <h2>{title}</h2>
+      </summary>
+      <div className="stack">{children}</div>
+    </details>
+  );
+}
+
+function ObjectRow(props: { id: string; selected: boolean; warning: boolean; onSelect: (id: string) => void; children: ReactNode }) {
+  return (
+    <li>
+      <button type="button" aria-pressed={props.selected} className={props.selected ? 'is-selected' : ''} onClick={() => props.onSelect(props.id)}>
+        {props.children}
+        {props.warning && (
+          <span className="row-warning" title="Has an overlap">
+            <Icon name="warning" size={14} />
+            <span className="visually-hidden">Has an overlap</span>
+          </span>
+        )}
+      </button>
+    </li>
+  );
+}
+
+function formatArea(room: Room, units: Project['units']): string {
   const squareMetres = (room.width * room.length) / 10_000;
   if (units === 'metric') return `${squareMetres.toFixed(1)} m²`;
   return `${Math.round(squareMetres * 10.7639)} sq ft`;

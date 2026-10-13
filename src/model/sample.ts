@@ -1,4 +1,6 @@
-import type { Furniture, Project, Room } from './types';
+import { featureDefaults } from './features';
+import type { FeatureKind, FloorStyle, Furniture, Placement, Project, Room, RoomFeature } from './types';
+import { CURRENT_SCHEMA_VERSION } from './types';
 
 /** Warm, distinguishable furniture colours. Names are read out by screen readers. */
 export const FURNITURE_COLORS = [
@@ -8,6 +10,8 @@ export const FURNITURE_COLORS = [
   { name: 'Sky', value: '#9bb7d4' },
   { name: 'Lavender', value: '#c9a7d8' },
   { name: 'Rose', value: '#d98f8f' },
+  { name: 'Linen', value: '#e8dcc6' },
+  { name: 'Slate', value: '#7d8a99' },
 ];
 
 export function createId(): string {
@@ -20,35 +24,77 @@ export function createFurniture(fields: Partial<Furniture> & Pick<Furniture, 'x'
   return {
     id: createId(),
     name: 'New piece',
+    category: 'furniture',
     width: 80,
     depth: 50,
     height: 75,
     rotation: 0,
     color: FURNITURE_COLORS[0].value,
+    texture: 'plain',
     ...fields,
   };
 }
 
-export const DEFAULT_ROOM: Room = { width: 400, length: 350, height: 250 };
+export function createFeature(
+  kind: FeatureKind,
+  placement: Placement,
+  room: Pick<Room, 'height'>,
+  overrides: Partial<RoomFeature> = {},
+): RoomFeature {
+  return { id: createId(), ...featureDefaults(kind, room), placement, ...overrides };
+}
 
-export function createEmptyProject(room: Room = DEFAULT_ROOM): Project {
-  return { schemaVersion: 1, name: 'My room', units: 'metric', room, furniture: [] };
+export const DEFAULT_FLOOR: FloorStyle = { preset: 'plain', color: '#fffaf2', scale: 1, angle: 0, intensity: 0.5 };
+
+export const DEFAULT_ROOM: Room = { width: 400, length: 350, height: 250, floor: DEFAULT_FLOOR };
+
+export function createEmptyProject(room: Room = DEFAULT_ROOM, name = 'My room'): Project {
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    name,
+    units: 'metric',
+    room,
+    furniture: [],
+    features: [],
+    acceptedOverlaps: [],
+  };
 }
 
 /** A cosy living room so first-time visitors have something to play with. */
 export function createSampleProject(): Project {
+  const room: Room = {
+    width: 480,
+    length: 380,
+    height: 260,
+    floor: { preset: 'lightOak', color: '#e2c79f', scale: 1, angle: 0, intensity: 0.5 },
+  };
+  const wall = (wall: 'top' | 'right' | 'bottom' | 'left', offset: number): Placement => ({ type: 'wall', wall, offset });
+  const free = (x: number, y: number, rotation = 0): Placement => ({ type: 'free', x, y, rotation });
+
   return {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     name: 'Sample living room',
     units: 'metric',
-    room: { width: 480, length: 380, height: 260 },
+    room,
     furniture: [
+      createFurniture({ name: 'Rug', category: 'floorCovering', x: 240, y: 220, width: 200, depth: 140, height: 1, color: '#c9a7d8', texture: 'bordered' }),
       createFurniture({ name: 'Sofa', x: 240, y: 330, width: 220, depth: 90, height: 85, color: '#e9a178' }),
       createFurniture({ name: 'Coffee table', x: 240, y: 220, width: 110, depth: 60, height: 45, color: '#f2c879' }),
       createFurniture({ name: 'TV console', x: 240, y: 25, width: 160, depth: 40, height: 55, color: '#9bb7d4' }),
       createFurniture({ name: 'Armchair', x: 70, y: 200, width: 80, depth: 80, height: 90, rotation: 90, color: '#8fb996' }),
       createFurniture({ name: 'Bookshelf', x: 455, y: 150, width: 100, depth: 35, height: 180, rotation: 90, color: '#c9a7d8' }),
-      createFurniture({ name: 'Plant', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#8fb996' }),
+      createFurniture({ name: 'Plant', category: 'decoration', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#8fb996' }),
     ],
+    features: [
+      createFeature('door', wall('left', 320), room, { name: 'Front door', hinge: 'left' }),
+      createFeature('window', wall('top', 90), room, { width: 120 }),
+      createFeature('window', wall('right', 280), room, { name: 'Side window', width: 100 }),
+      createFeature('radiator', wall('top', 90), room, { width: 80 }),
+      createFeature('vent', free(380, 240), room),
+      createFeature('outlet', wall('right', 60), room),
+      createFeature('switch', wall('left', 255), room),
+      createFeature('light', free(240, 200), room),
+    ],
+    acceptedOverlaps: [],
   };
 }
