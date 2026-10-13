@@ -182,6 +182,51 @@ the production build:
 | Frame rate while orbiting | 60 fps (display limit) | 35 fps |
 | Draw calls / triangles | 53 / 16,772 | 53 / 16,772 |
 
+### Custom and photo furniture (Phase 3C)
+Furniture isn't limited to rectangles. Under **Add furniture** you'll find three new options:
+**Draw custom furniture**, **Create from photos**, and your **furniture library**.
+
+- **Drawing:**
+  - Click or tap to place corners, or start from a template: L-shaped desk, corner table, angled
+    loveseat, curved sofa or kidney table.
+  - Drag corners, add a corner in the middle of an edge, or delete corners.
+  - Type exact positions, edge lengths, inside angles and overall width and depth.
+  - Turn any edge into a curve (a cubic Bézier curve with two handles).
+  - Undo, redo and reset work throughout.
+  - Outlines that cross themselves are refused, with an explanation.
+  - Everything that can be done with a mouse can also be typed. Corners also move with the arrow
+    keys.
+- **True footprint everywhere:** the outline (curves flattened to within 0.5 cm) is what
+  collisions, the room boundary, clearance checks, rotation, the optimizer and the 3D view all
+  use. An L-shaped desk never behaves like its bounding box.
+- **Keep clear in front:** a piece can ask for space to be kept free in front of it. It's checked
+  like door clearances, and the optimizer won't fill it.
+- **Appearance:**
+  - Colour, a material (fabric, leather, wood, metal, glass, plastic or custom) and a finish
+    (matte, satin or gloss), with a live preview.
+  - Materials are generated on your device.
+- **Photos:**
+  - Add a front, side, top or other photo. One is enough: *for best results, photograph your
+    furniture from the front, the side and above.*
+  - Crop, rotate, and straighten a photo taken at an angle by dragging its four corners.
+  - Remove the background:
+    - **by colour**, instantly, for plain walls and floors;
+    - with **Smart remove**, a small AI model that runs on your device;
+    - **by hand**, with erase and restore brushes, then shrink, grow or soften the edges.
+  - Photos can be shown on the top, front and sides of the 3D model.
+- **Tracing:** show a photo under the drawing, set its scale by marking a known length (for
+  example the sofa's width), then trace the outline by hand or automatically from the cut-out.
+  A photo has no scale of its own, and photos taken at an angle distort shapes, so always check
+  the measurements.
+- **Library:**
+  - Save any piece (shape, size, appearance and photos) to reuse in every project on this device.
+  - Place, edit, duplicate and delete library pieces.
+  - Pieces are labelled **Standard**, **Custom** or **Photo-assisted**.
+- **Export:** projects with photos export as a `.roomination.zip` containing the photos. Projects
+  without photos still export as JSON.
+
+Design and trade-offs: [ADR-0004](docs/adr/0004-custom-and-photo-furniture.md).
+
 ### Smart overlaps
 - Items have categories: **furniture**, **rugs & mats** (floor coverings) and **décor**.
 - Rugs sit underneath furniture and may overlap anything.
@@ -194,6 +239,11 @@ the production build:
 - **Checks** in the left panel lists everything that needs a look, plus what you've allowed.
 - Overlaps use exact geometry for rotated shapes. While you drag, only the moving item is
   re-checked, so dragging stays smooth and never spams messages.
+
+### Which version am I using?
+The tools panel's footer shows the version (the build's commit) and its date. GitHub Pages lets
+browsers reuse the page for up to 10 minutes, and an open tab keeps the version it loaded, so
+**reload the page** to get the latest release.
 
 ### Look & feel
 - **Light, dark or system theme**, remembered on this device.
@@ -260,10 +310,12 @@ configuration. GitHub Pages is free for public repositories.
 
 | Folder | What lives there |
 | --- | --- |
-| `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
+| `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); custom furniture outlines and their convex decomposition (`shape.ts`, `shapeEdit.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
 | `src/state/` | `editor.ts`, the single reducer every change goes through (validation, overlap prompts, undo history), plus selection, display preferences and the optimizer run state. |
 | `src/optimizer/` | The layout optimizer. Main modules: walking-space grid (`circulation.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations (`explain.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
-| `src/storage/` | IndexedDB persistence (Dexie) and import/export validation and migration (schema v1–v5). |
+| `src/storage/` | IndexedDB persistence (Dexie: projects, photos, furniture library), import/export validation and migration (schema v1–v6), and ZIP packaging for projects with photos. |
+| `src/photo/` | Photo tools (lazy-loaded): image operations (pure, unit-tested), the photo workers, on-device "Smart remove", and outline tracing. |
+| `src/components/studio/` | The furniture studio: drawing and editing custom outlines (lazy-loaded). |
 | `src/scene3d/` | The 3D view. `model.ts` turns a project into plain shapes (pure, unit-tested, in cm, using the same wall and stair geometry as the plan); `furnitureParts.ts` gives each furniture type its shape; `three/RoomViewer.ts` draws them with Three.js. |
 | `src/render/` | Canvas colours per theme and the locally generated floor/rug textures. |
 | `src/components/` | The interface. `plan/` holds the floor plan canvas (React Konva). |
@@ -288,10 +340,22 @@ one is ever missing). No measurement changes.
 
 ## Privacy
 
-Roomination makes no network requests of its own. Project data leaves your device only when you
+Roomination makes no network requests of its own, except to download its own files from the
+site you opened it from (for example the 3D view or the Smart remove model, only when you use
+them). Project data leaves your device only when you
 export a file yourself. The layout optimizer runs entirely in your browser (in a bundled Web
 Worker), with no AI service, API or account. The 3D view is drawn entirely on your device by the
 bundled Three.js, with no external textures, models or services.
+
+**Photos never leave your device:**
+- They're edited in your browser.
+- They're stored in its IndexedDB.
+- They're only ever included in a file when you export one yourself.
+
+**Smart remove** uses U²-Net-p (Apache-2.0) run by onnxruntime-web (MIT):
+- Both are bundled with Roomination (see `public/models/README.md`).
+- The first use downloads about 19 MB from this site, and the browser then caches it.
+- Inference runs in a Web Worker on your device. No photo is sent to any server or AI service.
 
 ## Known limitations
 
@@ -314,6 +378,23 @@ bundled Three.js, with no external textures, models or services.
   browsers, and browsers with hardware acceleration turned off fall back to a message (the 2D
   plan keeps working). Shadows are switched off automatically on touch devices for very large
   scenes.
+- **Photo tools — what they don't do:**
+  - They can't measure: sizes come from the numbers you enter.
+  - "Straighten" fixes perspective only as well as you place the corners.
+  - Automatic tracing and background removal work best on plain backgrounds, and Smart remove
+    can miss parts of busy scenes, so the eraser and restore brushes are there to fix that.
+- **Photo textures:** these are projected onto flat surfaces, so curved surfaces stretch the
+  photo. This is a recognisable approximation, not a 3D scan.
+- **Photo formats:** JPEG, PNG and WebP are supported. HEIC opens only in browsers that support
+  it (Safari).
+- **Photo size:** photos are resized to at most 1600 px.
+- **Photo storage:** photos use browser storage. Browsers can clear it under storage pressure or
+  if you clear site data, so export projects you care about. **Projects → Photos & storage**
+  shows usage and removes unused photos only when you confirm.
+- **Custom shapes:**
+  - up to 200 corners;
+  - curves are flattened to within 0.5 cm for all calculations;
+  - the 3D model is the outline extruded to the piece's height, a simplified shape.
 - **Testing coverage:** browser tests run in Chromium, including simulated phones and tablets.
   Safari, Firefox and real touch devices haven't been tested automatically, and screen readers
   haven't been tested with real assistive software. On CI (which has no GPU) the 3D tests use software

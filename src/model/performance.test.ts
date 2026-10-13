@@ -5,6 +5,8 @@ import { clampFurnitureToRoom } from './placement';
 import { createEmptyProject, createFeature, createFurniture, createStaircase } from './sample';
 import type { Project, WallNode } from './types';
 import { wallBodies } from './wallGeometry';
+import { normaliseShape, scaleShape, shapeTemplate } from './shape';
+import { shapeSize } from './shapeEdit';
 
 /**
  * Guards against the app becoming sluggish on big plans: a 40-wall room with 150 pieces
@@ -64,5 +66,37 @@ describe('performance on a large plan', () => {
     const ms = time(() => wallBodies(project.room, project.features), 20);
     console.info(`wallBodies: ${ms.toFixed(2)} ms`);
     expect(ms).toBeLessThan(10);
+  });
+});
+
+describe('performance with custom-shaped furniture', () => {
+  // The same plan, but every piece is a drawn shape: L-desks, curved sofas and kidney tables.
+  const templates = ['lDesk', 'curvedSofa', 'kidneyTable', 'angledLoveseat'] as const;
+  const base = bigProject();
+  const project: Project = {
+    ...base,
+    furniture: base.furniture.map((f, i) => {
+      const { shape } = normaliseShape(scaleShape(shapeTemplate(templates[i % templates.length]), 0.3, 0.3));
+      return { ...f, shape, ...shapeSize(shape.points) };
+    }),
+  };
+
+  it('checks every overlap of 150 custom shapes quickly', () => {
+    const ms = time(() => findConflicts(project), 5);
+    console.info(`findConflicts (150 custom shapes): ${ms.toFixed(1)} ms`);
+    expect(ms).toBeLessThan(300);
+  });
+
+  it('checks a dragged custom shape in well under a frame', () => {
+    const ms = time(() => findConflicts(project, project.furniture[70].id), 20);
+    console.info(`findConflicts for one dragged custom shape: ${ms.toFixed(2)} ms`);
+    expect(ms).toBeLessThan(16);
+  });
+
+  it('keeps a dragged custom shape inside a 40-wall room quickly', () => {
+    const item = project.furniture[71];
+    const ms = time(() => clampFurnitureToRoom({ ...item, x: item.x + 3000 }, project.room, item), 50);
+    console.info(`clampFurnitureToRoom (custom shape): ${ms.toFixed(2)} ms`);
+    expect(ms).toBeLessThan(16);
   });
 });
