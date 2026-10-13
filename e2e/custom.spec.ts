@@ -321,3 +321,46 @@ test.describe('Studio on phones', () => {
     await expect(page.locator('.selection-name')).toHaveText('Custom piece');
   });
 });
+
+for (const width of [320, 375, 430, 768, 1024, 1440]) {
+  const touch = width < 1100;
+  test.describe(`Furniture studio at ${width}px`, () => {
+    test.use({ viewport: { width, height: width < 500 ? 780 : 900 }, hasTouch: touch, isMobile: touch && width < 500 });
+
+    test('studio and photo editor fit without sideways scrolling, with reachable controls', async ({ page }, info) => {
+      const errors = await openApp(page);
+      if (width < 1100) {
+        await page.getByRole('button', { name: 'Add', exact: true }).click();
+        await page.getByRole('dialog', { name: 'Add to the room' }).getByRole('button', { name: 'Draw custom furniture' }).click();
+      } else {
+        await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+      }
+      const dialog = studio(page);
+      await dialog.getByLabel('Start from a shape').selectOption('curvedSofa');
+      const fits = async () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>('dialog[open]')].every((d) => {
+            const r = d.getBoundingClientRect();
+            const body = d.querySelector<HTMLElement>('.dialog-body')!;
+            return r.left >= -1 && r.right <= window.innerWidth + 1 && body.scrollWidth <= body.clientWidth + 1;
+          }),
+        );
+      expect(await fits()).toBe(true);
+      expect((await dialog.locator('.shape-canvas-svg').boundingBox())!.height).toBeGreaterThan(200);
+      for (const name of ['Cancel', 'Add to room']) await expect(dialog.getByRole('button', { name })).toBeInViewport();
+
+      // The photo editor too.
+      const photo = info.outputPath('p.png');
+      writeFileSync(photo, loveseatPhoto());
+      await dialog.getByRole('button', { name: 'Add photos' }).click();
+      const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
+      await workshop.locator('#photo-side').setInputFiles(photo);
+      await workshop.getByRole('button', { name: 'Edit' }).click();
+      const editor = page.getByRole('dialog', { name: /Edit photo/ });
+      await expect(editor.getByRole('img', { name: /photo being edited/ })).toBeVisible();
+      expect(await fits()).toBe(true);
+      await expect(editor.getByRole('button', { name: 'Done' })).toBeInViewport();
+      expect(errors).toEqual([]);
+    });
+  });
+}

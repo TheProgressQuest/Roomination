@@ -247,6 +247,11 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
     commit({ ...draft, photos: [...new Set([...draft.photos, ...photos.map((p) => p.id)])], textures });
     const top = photos.find((p) => p.view === 'top');
     if (top) setTraceId(top.id);
+    const used = (['front', 'side', 'top'] as const).filter((v) => photos.some((p) => p.view === v));
+    setMessage(
+      `${photos.length === 1 ? 'Photo' : `${photos.length} photos`} added${used.length ? ` (used for the ${used.join(', ')} of the 3D model)` : ''}. ` +
+        (top ? 'Set the scale and trace the outline over the top photo, or draw it.' : 'Now draw the outline, or start from a shape. A photo from above can be traced.'),
+    );
   }
 
   function save() {

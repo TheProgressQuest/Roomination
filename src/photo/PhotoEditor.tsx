@@ -246,7 +246,8 @@ export function PhotoEditor({ title, image: initial, onSave, onCancel }: { title
     >
       <div className="photo-editor">
         <div className="photo-stage">
-          <div className="photo-canvas-wrap checkerboard" style={{ aspectRatio: `${image.width} / ${image.height}` }}>
+          {/* As wide as possible while the whole photo stays within about 60% of the screen height. */}
+          <div className="photo-canvas-wrap checkerboard" style={{ aspectRatio: `${image.width} / ${image.height}`, width: `min(100%, calc(60dvh * ${image.width / image.height}))` }}>
             <canvas ref={canvasRef} className="photo-canvas" aria-label="The photo being edited; checkered areas are removed background" role="img" />
             <svg
               ref={overlay}
