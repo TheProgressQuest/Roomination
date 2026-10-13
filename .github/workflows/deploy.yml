@@ -1,10 +1,11 @@
 # Tests, builds and publishes Roomination to GitHub Pages on every push to main.
+# Pushes to phase-* development branches run the same tests but never deploy.
 # Free for public repositories; no secrets or API keys are needed.
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'phase-*']
   workflow_dispatch:
 
 permissions:
@@ -13,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,11 +34,13 @@ jobs:
         env:
           CI: 'true'
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:

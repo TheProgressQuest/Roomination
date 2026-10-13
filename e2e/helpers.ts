@@ -115,3 +115,16 @@ export async function importProject(page: Page, file: string) {
   await expect(page.getByRole('dialog').locator('.import-message')).toContainText('Imported');
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
 }
+
+/**
+ * Starts the 3D view without shadows unless a test changes it. Software WebGL (used in CI)
+ * spends most of its time on shadow passes, so this keeps the 3D tests fast. Existing
+ * preferences (e.g. after a reload) are left alone.
+ */
+export async function lightweight3D(page: Page) {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('roomination.preferences')) {
+      localStorage.setItem('roomination.preferences', JSON.stringify({ view3d: { shadows: false } }));
+    }
+  });
+}

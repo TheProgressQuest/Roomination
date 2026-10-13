@@ -5,7 +5,7 @@ import { ROOMS_3D } from '../src/scene3d/testRooms';
 import type { Project } from '../src/model/types';
 import type {} from '../src/scene3d/diagnostics';
 import { serializeProject } from '../src/storage/projectFile';
-import { exportProject, importProject, openApp, props, selectInList, tools } from './helpers';
+import { exportProject, importProject, lightweight3D, openApp, props, selectInList, tools } from './helpers';
 
 /**
  * The 3D view. Headless Chromium renders WebGL in software (SwiftShader), so these tests
@@ -19,7 +19,10 @@ type ScreenPoint = { x: number; y: number };
 
 async function open3D(page: Page) {
   await view(page, '3D View').click();
-  await expect(panel3d(page).locator('canvas')).toBeVisible({ timeout: 20_000 });
+  // Fail straight away (with the reason) if the browser can't do WebGL, rather than timing out.
+  await expect(panel3d(page).locator('canvas, [role=alert]').first()).toBeVisible({ timeout: 20_000 });
+  const alert = panel3d(page).getByRole('alert');
+  if (await alert.isVisible()) throw new Error(`The 3D view didn't start in this browser: ${await alert.textContent()}`);
   await expect.poll(() => stats(page).then((s) => s?.framesRendered ?? 0), { timeout: 20_000 }).toBeGreaterThan(0);
 }
 
@@ -39,7 +42,22 @@ async function settled(page: Page) {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
+test.beforeEach(async ({ page }) => lightweight3D(page));
+
 test.describe('3D view', () => {
+  test('shadows can be switched on and off', async ({ page }) => {
+    await openApp(page);
+    await open3D(page);
+    const shadows = page.getByRole('checkbox', { name: 'Shadows' });
+    await expect(shadows).not.toBeChecked();
+    const frames = (await stats(page))!.framesRendered;
+    await shadows.check();
+    await expect.poll(async () => (await stats(page))!.framesRendered).toBeGreaterThan(frames);
+    await expect(shadows).toBeChecked();
+    await shadows.uncheck();
+    await expect(shadows).not.toBeChecked();
+  });
+
   test('loads Three.js only when the 3D view is first opened', async ({ page }) => {
     await openApp(page);
     const scripts = () => page.evaluate(() => performance.getEntriesByType('resource').filter((r) => /\.(js|ts)(\?|$)/.test(r.name)).length);

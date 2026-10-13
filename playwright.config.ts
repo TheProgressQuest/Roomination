@@ -16,7 +16,8 @@ export default defineConfig({
   fullyParallel: true,
   workers: process.env.CI ? 2 : 4,
   retries: process.env.CI ? 1 : 0,
-  reporter: [['list']],
+  // On CI, failures are also reported as GitHub annotations (visible without signing in).
+  reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 900 },
