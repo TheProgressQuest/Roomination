@@ -123,6 +123,7 @@ test.describe('3D view', { tag: '@3d' }, () => {
     await expect.poll(async () => (await onScreen(page, sofa.id))!.x).toBeLessThan(before.x - 3);
     // Ceiling height changes the walls, never the plan's dimensions.
     const outline = (await exportProject(page)).room.outline;
+    await toolsTab(page, 'Build');
     await tools(page).getByLabel('Ceiling').fill('300');
     await tools(page).getByLabel('Ceiling').press('Enter');
     const after = await exportProject(page);
