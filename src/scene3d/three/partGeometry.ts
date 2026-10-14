@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry, CylinderGeometry, Euler, Matrix4, Quaternion, SphereGeometry, Vector3 } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Euler, Matrix4, Quaternion, SphereGeometry, Vector3 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { FurniturePart } from '../../render/furnitureParts';
 import { CM_PER_SCENE_UNIT } from '../model';
@@ -28,10 +28,14 @@ interface GeometryKey {
 
 /** Which shared geometry a part uses, and how its instance matrix must scale it. */
 export function partGeometry(part: FurniturePart, detail: PartDetail): GeometryKey {
-  const segments = detail === 'high' ? 3 : detail === 'medium' ? 2 : 1;
-  const radial = detail === 'high' ? 28 : detail === 'medium' ? 20 : 12;
+  // Detail is spent where it shows: two rounding segments read as smooth upholstery even close up.
+  const segments = detail === 'high' ? 2 : 1;
+  const radial = detail === 'high' ? 20 : detail === 'medium' ? 14 : 8;
   switch (part.shape) {
     case 'rounded': {
+      // Rounding under ~6 mm can't be seen: such parts (books, shelves, thin panels) share one
+      // scaled box, so a room full of furniture needs only a few distinct geometries.
+      if ((part.radius ?? 0) < 0.6 || detail === 'low') return { key: 'box', scale: unitScale(part), make: () => withMetreUVs(new BoxGeometry(1, 1, 1)) };
       const [w, h, d] = [q(part.width), q(part.height), q(part.depth)];
       const r = Math.min(part.radius ?? 0, w / 2 - 0.01, h / 2 - 0.01, d / 2 - 0.01);
       const radius = Math.max(0, Math.round(r * 4) / 4);
@@ -52,7 +56,8 @@ export function partGeometry(part: FurniturePart, detail: PartDetail): GeometryK
     case 'ellipsoid':
       return { key: `ellipsoid|${radial}`, scale: unitScale(part), make: () => withMetreUVs(new SphereGeometry(0.5, radial, Math.round(radial * 0.6))) };
     case 'leaf': {
-      const [w, len, t] = [q(part.width), Math.max(1, Math.round(part.depth)), Math.max(0.2, Math.round(part.height * 4) / 4)];
+      // Leaves vary a lot; sizes rounded to 1–2 cm share geometry (the matrix makes up the rest).
+      const [w, len, t] = [Math.max(1, Math.round(part.width)), Math.max(2, Math.round(part.depth / 2) * 2), Math.max(0.5, Math.round(part.height * 2) / 2)];
       return { key: `leaf|${w}|${len}|${t}|${segments}`, scale: new Vector3(m(part.width) / m(w), m(part.height) / m(t), m(part.depth) / m(len)), make: () => leafGeometry(m(w), m(len), m(t), segments) };
     }
   }
@@ -107,8 +112,8 @@ function indexify(geometry: BufferGeometry): BufferGeometry {
  * width × thickness × length.
  */
 export function leafGeometry(width: number, length: number, thickness: number, segments: number): BufferGeometry {
-  const rows = 6 + segments * 4;
-  const cols = 2 + segments;
+  const rows = 4 + segments * 3;
+  const cols = 1 + segments;
   const positions: number[] = [];
   const indices: number[] = [];
   const arch = thickness * 0.45;

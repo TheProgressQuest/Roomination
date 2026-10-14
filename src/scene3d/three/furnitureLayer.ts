@@ -49,6 +49,8 @@ import { partGeometry, partMatrix, type PartDetail } from './partGeometry';
 const HIGHLIGHT = new Color('#1f2bd6');
 const UP = new Vector3(0, 1, 0);
 const m = (cm: number) => cm / CM_PER_SCENE_UNIT;
+/** Parts too small to need shadow-map shadows of their own. */
+const SHADOWLESS_ROLES = new Set(['book', 'handle', 'leaf', 'soil', 'pillow', 'throw', 'duvet', 'screen', 'drawer', 'door']);
 /** Contact shadows float just above rugs (which are at most 1.5 cm thick). */
 const CONTACT_HEIGHT = m(1.6);
 
@@ -137,7 +139,7 @@ export class FurnitureLayer {
   build(furniture: SceneFurniture[]) {
     this.clear();
     const generation = this.generation;
-    const bySurface = new Map<string, { surface: SurfaceKind; finish: SurfaceFinish; parts: PlacedPart[] }>();
+    const bySurface = new Map<string, { surface: SurfaceKind; finish: SurfaceFinish; casts: boolean; parts: PlacedPart[] }>();
     let parts = 0;
     for (const piece of furniture) {
       this.pieces.set(piece.id, { footprint: piece, batched: [], extruded: null, owned: [] });
@@ -146,14 +148,17 @@ export class FurnitureLayer {
       for (const part of piece.parts) {
         const geometry = partGeometry(part, this.detail);
         this.cached(this.geometries, geometry.key, generation, geometry.make);
-        const key = `${part.surface}|${piece.finish}`;
-        const group = bySurface.get(key) ?? { surface: part.surface, finish: piece.finish, parts: [] };
+        // Small details don't cast shadow-map shadows (their contact shadow is enough), which
+        // keeps the shadow pass cheap in rooms full of books and leaves.
+        const casts = !SHADOWLESS_ROLES.has(part.role);
+        const key = `${part.surface}|${piece.finish}|${casts}`;
+        const group = bySurface.get(key) ?? { surface: part.surface, finish: piece.finish, casts, parts: [] };
         group.parts.push({ owner: piece.id, geometry: geometry.key, matrix: placement.clone().multiply(partMatrix(part, geometry.scale)), color: new Color(part.color) });
         bySurface.set(key, group);
         parts++;
       }
     }
-    for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.parts);
+    for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.casts, group.parts);
     this.addContactShadows(furniture);
     this.partCount = parts + furniture.filter((f) => f.extruded).length;
     this.batches = bySurface.size + furniture.filter((f) => f.extruded).length;
@@ -219,7 +224,7 @@ export class FurnitureLayer {
 
   // ---------------------------------------------------------------------------
 
-  private addBatch(surface: SurfaceKind, finish: SurfaceFinish, parts: PlacedPart[]) {
+  private addBatch(surface: SurfaceKind, finish: SurfaceFinish, casts: boolean, parts: PlacedPart[]) {
     if (parts.length === 0) return;
     const unique = [...new Set(parts.map((p) => p.geometry))];
     let vertices = 0;
@@ -246,8 +251,8 @@ export class FurnitureLayer {
       entry.ids.push(id);
       entry.colors.push(part.color);
     }
-    // Glass and leaves are thin: they'd cast hard, heavy shadows for their size.
-    mesh.castShadow = surface !== 'glass';
+    // Glass is see-through; small details are covered by contact shadows.
+    mesh.castShadow = casts && surface !== 'glass';
     mesh.receiveShadow = true;
     mesh.name = `furniture:${surface}`;
     this.batchOwners.set(mesh, owners);

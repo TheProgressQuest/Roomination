@@ -243,12 +243,20 @@ export function RoomLabel({ project, viewport, palette }: ShellProps) {
     }
   }
   const at = toScreen(viewport, best);
-  const fontSize = Math.max(10, Math.min(15, viewport.scale * 9));
-  const width = 240;
+  const name = project.name.toUpperCase();
+  // Fit the name inside the room: shrink the type on small screens, and keep the block within the walls.
+  const roomWidth = (box.maxX - box.minX) * viewport.scale;
+  const roomHeight = (box.maxY - box.minY) * viewport.scale;
+  const longest = Math.max(name.length * 0.68 + 1.2, size.length * 0.55);
+  const fontSize = Math.max(7, Math.min(15, viewport.scale * 9, (roomWidth * 0.6) / longest));
+  if (fontSize * 2.6 > roomHeight * 0.5) return null;
+  const width = Math.min(roomWidth * 0.62, longest * fontSize + 8);
+  const left = viewport.offsetX + box.minX * viewport.scale;
+  const x = Math.min(Math.max(at.x - width / 2, left + roomWidth * 0.04), left + roomWidth * 0.96 - width);
   return (
-    <Group x={at.x - width / 2} y={at.y - fontSize} listening={false}>
-      <Text text={project.name.toUpperCase()} width={width} align="center" fontSize={fontSize} fontStyle="700" letterSpacing={1.2} fontFamily={FONT_FAMILY} fill={palette.roomLabel} />
-      <Text y={fontSize + 4} text={size} width={width} align="center" fontSize={fontSize * 0.92} fontFamily={FONT_FAMILY} fill={palette.roomLabel} />
+    <Group x={x} y={at.y - fontSize} listening={false}>
+      <Text text={name} width={width} align="center" fontSize={fontSize} fontStyle="700" letterSpacing={fontSize * 0.08} fontFamily={FONT_FAMILY} fill={palette.roomLabel} wrap="none" ellipsis />
+      <Text y={fontSize + 4} text={size} width={width} align="center" fontSize={fontSize * 0.92} fontFamily={FONT_FAMILY} fill={palette.roomLabel} wrap="none" />
     </Group>
   );
 }

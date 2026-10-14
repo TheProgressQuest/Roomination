@@ -286,6 +286,23 @@ h3 {
   gap: 8px;
 }
 
+.view3d-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.view3d-select select {
+  width: auto;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
 .view3d-toolbar .segmented button:disabled {
   opacity: 0.5;
 }
@@ -3131,7 +3148,25 @@ select {
     flex: none;
   }
   .view-switch {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* The export button stays beside the 2D/3D switch as an icon. */
+  .canvas-head .export-button {
+    margin-left: 0;
+    order: 1;
+  }
+  .canvas-head .plan-style {
+    order: 2;
+  }
+  .canvas-head > .chip-toggle {
+    order: 3;
+  }
+  .canvas-head .plan-style {
+    flex: 1 1 auto;
+  }
+  .canvas-head .plan-style button {
+    flex: 1;
   }
   .view-switch button {
     flex: 1;

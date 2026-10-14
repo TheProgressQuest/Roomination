@@ -382,6 +382,8 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
       await page.getByRole('button', { name: 'Got it' }).click();
       await page.getByRole('radio', { name: 'Top-down' }).click();
       await settled(page);
+      // Centre the view on screen, so the piece isn't hidden behind the fixed bar at the bottom.
+      await panel3d(page).locator('canvas').evaluate((el) => el.scrollIntoView({ block: 'center' }));
       const canvas = (await panel3d(page).locator('canvas').boundingBox())!;
       const point = (await onScreen(page, sofa.id))!;
       await page.touchscreen.tap(canvas.x + point.x, canvas.y + point.y);
@@ -392,8 +394,9 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
       if (width < 768) {
         // Phones stack the tools below the view: scrolling over them still scrolls the page.
         await page.locator('.tools-panel').first().hover();
+        const before = await page.evaluate(() => window.scrollY);
         await page.mouse.wheel(0, 400);
-        await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+        await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
       }
     });
   });

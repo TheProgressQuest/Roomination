@@ -17,7 +17,6 @@ import {
   NeutralToneMapping,
   Object3D,
   PCFShadowMap,
-  VSMShadowMap,
   PerspectiveCamera,
   Quaternion,
   Raycaster,
@@ -255,6 +254,17 @@ export class RoomViewer {
     this.controls.update();
   }
 
+  /**
+   * True when the browser draws 3D without a graphics card (software rendering, as on some
+   * virtual machines and CI). Automatic quality picks Low there.
+   */
+  isSoftwareRendering(): boolean {
+    const gl = this.renderer.getContext();
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)).toLowerCase();
+    return /swiftshader|llvmpipe|softpipe|software|basic render/.test(name);
+  }
+
   /** Resolves once photo textures have finished loading (or after `timeoutMs`). */
   async whenReady(timeoutMs = 4000): Promise<void> {
     const started = performance.now();
@@ -472,20 +482,20 @@ export class RoomViewer {
     shadowCamera.near = 0.1;
     shadowCamera.far = radius * 6 + m(room.ceilingHeight) + 10;
     shadowCamera.updateProjectionMatrix();
-    const size = this.quality === 'high' ? (this.options.touch ? 2048 : 4096) : this.options.touch ? 1024 : 2048;
+    const size = this.options.touch ? 1024 : 2048;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
       this.sun.shadow.mapSize.set(size, size);
     }
-    // Soft, light architectural shadows: blurred edges (variance shadow maps on high quality)
-    // and only partly dark, so the floor and furniture never turn black.
-    this.renderer.shadowMap.type = this.quality === 'high' ? VSMShadowMap : PCFShadowMap;
-    this.sun.shadow.bias = this.quality === 'high' ? -0.0004 : -0.0003;
+    // Soft, light architectural shadows: a wide PCF filter for blurred edges, and only partly
+    // dark so the floor and furniture never turn black. (Variance shadow maps were softer but
+    // stalled some GPUs on first use, so they aren't used.)
+    this.renderer.shadowMap.type = PCFShadowMap;
+    this.sun.shadow.bias = -0.0003;
     // Offsetting along the surface normal prevents "shadow acne" stripes on faces turned away from the light.
     this.sun.shadow.normalBias = 0.035;
-    this.sun.shadow.radius = this.quality === 'high' ? 9 : 4;
-    this.sun.shadow.blurSamples = this.quality === 'high' ? 20 : 8;
+    this.sun.shadow.radius = this.quality === 'high' ? 6 : 4;
     this.sun.shadow.intensity = 0.6;
     if (enabled !== this.shadowsOn) {
       this.shadowsOn = enabled;

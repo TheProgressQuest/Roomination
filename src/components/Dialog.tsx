@@ -19,11 +19,18 @@ interface DialogProps {
 export function Dialog({ open, title, onClose, children, footer, className = '' }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const openedAt = useRef(0);
+  /** Whether a press has started inside the dialog since it opened. */
+  const pressedInside = useRef(false);
 
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      openedAt.current = performance.now();
+      pressedInside.current = false;
+    }
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
@@ -32,6 +39,19 @@ export function Dialog({ open, title, onClose, children, footer, className = '' 
       ref={ref}
       className={`dialog ${className}`}
       aria-labelledby={titleId}
+      // A dialog opened by a tap (e.g. double-tapping a piece) can receive that tap's own
+      // follow-up "ghost" click, landing on whatever button is now under the finger. Such a
+      // click arrives just after opening without any press inside the dialog, so it's ignored.
+      // Real clicks (which start with a press here) and keyboard activation are unaffected.
+      onPointerDownCapture={() => {
+        pressedInside.current = true;
+      }}
+      onClickCapture={(e) => {
+        if (e.detail > 0 && !pressedInside.current && performance.now() - openedAt.current < 800) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
       onCancel={(e) => {
         // Escape: let React decide, so state and the element never disagree.
         e.preventDefault();

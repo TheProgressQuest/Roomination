@@ -45,6 +45,8 @@ for (const width of WIDTHS) {
       await expect(dialog.getByLabel('Width', { exact: true })).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(page.locator('dialog[open]')).toHaveCount(0);
+      // Wait out the double-tap window, so the selection tap above doesn't pair with the next one.
+      await page.waitForTimeout(500);
       await page.touchscreen.tap(sofa.x, sofa.y);
       await page.waitForTimeout(60);
       await page.touchscreen.tap(sofa.x, sofa.y);

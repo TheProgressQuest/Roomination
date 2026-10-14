@@ -77,6 +77,10 @@ export default function View3D(props: View3DProps) {
       return;
     }
     viewerRef.current = viewer;
+    const softwareRendering = viewer.isSoftwareRendering();
+    // Decide before anything is built, so a software renderer never starts on a heavy setting.
+    if (softwareRendering && preferences.quality === 'auto') viewer.setQuality('low');
+    setSoftware(softwareRendering);
     window.__roomination3D = {
       stats: () => viewer.stats(),
       pointOnScreen: (id) => viewer.pointOnScreen(id),
@@ -98,7 +102,10 @@ export default function View3D(props: View3DProps) {
   useEffect(() => viewerRef.current?.setSelection(selectedId), [selectedId, furnitureModel, attempt]);
   useEffect(() => viewerRef.current?.setWallMode(preferences.wallMode), [preferences.wallMode, attempt]);
   useEffect(() => viewerRef.current?.setShadows(preferences.shadows), [preferences.shadows, attempt]);
-  useEffect(() => viewerRef.current?.setQuality(resolveQuality(preferences.quality, touch)), [preferences.quality, touch, attempt]);
+  // Automatic quality also takes the graphics hardware into account (software rendering → Low).
+  const [software, setSoftware] = useState(false);
+  const quality = preferences.quality === 'auto' && software ? 'low' : resolveQuality(preferences.quality, touch);
+  useEffect(() => viewerRef.current?.setQuality(quality), [quality, attempt]);
   useEffect(() => {
     // Read the colour a frame later: the app applies a theme change after this component's effects run.
     const frame = requestAnimationFrame(() => {
@@ -155,7 +162,7 @@ export default function View3D(props: View3DProps) {
         <label className="view3d-select">
           <span>Quality</span>
           <select value={preferences.quality} onChange={(e) => onPreferences({ quality: e.target.value as QualityPreference })} disabled={status !== 'ready'}>
-            <option value="auto">Auto ({QUALITY_LABELS[resolveQuality('auto', touch)]})</option>
+            <option value="auto">Auto ({QUALITY_LABELS[software ? 'low' : resolveQuality('auto', touch)]})</option>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
