@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { boundingBox } from '../../model/polygon';
-import { localFootprint } from '../../model/shape';
+import { localFootprint, ringsSvgPath } from '../../model/shape';
 import type { UnitSystem } from '../../model/types';
 import { formatLength } from '../../model/units';
 import { deleteLibraryItem, duplicateLibraryItem, furnitureOrigin, ORIGIN_LABELS, type LibraryItem } from '../../storage/library';
@@ -108,12 +108,12 @@ export function LibraryThumbnail({ template }: { template: FurnitureTemplate }) 
   const photoId = template.appearance?.textures?.top ?? template.appearance?.textures?.front ?? template.appearance?.photos?.[0];
   const photo = useAssetImage(photoId);
   if (photo) return <img src={photo.src} alt="" className="library-thumb" />;
-  const outline = localFootprint(template).outline;
-  const box = boundingBox(outline);
+  const { rings } = localFootprint(template);
+  const box = boundingBox(rings.flatMap((r) => r.outer));
   const size = Math.max(box.maxX - box.minX, box.maxY - box.minY);
   return (
     <svg className="library-thumb" viewBox={`${box.minX - size * 0.1} ${box.minY - size * 0.1} ${size * 1.2} ${size * 1.2}`} aria-hidden="true">
-      <polygon points={outline.map((p) => `${p.x},${p.y}`).join(' ')} fill={template.color} stroke="rgba(0,0,0,0.4)" strokeWidth={size / 40} />
+      <path d={ringsSvgPath(rings)} fillRule="evenodd" fill={template.color} stroke="rgba(0,0,0,0.4)" strokeWidth={size / 40} />
     </svg>
   );
 }

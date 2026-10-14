@@ -6,6 +6,7 @@ import { layoutStair, stairPolygons, stairToRoom } from '../model/stairs';
 import type { Furniture, FurnitureKind, OptimizerSettings, OptimizerWeights, PlacementPreference, Point, Project, Relationship, RoomPurpose } from '../model/types';
 import { wallBodies } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
+import { roomFootprint } from '../model/shape';
 import { analyseCirculation, baselineWalk, createGrid, type CirculationGrid, type CirculationResult } from './circulation';
 import { scoreFengShui, type FengShuiResult } from './fengShui';
 import { bedSideClearances, fixedObstacleEdges, frontClearance, frontNeed, obstaclesFor, partnersOf } from './practical';
@@ -126,7 +127,7 @@ export function createContext(project: Project, movableIds: Set<string>, setting
     ...project.stairs.flatMap(stairPolygons),
     // Columns and radiator bodies (their "solid" zone).
     ...project.features.flatMap((f) => featureZones(f, project.room).filter((z) => z.type === 'solid').map((z) => z.polygon)),
-    ...project.furniture.filter((f) => fixedIds.has(f.id) && isSolid(f)).map(furniturePolygon),
+    ...project.furniture.filter((f) => fixedIds.has(f.id) && isSolid(f)).flatMap((f) => roomFootprint(f).parts),
   ];
 
   const doorPoints = project.features
@@ -301,7 +302,8 @@ export function measure(project: Project, context: LayoutContext): Metrics {
   const solids = project.furniture.filter(isSolid);
   const moving = solids.filter((f) => !context.fixedIds.has(f.id));
   const uses = solids.map((item) => ({ id: item.id, points: usePoints(item, context.relationships, walkway) })).filter((u) => u.points.length > 0);
-  const circulation = analyseCirculation(context.grid, moving.map(furniturePolygon), { doors: context.doorPoints, stairs: context.stairPoints, uses }, walkway, context.baselineWalk);
+  // The exact solid pieces: a hole in a piece (a ring-shaped bench) stays walkable floor.
+  const circulation = analyseCirculation(context.grid, moving.flatMap((f) => roomFootprint(f).parts), { doors: context.doorPoints, stairs: context.stairPoints, uses }, walkway, context.baselineWalk);
 
   const usedItems = uses.filter((u) => {
     const item = project.furniture.find((f) => f.id === u.id)!;

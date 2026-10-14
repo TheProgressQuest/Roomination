@@ -2,7 +2,7 @@ import { isSolid } from '../model/conflicts';
 import { doorLeaves, featureFrame, toRoom, type Frame } from '../model/features';
 import { boundingBox, pointInPolygon, signedArea2, type Box, type Polygon } from '../model/polygon';
 import { layoutStair, stairToRoom, totalSteps } from '../model/stairs';
-import { localFootprint } from '../model/shape';
+import { localFootprint, type Ring } from '../model/shape';
 import type { FloorStyle, Furniture, MaterialKind, Point, Project, RoomFeature, Staircase, SurfaceFinish } from '../model/types';
 import { wallBodies, wallDirection, wallOutward } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
@@ -105,7 +105,7 @@ export interface SceneFurniture {
    * Drawn outlines and photo-textured pieces: the footprint (local cm, the same outline the
    * plan and collision checks use), extruded to the piece's height.
    */
-  extruded?: { outline: Polygon; height: number; color: string };
+  extruded?: { rings: Ring[]; height: number; color: string };
   material: MaterialKind | null;
   finish: SurfaceFinish;
   /** Photo textures by surface (asset ids). */
@@ -388,7 +388,7 @@ function furnitureBlocks(item: Furniture): SceneFurniture {
     height,
     rotation: item.rotation,
     parts: extrude ? [] : parts,
-    ...(extrude ? { extruded: { outline: localFootprint(item).outline, height, color: item.color } } : {}),
+    ...(extrude ? { extruded: { rings: localFootprint(item).rings, height, color: item.color } } : {}),
     material: item.appearance?.material ?? null,
     finish: item.appearance?.finish ?? 'satin',
     textures,

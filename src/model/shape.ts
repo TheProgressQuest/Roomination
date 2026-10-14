@@ -1,5 +1,6 @@
-import { boundingBox, convexInsidePolygon, findSelfIntersection, overlapArea, polygonArea, signedArea2, type Polygon } from './polygon';
-import type { Furniture, FurnitureShape, Point, ShapeVertex } from './types';
+import earcut from 'earcut';
+import { boundingBox, convexInsidePolygon, findSelfIntersection, overlapArea, pointInPolygon, polygonArea, segmentsIntersect, signedArea2, type Polygon } from './polygon';
+import type { BuilderNode, Furniture, FurnitureShape, Point, ShapeVertex } from './types';
 
 /**
  * Custom furniture outlines (see ADR-0004).
@@ -14,12 +15,14 @@ import type { Furniture, FurnitureShape, Point, ShapeVertex } from './types';
 export const CURVE_TOLERANCE = 0.5;
 /** Smallest footprint allowed: 25 cm² (a 5 × 5 cm piece, the smallest rectangle allowed). */
 export const MIN_SHAPE_AREA = 25;
-export const MAX_SHAPE_POINTS = 200;
+export const MAX_SHAPE_POINTS = 2000;
 export const MAX_SHAPE_SIZE = 2000;
 
 export interface Footprint {
-  /** Flattened outline, clockwise on screen. */
+  /** The main flattened outline, clockwise on screen (for labels, bounds and simple uses). */
   outline: Polygon;
+  /** Every solid part with its holes (for drawing and exact edges). */
+  rings: Ring[];
   /** Convex pieces that exactly tile the outline (one piece for convex outlines). */
   parts: Polygon[];
 }
@@ -176,6 +179,12 @@ function mergeShared(a: number[], b: number[]): number[] | null {
 // Footprints
 // ---------------------------------------------------------------------------
 
+/** One solid part of a footprint: its outer outline (clockwise) and any holes in it. */
+export interface Ring {
+  outer: Polygon;
+  holes: Polygon[];
+}
+
 const cache = new WeakMap<FurnitureShape, Footprint>();
 
 function rectangle(width: number, depth: number): Polygon {
@@ -187,17 +196,63 @@ function rectangle(width: number, depth: number): Polygon {
   ];
 }
 
+const clockwise = (poly: Polygon) => (signedArea2(poly) >= 0 ? poly : [...poly].reverse());
+
+/** Every solid part of a shape (main outline, then islands), flattened, with its holes. */
+export function shapeRings(shape: FurnitureShape, tolerance = CURVE_TOLERANCE): Ring[] {
+  const ring = (points: ShapeVertex[], holes: ShapeVertex[][] = []): Ring => ({
+    outer: clockwise(flattenShape({ points }, tolerance)),
+    holes: holes.map((h) => clockwise(flattenShape({ points: h }, tolerance))),
+  });
+  return [ring(shape.points, shape.holes), ...(shape.islands ?? []).map((i) => ring(i.points, i.holes))];
+}
+
+/** Convex pieces that exactly tile a ring's solid area (holes left empty). */
+function ringParts(ring: Ring): Polygon[] {
+  if (ring.holes.length === 0) return convexParts(ring.outer);
+  const all = [ring.outer, ...ring.holes].flat();
+  const coords = all.flatMap((p) => [p.x, p.y]);
+  const holeStarts: number[] = [];
+  let n = ring.outer.length;
+  for (const hole of ring.holes) {
+    holeStarts.push(n);
+    n += hole.length;
+  }
+  const indices = earcut(coords, holeStarts);
+  let pieces: number[][] = [];
+  for (let i = 0; i < indices.length; i += 3) {
+    // earcut's winding varies; make each triangle clockwise on screen like everything else.
+    const tri = [indices[i], indices[i + 1], indices[i + 2]];
+    pieces.push(signedArea2(tri.map((k) => all[k])) >= 0 ? tri : [tri[0], tri[2], tri[1]]);
+  }
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < pieces.length; i++) {
+      for (let j = i + 1; j < pieces.length; j++) {
+        const union = mergeShared(pieces[i], pieces[j]);
+        if (union && isConvexRing(union.map((k) => all[k]))) {
+          pieces[i] = union;
+          pieces = pieces.filter((_, k) => k !== j);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return pieces.map((piece) => piece.map((k) => all[k]));
+}
+
 /** A piece's footprint in its own frame: its drawn shape, or its width × depth rectangle. */
 export function localFootprint(item: Pick<Furniture, 'width' | 'depth' | 'shape'>): Footprint {
   if (!item.shape) {
     const outline = rectangle(item.width, item.depth);
-    return { outline, parts: [outline] };
+    return { outline, rings: [{ outer: outline, holes: [] }], parts: [outline] };
   }
   const hit = cache.get(item.shape);
   if (hit) return hit;
-  let outline = flattenShape(item.shape);
-  if (signedArea2(outline) < 0) outline = [...outline].reverse();
-  const footprint = { outline, parts: convexParts(outline) };
+  const rings = shapeRings(item.shape);
+  const footprint = { outline: rings[0].outer, rings, parts: rings.flatMap(ringParts) };
   cache.set(item.shape, footprint);
   return footprint;
 }
@@ -214,7 +269,7 @@ export function pieceToRoom(item: Pick<Furniture, 'x' | 'y' | 'rotation'>, p: Po
 export function roomFootprint(item: Pick<Furniture, 'x' | 'y' | 'rotation' | 'width' | 'depth' | 'shape'>): Footprint {
   const local = localFootprint(item);
   const place = (poly: Polygon) => poly.map((p) => pieceToRoom(item, p));
-  return { outline: place(local.outline), parts: local.parts.map(place) };
+  return { outline: place(local.outline), rings: local.rings.map((r) => ({ outer: place(r.outer), holes: r.holes.map(place) })), parts: local.parts.map(place) };
 }
 
 /** Area shared by two footprints, in cm² (exact: the convex pieces don't overlap). */
@@ -229,45 +284,111 @@ export function footprintInside(parts: Polygon[], container: Polygon): boolean {
   return parts.every((part) => convexInsidePolygon(part, container));
 }
 
+/** Solid area of a footprint, in cm² (holes excluded). */
+export function footprintArea(footprint: Footprint): number {
+  return footprint.parts.reduce((sum, p) => sum + polygonArea(p), 0);
+}
+
+/** SVG path data for rings (draw with fill-rule="evenodd" so holes stay open). */
+export function ringsSvgPath(rings: Ring[]): string {
+  const loop = (poly: Polygon) => `M${poly.map((p) => `${p.x},${p.y}`).join('L')}Z`;
+  return rings.flatMap((r) => [r.outer, ...r.holes]).map(loop).join('');
+}
+
 // ---------------------------------------------------------------------------
 // Editing helpers
 // ---------------------------------------------------------------------------
 
+/** Every outline of a shape (main, holes, islands and theirs), unflattened. */
+function allOutlines(shape: FurnitureShape): ShapeVertex[][] {
+  return [shape.points, ...(shape.holes ?? []), ...(shape.islands ?? []).flatMap((i) => [i.points, ...(i.holes ?? [])])];
+}
+
 /** Why an outline can't be used, in plain words, or null if it's fine. */
 export function shapeProblem(shape: FurnitureShape): string | null {
-  const { points } = shape;
-  if (points.length < 3) return 'A shape needs at least three corners.';
-  if (points.length > MAX_SHAPE_POINTS) return `A shape can have at most ${MAX_SHAPE_POINTS} corners.`;
-  const all = points.flatMap((p) => [p, p.c1, p.c2].filter((q): q is Point => q !== undefined));
+  const outlines = allOutlines(shape);
+  if (outlines.some((o) => o.length < 3)) return 'A shape needs at least three corners.';
+  const corners = outlines.reduce((n, o) => n + o.length, 0);
+  if (corners > MAX_SHAPE_POINTS) return `A shape can have at most ${MAX_SHAPE_POINTS} corners in total.`;
+  const all = outlines.flat().flatMap((p) => [p, p.c1, p.c2].filter((q): q is Point => q !== undefined));
   if (!all.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) return 'A corner has an invalid position.';
-  const outline = flattenShape(shape);
-  const box = boundingBox(outline);
+  const rings = shapeRings(shape);
+  const box = boundingBox(rings.flatMap((r) => r.outer));
   if (box.maxX - box.minX > MAX_SHAPE_SIZE || box.maxY - box.minY > MAX_SHAPE_SIZE) return 'This shape is unrealistically large (over 20 m).';
-  if (findSelfIntersection(outline)) return 'The outline crosses itself. Move a corner or curve so the edges don’t cross.';
-  if (polygonArea(outline) < MIN_SHAPE_AREA) return 'This shape is too small or too thin (it must cover at least 25 cm²).';
+  for (const ring of rings) {
+    if (findSelfIntersection(ring.outer)) return 'The outline crosses itself. Move a corner or curve so the edges don’t cross.';
+    for (const hole of ring.holes) {
+      if (findSelfIntersection(hole)) return 'A hole’s outline crosses itself.';
+      if (!hole.every((p) => pointInPolygon(p, ring.outer)) || crosses(hole, ring.outer)) return 'A hole must lie inside its outline.';
+    }
+    for (let i = 0; i < ring.holes.length; i++) {
+      for (let j = i + 1; j < ring.holes.length; j++) {
+        const [a, b] = [ring.holes[i], ring.holes[j]];
+        if (crosses(a, b) || pointInPolygon(a[0], b) || pointInPolygon(b[0], a)) return 'Two holes overlap: merge them into one.';
+      }
+    }
+  }
+  const parts = rings.map(ringParts);
+  for (let i = 0; i < parts.length; i++) {
+    for (let j = i + 1; j < parts.length; j++) if (footprintOverlap(parts[i], parts[j]) > 1) return 'Two separate parts overlap: merge them into one, or move them apart.';
+  }
+  const area = parts.flat().reduce((sum, p) => sum + polygonArea(p), 0);
+  if (area < MIN_SHAPE_AREA) return 'This shape is too small or too thin (it must cover at least 25 cm²).';
   return null;
 }
 
+function crosses(a: Polygon, b: Polygon): boolean {
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) if (segmentsIntersect(a[i], a[(i + 1) % a.length], b[j], b[(j + 1) % b.length])) return true;
+  }
+  return false;
+}
+
+/** Applies `move` to every corner and curve handle of an outline. */
+function mapOutline(points: ShapeVertex[], move: (p: Point) => Point): ShapeVertex[] {
+  return points.map((v) => ({ ...move(v), ...(v.c1 && v.c2 ? { c1: move(v.c1), c2: move(v.c2) } : {}) }));
+}
+
+/** Outer outlines run clockwise and holes the other way (so 2D/3D fill rules agree). */
+function orient(points: ShapeVertex[], clockwiseWanted: boolean): ShapeVertex[] {
+  const isClockwise = signedArea2(flattenShape({ points })) >= 0;
+  return isClockwise === clockwiseWanted ? points : reverseShape(points);
+}
+
 /**
- * Re-centres a shape on its bounding box and makes it clockwise. Returns the shape, its
+ * Re-centres a shape on its bounding box and orients its outlines. Returns the shape, its
  * width and depth (the bounding box), and how far its centre moved — so the piece can be
  * moved by the same amount and stay exactly where it was in the room.
  */
 export function normaliseShape(shape: FurnitureShape): { shape: FurnitureShape; width: number; depth: number; shift: Point } {
-  let points = shape.points;
-  if (signedArea2(flattenShape(shape)) < 0) points = reverseShape(points);
-  const box = boundingBox(flattenShape({ points }));
+  const oriented: FurnitureShape = {
+    points: orient(shape.points, true),
+    ...(shape.holes?.length ? { holes: shape.holes.map((h) => orient(h, false)) } : {}),
+    ...(shape.islands?.length ? { islands: shape.islands.map((i) => ({ points: orient(i.points, true), ...(i.holes?.length ? { holes: i.holes.map((h) => orient(h, false)) } : {}) })) } : {}),
+  };
+  const box = boundingBox(shapeRings(oriented).flatMap((r) => r.outer));
   // Offsets below the 0.01 cm storage rounding are noise: ignoring them keeps this idempotent,
   // so saving and reloading never nudges a piece.
   const settle = (v: number) => (Math.abs(v) < 0.02 ? 0 : v);
   const shift = { x: settle((box.minX + box.maxX) / 2), y: settle((box.minY + box.maxY) / 2) };
   const move = (p: Point) => ({ x: round(p.x - shift.x), y: round(p.y - shift.y) });
   return {
-    shape: { points: points.map((v) => ({ ...move(v), ...(v.c1 && v.c2 ? { c1: move(v.c1), c2: move(v.c2) } : {}) })) },
+    shape: {
+      points: mapOutline(oriented.points, move),
+      ...(oriented.holes ? { holes: oriented.holes.map((h) => mapOutline(h, move)) } : {}),
+      ...(oriented.islands ? { islands: oriented.islands.map((i) => ({ points: mapOutline(i.points, move), ...(i.holes ? { holes: i.holes.map((h) => mapOutline(h, move)) } : {}) })) } : {}),
+      ...(shape.source ? { source: shape.source.map((node) => shiftNode(node, shift)) } : {}),
+    },
     width: round(box.maxX - box.minX),
     depth: round(box.maxY - box.minY),
     shift,
   };
+}
+
+/** Moves a Shape Builder recipe by −shift (shapes carry their own positions). */
+function shiftNode(node: BuilderNode, shift: Point): BuilderNode {
+  if (node.type === 'shape') return { ...node, x: round(node.x - shift.x), y: round(node.y - shift.y) };
+  return { ...node, children: node.children.map((c) => shiftNode(c, shift)) };
 }
 
 /** Reverses an outline's direction, keeping each curve attached to the same edge. */
@@ -282,10 +403,18 @@ function reverseShape(points: ShapeVertex[]): ShapeVertex[] {
   });
 }
 
-/** Stretches a shape (and its curves) to a new width and depth. */
+/**
+ * Stretches a shape (and its curves) to a new width and depth. A Shape Builder recipe can't
+ * be stretched unevenly without changing what it describes, so it's dropped: the stretched
+ * outline is kept, and can still be edited as an outline.
+ */
 export function scaleShape(shape: FurnitureShape, sx: number, sy: number): FurnitureShape {
   const scale = (p: Point) => ({ x: round(p.x * sx), y: round(p.y * sy) });
-  return { points: shape.points.map((v) => ({ ...scale(v), ...(v.c1 && v.c2 ? { c1: scale(v.c1), c2: scale(v.c2) } : {}) })) };
+  return {
+    points: mapOutline(shape.points, scale),
+    ...(shape.holes ? { holes: shape.holes.map((h) => mapOutline(h, scale)) } : {}),
+    ...(shape.islands ? { islands: shape.islands.map((i) => ({ points: mapOutline(i.points, scale), ...(i.holes ? { holes: i.holes.map((h) => mapOutline(h, scale)) } : {}) })) } : {}),
+  };
 }
 
 /** Lengths kept to 0.01 cm, so stored numbers stay tidy without visible rounding. */

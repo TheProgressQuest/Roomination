@@ -216,14 +216,14 @@ describe('furniture', () => {
     const desk = createFurniture({ x: 200, y: 150, rotation: 30, width, depth, height: 75, shape, color: '#123456', appearance: { material: 'wood', finish: 'gloss' } });
     const [piece] = buildSceneModel({ ...createEmptyProject(createRectangularRoom(500, 400)), furniture: [desk] }).furniture;
     expect(piece.parts).toEqual([]);
-    expect(piece.extruded).toEqual({ outline: localFootprint(desk).outline, height: 75, color: '#123456' });
+    expect(piece.extruded).toEqual({ rings: localFootprint(desk).rings, height: 75, color: '#123456' });
     expect(piece).toMatchObject({ x: 200, y: 150, rotation: 30, material: 'wood', finish: 'gloss' });
   });
 
   it('extrudes a photo-textured rectangle so the photo has real surfaces', () => {
     const cabinet = createFurniture({ x: 100, y: 100, width: 80, depth: 40, appearance: { material: 'wood', finish: 'matte', textures: { front: 'a'.repeat(64) } } });
     const [piece] = buildSceneModel({ ...createEmptyProject(), furniture: [cabinet] }).furniture;
-    expect(piece.extruded?.outline).toEqual(localFootprint(cabinet).outline);
+    expect(piece.extruded?.rings).toEqual(localFootprint(cabinet).rings);
     expect(piece.textures.front).toBe('a'.repeat(64));
   });
 

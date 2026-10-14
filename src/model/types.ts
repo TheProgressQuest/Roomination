@@ -167,10 +167,45 @@ export interface ShapeVertex {
   c2?: Point;
 }
 
-/** A custom furniture outline: a simple, clockwise polygon whose edges may be curved. */
+/**
+ * A custom furniture footprint. `points` is the main outline (a simple polygon whose edges may
+ * be curved). A shape may also have holes (a ring-shaped bench) and further separate parts
+ * ("islands", e.g. a modular sofa whose sections don't touch), each with its own holes.
+ * Shapes made in the Shape Builder keep their recipe in `source` so they can be re-edited;
+ * the outlines here are always the result of that recipe.
+ */
 export interface FurnitureShape {
   points: ShapeVertex[];
+  holes?: ShapeVertex[][];
+  islands?: { points: ShapeVertex[]; holes?: ShapeVertex[][] }[];
+  source?: BuilderNode[];
 }
+
+export type PrimitiveKind = 'rectangle' | 'square' | 'circle' | 'ellipse' | 'triangle' | 'polygon' | 'arc' | 'outline';
+
+/**
+ * One step of a Shape Builder recipe, in the piece's local cm.
+ *   - shape: a basic shape centred at (x, y), turned `rotation` degrees, `width` × `depth`.
+ *     `sides` for regular polygons; `sweep` (degrees) for curved sections (an arc of a ring
+ *     whose band is `depth` thick); `points` for a free outline.
+ *   - union (merge), subtract (first minus the rest), intersect: combine their children.
+ *   - group: keeps its children separate but moves them together.
+ */
+export type BuilderNode =
+  | {
+      id: string;
+      type: 'shape';
+      kind: PrimitiveKind;
+      x: number;
+      y: number;
+      rotation: number;
+      width: number;
+      depth: number;
+      sides?: number;
+      sweep?: number;
+      points?: ShapeVertex[];
+    }
+  | { id: string; type: 'union' | 'subtract' | 'intersect' | 'group'; children: BuilderNode[] };
 
 export type MaterialKind = 'fabric' | 'leather' | 'wood' | 'metal' | 'glass' | 'plastic' | 'custom';
 export type SurfaceFinish = 'matte' | 'satin' | 'gloss';

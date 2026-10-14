@@ -1,6 +1,6 @@
 import { featureZones, openingSpan, type Zone, type ZoneType } from './features';
 import { boundingBox, polygonArea, rectPolygon, type Polygon } from './polygon';
-import { footprintOverlap, localFootprint, pieceToRoom, roomFootprint } from './shape';
+import { footprintArea, footprintOverlap, localFootprint, pieceToRoom, roomFootprint } from './shape';
 import { stairPolygons } from './stairs';
 import type { Furniture, Partition, Project, RoomFeature } from './types';
 import { partitionSegments, pointAlong } from './walls';
@@ -78,7 +78,7 @@ export function furniturePolygon(item: Furniture): Polygon {
 export function furnitureClearanceZone(item: Furniture): Polygon | null {
   const depth = item.clearance ?? 0;
   if (depth <= 0) return null;
-  const box = boundingBox(localFootprint(item).outline);
+  const box = boundingBox(localFootprint(item).rings.flatMap((r) => r.outer));
   return [
     { x: box.minX, y: box.maxY },
     { x: box.maxX, y: box.maxY },
@@ -169,7 +169,7 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
       const otherPrint = footprints.get(other.id)!;
       const area = footprintOverlap(itemPrint.parts, otherPrint.parts);
       if (area > MIN_OVERLAP_AREA) {
-        const smaller = Math.min(polygonArea(itemPrint.outline), polygonArea(otherPrint.outline));
+        const smaller = Math.min(footprintArea(itemPrint), footprintArea(otherPrint));
         add(item.id, other.id, 'furniture', 'collision', area / smaller);
       }
     }

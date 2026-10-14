@@ -143,7 +143,7 @@ export function fixedObstacleEdges(project: Project): Segment[] {
 /** Obstacles for one layout (pass the fixed edges when they've already been worked out). */
 export function obstaclesFor(project: Project, fixed: Segment[] = fixedObstacleEdges(project)): Obstacles {
   const pieces = new Map<string, Segment[]>();
-  for (const f of project.furniture) if (isSolid(f)) pieces.set(f.id, edgesOf(roomFootprint(f).outline));
+  for (const f of project.furniture) if (isSolid(f)) pieces.set(f.id, roomFootprint(f).rings.flatMap((r) => [r.outer, ...r.holes].flatMap(edgesOf)));
   return { fixed, pieces };
 }
 

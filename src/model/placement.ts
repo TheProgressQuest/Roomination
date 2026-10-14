@@ -115,7 +115,7 @@ export function clampFurnitureToRoom<T extends Pick<Furniture, 'x' | 'y' | 'widt
   const poly = outlinePolygon(room);
   // The true footprint (a drawn shape, or the rectangle), placed with its centre at c.
   const placed = (c: Point) => roomFootprint({ ...item, x: c.x, y: c.y });
-  const box = boundingBox(placed({ x: 0, y: 0 }).outline);
+  const box = boundingBox(placed({ x: 0, y: 0 }).rings.flatMap((r) => r.outer));
   const centre = resolvePosition(item, {
     roomBox: roomBounds(room),
     halfX: Math.max(-box.minX, box.maxX),

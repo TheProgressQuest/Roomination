@@ -22,6 +22,7 @@ import {
 } from 'three';
 import { boundingBox, signedArea2, type Polygon } from '../../model/polygon';
 import type { MaterialKind } from '../../model/types';
+import type { Ring } from '../../model/shape';
 import { loadAssetImage } from '../../storage/assets';
 import { CM_PER_SCENE_UNIT, toScene, type Block, type SceneFurniture } from '../model';
 import type { FurnitureMaterials } from './furnitureMaterials';
@@ -193,11 +194,12 @@ export class FurnitureLayer {
   }
 
   private addExtruded(piece: SceneFurniture, generation: number) {
-    const { outline, height, color } = piece.extruded!;
+    const { rings, height, color } = piece.extruded!;
     const textures = piece.textures;
     const repeats = this.materials.repeatsFor(piece.material, 1);
-    const key = `${outline.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(';')}|${height}|${repeats}|${Object.keys(textures).sort().join(',')}`;
-    const geometry = this.cached(this.geometries, key, generation, () => extrudedGeometry(outline, height, textures, repeats));
+    const outlineKey = rings.map((r) => [r.outer, ...r.holes].map((poly) => poly.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(';')).join('|')).join('/');
+    const key = `${outlineKey}|${height}|${repeats}|${Object.keys(textures).sort().join(',')}`;
+    const geometry = this.cached(this.geometries, key, generation, () => extrudedGeometry(rings, height, textures, repeats));
     const body = this.materials.create(piece.material, piece.finish, color);
     const surfaces: MeshStandardMaterial[] = [body, body, body, body];
     const owned = [body];
@@ -268,9 +270,9 @@ export class FurnitureLayer {
     const record = this.selectedId ? this.pieces.get(this.selectedId) : undefined;
     if (!record) return;
     const f = record.footprint;
-    const shape = f.extruded?.outline ?? rectangle(f.width, f.depth);
+    const rings: Ring[] = f.extruded?.rings ?? [{ outer: rectangle(f.width, f.depth), holes: [] }];
     // Outline the selected piece's real shape (not its bounding box), slightly enlarged.
-    const solid = extrudedGeometry(inflate(shape, 1), Math.max(f.height, 1) + 0.5, {}, 1);
+    const solid = extrudedGeometry(rings.map((r) => ({ outer: inflate(r.outer, 1), holes: r.holes })), Math.max(f.height, 1) + 0.5, {}, 1);
     const edges = new EdgesGeometry(solid, 25);
     solid.dispose();
     const outline = new LineSegments(edges, new LineBasicMaterial({ color: HIGHLIGHT, depthTest: false, transparent: true, opacity: 0.9 }));
@@ -319,14 +321,15 @@ function inflate(poly: Polygon, cm: number): Polygon {
 }
 
 /**
- * A footprint (local cm, clockwise on screen) extruded to `height`, in local metres with
- * the piece's origin at (0, 0, 0). Faces are grouped by surface so photos can go on the
- * top, front-facing and side-facing faces; texture coordinates span each photo across
- * the whole piece (photo surfaces) or repeat in metres (material detail elsewhere).
+ * A footprint (local cm) extruded to `height`, in local metres with the piece's origin at
+ * (0, 0, 0). Each part is filled with its holes left open; hole walls face into the hole.
+ * Faces are grouped by surface so photos can go on the top, front-facing and side-facing
+ * faces; texture coordinates span each photo across the whole piece (photo surfaces) or
+ * repeat in metres (material detail elsewhere).
  */
-export function extrudedGeometry(outline: Polygon, height: number, textures: SceneFurniture['textures'], repeatsPerMetre: number): BufferGeometry {
-  const poly = signedArea2(outline) >= 0 ? outline : [...outline].reverse();
-  const box = boundingBox(poly);
+export function extrudedGeometry(rings: Ring[], height: number, textures: SceneFurniture['textures'], repeatsPerMetre: number): BufferGeometry {
+  const cw = (poly: Polygon) => (signedArea2(poly) >= 0 ? poly : [...poly].reverse());
+  const box = boundingBox(rings.flatMap((r) => r.outer));
   const w = Math.max(box.maxX - box.minX, 1e-6);
   const d = Math.max(box.maxY - box.minY, 1e-6);
   const positions: number[] = [];
@@ -344,54 +347,66 @@ export function extrudedGeometry(outline: Polygon, height: number, textures: Sce
   };
   const at = (x: number, y: number, z: number): [number, number, number] => [m(x), m(z), m(y)];
 
-  // Top (facing up) and bottom (facing down). Clockwise-on-screen triangles face down in Three.
-  const triangles = ShapeUtils.triangulateShape(poly.map((p) => new Vector2(p.x, p.y)), []);
-  for (const [i, j, k] of triangles) {
-    const tri = [poly[i], poly[j], poly[k]];
-    const down = signedArea2(tri) > 0 ? tri : [tri[0], tri[2], tri[1]];
-    const up = [down[0], down[2], down[1]];
-    add(
-      textures.top ? Surface.Top : Surface.Body,
-      up.map((p) => ({
-        p: at(p.x, p.y, height),
-        // Photo: the whole top photo across the piece, back (min y) at the top of the image.
-        uv: textures.top ? [(p.x - box.minX) / w, 1 - (p.y - box.minY) / d] : [m(p.x) * repeatsPerMetre, m(p.y) * repeatsPerMetre],
-      })),
-    );
-    add(Surface.Body, down.map((p) => ({ p: at(p.x, p.y, 0), uv: [0, 0] })));
-  }
-
-  // Sides, one quad per edge, wound to face outwards.
   let along = 0;
-  poly.forEach((a, i) => {
-    const b = poly[(i + 1) % poly.length];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    if (len < 1e-9) return;
-    // Clockwise on screen ⇒ the outward normal is (dy, −dx) / length.
-    const nx = (b.y - a.y) / len;
-    const ny = -(b.x - a.x) / len;
-    let surface = Surface.Body;
-    let ua: number;
-    let ub: number;
-    if (textures.front && ny > 0.5) {
-      surface = Surface.Front;
-      // Seen from the front, +x is to the viewer's right.
-      [ua, ub] = [(a.x - box.minX) / w, (b.x - box.minX) / w];
-    } else if (textures.side && Math.abs(nx) > 0.5) {
-      surface = Surface.Side;
-      // Seen from the right (+x) side, the back (min y) is on the viewer's right; mirrored on the left.
-      [ua, ub] = nx > 0 ? [(box.maxY - a.y) / d, (box.maxY - b.y) / d] : [(a.y - box.minY) / d, (b.y - box.minY) / d];
-    } else {
-      [ua, ub] = [m(along) * repeatsPerMetre, m(along + len) * repeatsPerMetre];
+  /** Walls along one loop. A clockwise loop faces outwards; a hole traced the other way faces into the hole. */
+  const walls = (loop: Polygon, outer: boolean) => {
+    loop.forEach((a, i) => {
+      const b = loop[(i + 1) % loop.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1e-9) return;
+      // The face's outward normal is (dy, −dx) / length for this direction of travel.
+      const nx = (b.y - a.y) / len;
+      const ny = -(b.x - a.x) / len;
+      let surface = Surface.Body;
+      let ua: number;
+      let ub: number;
+      if (outer && textures.front && ny > 0.5) {
+        surface = Surface.Front;
+        // Seen from the front, +x is to the viewer's right.
+        [ua, ub] = [(a.x - box.minX) / w, (b.x - box.minX) / w];
+      } else if (outer && textures.side && Math.abs(nx) > 0.5) {
+        surface = Surface.Side;
+        // Seen from the right (+x) side, the back (min y) is on the viewer's right; mirrored on the left.
+        [ua, ub] = nx > 0 ? [(box.maxY - a.y) / d, (box.maxY - b.y) / d] : [(a.y - box.minY) / d, (b.y - box.minY) / d];
+      } else {
+        [ua, ub] = [m(along) * repeatsPerMetre, m(along + len) * repeatsPerMetre];
+      }
+      const top = surface === Surface.Body ? m(height) * repeatsPerMetre : 1;
+      const a0 = { p: at(a.x, a.y, 0), uv: [ua, 0] as [number, number] };
+      const b0 = { p: at(b.x, b.y, 0), uv: [ub, 0] as [number, number] };
+      const b1 = { p: at(b.x, b.y, height), uv: [ub, top] as [number, number] };
+      const a1 = { p: at(a.x, a.y, height), uv: [ua, top] as [number, number] };
+      add(surface, [a0, b1, b0, a0, a1, b1]);
+      along += len;
+    });
+  };
+
+  for (const ring of rings) {
+    const outer = cw(ring.outer);
+    const holes = ring.holes.map((h) => [...cw(h)].reverse());
+    const all = [outer, ...holes].flat();
+    // Top (facing up) and bottom (facing down). Clockwise-on-screen triangles face down in Three.
+    const triangles = ShapeUtils.triangulateShape(
+      outer.map((p) => new Vector2(p.x, p.y)),
+      holes.map((h) => h.map((p) => new Vector2(p.x, p.y))),
+    );
+    for (const [i, j, k] of triangles) {
+      const tri = [all[i], all[j], all[k]];
+      const down = signedArea2(tri) > 0 ? tri : [tri[0], tri[2], tri[1]];
+      const up = [down[0], down[2], down[1]];
+      add(
+        textures.top ? Surface.Top : Surface.Body,
+        up.map((p) => ({
+          p: at(p.x, p.y, height),
+          // Photo: the whole top photo across the piece, back (min y) at the top of the image.
+          uv: textures.top ? [(p.x - box.minX) / w, 1 - (p.y - box.minY) / d] : [m(p.x) * repeatsPerMetre, m(p.y) * repeatsPerMetre],
+        })),
+      );
+      add(Surface.Body, down.map((p) => ({ p: at(p.x, p.y, 0), uv: [0, 0] })));
     }
-    const top = surface === Surface.Body ? m(height) * repeatsPerMetre : 1;
-    const a0 = { p: at(a.x, a.y, 0), uv: [ua, 0] as [number, number] };
-    const b0 = { p: at(b.x, b.y, 0), uv: [ub, 0] as [number, number] };
-    const b1 = { p: at(b.x, b.y, height), uv: [ub, top] as [number, number] };
-    const a1 = { p: at(a.x, a.y, height), uv: [ua, top] as [number, number] };
-    add(surface, [a0, b1, b0, a0, a1, b1]);
-    along += len;
-  });
+    walls(outer, true);
+    for (const hole of holes) walls(hole, false);
+  }
 
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));

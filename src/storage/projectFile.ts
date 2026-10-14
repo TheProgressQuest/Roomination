@@ -5,6 +5,8 @@ import { DEFAULT_OPTIMIZER, FURNITURE_KIND_LABELS, PREFERENCE_LABELS, guessKind 
 import { DEFAULT_CEILING_HEIGHT, DEFAULT_FLOOR, DEFAULT_WALL_COLOR, createId } from '../model/sample';
 import {
   CURRENT_SCHEMA_VERSION,
+  type BuilderNode,
+  type PrimitiveKind,
   type FengShuiSettings,
   type FloorStyle,
   type Furniture,
@@ -376,19 +378,91 @@ function withShape(item: Furniture, shape: FurnitureShape): Furniture {
 
 /** A custom outline from a file. Throws (with a plain reason) if it can't be used. */
 export function parseShape(raw: unknown, label: string): FurnitureShape {
-  if (!isRecord(raw) || !Array.isArray(raw.points)) fail(`${label}’s shape is damaged.`);
-  if (raw.points.length > MAX_SHAPE_POINTS) fail(`${label}’s shape has too many corners to load safely.`);
+  if (!isRecord(raw)) fail(`${label}’s shape is damaged.`);
+  let budget = MAX_SHAPE_POINTS;
+  const outline = (list: unknown): ShapeVertex[] => {
+    if (!Array.isArray(list)) fail(`${label}’s shape is damaged.`);
+    budget -= list.length;
+    if (budget < 0) fail(`${label}’s shape has too many corners to load safely.`);
+    return parseVertices(list, () => fail(`A corner of ${label}’s shape is damaged.`));
+  };
+  const holesOf = (list: unknown): ShapeVertex[][] | undefined => {
+    if (list === undefined) return undefined;
+    if (!Array.isArray(list) || list.length > MAX_HOLES) fail(`${label}’s shape is damaged.`);
+    return list.length > 0 ? list.map(outline) : undefined;
+  };
+  const shape: FurnitureShape = { points: outline(raw.points) };
+  const holes = holesOf(raw.holes);
+  if (holes) shape.holes = holes;
+  if (raw.islands !== undefined) {
+    if (!Array.isArray(raw.islands) || raw.islands.length > MAX_ISLANDS) fail(`${label}’s shape is damaged.`);
+    const islands = raw.islands.map((island) => {
+      if (!isRecord(island)) fail(`${label}’s shape is damaged.`);
+      const h = holesOf(island.holes);
+      return { points: outline(island.points), ...(h ? { holes: h } : {}) };
+    });
+    if (islands.length > 0) shape.islands = islands;
+  }
+  const problem = shapeProblem(shape);
+  if (problem) fail(`${label}’s shape can’t be used: ${problem}`);
+  // The builder recipe is only for re-editing: a damaged one is dropped, never trusted.
+  const source = parseBuilderNodes(raw.source);
+  if (source) shape.source = source;
+  return shape;
+}
+
+const MAX_HOLES = 50;
+const MAX_ISLANDS = 50;
+const MAX_BUILDER_NODES = 200;
+const MAX_BUILDER_DEPTH = 8;
+const PRIMITIVES: PrimitiveKind[] = ['rectangle', 'square', 'circle', 'ellipse', 'triangle', 'polygon', 'arc', 'outline'];
+const OPERATIONS = ['union', 'subtract', 'intersect', 'group'] as const;
+
+function parseVertices(list: unknown[], onError: () => never): ShapeVertex[] {
   const point = (p: unknown): Point | null => (isRecord(p) && finite(p.x) && finite(p.y) ? { x: p.x, y: p.y } : null);
-  const points: ShapeVertex[] = raw.points.map((v) => {
+  return list.map((v) => {
     const corner = point(v);
-    if (!corner) fail(`A corner of ${label}’s shape is damaged.`);
+    if (!corner) onError();
     const c1 = isRecord(v) ? point(v.c1) : null;
     const c2 = isRecord(v) ? point(v.c2) : null;
     return c1 && c2 ? { ...corner, c1, c2 } : corner;
   });
-  const problem = shapeProblem({ points });
-  if (problem) fail(`${label}’s shape can’t be used: ${problem}`);
-  return { points };
+}
+
+/** A Shape Builder recipe, or undefined if it's missing or damaged in any way. */
+export function parseBuilderNodes(raw: unknown): BuilderNode[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  let count = 0;
+  const invalid = (): never => {
+    throw new Error('invalid');
+  };
+  const node = (n: unknown, depth: number): BuilderNode => {
+    if (++count > MAX_BUILDER_NODES || depth > MAX_BUILDER_DEPTH || !isRecord(n) || typeof n.id !== 'string' || n.id.length > 100) invalid();
+    const r = n as Record<string, unknown>;
+    if (r.type === 'shape') {
+      const kind = r.kind as PrimitiveKind;
+      if (!PRIMITIVES.includes(kind)) invalid();
+      const size = (v: unknown) => (finite(v) && v > 0 && v <= MAX_ROOM_SPAN ? v : invalid());
+      const place = (v: unknown) => (finite(v) && Math.abs(v) <= MAX_ROOM_SPAN ? v : invalid());
+      const shape: BuilderNode = { id: r.id as string, type: 'shape', kind, x: place(r.x), y: place(r.y), rotation: normalizeRotation(place(r.rotation)), width: size(r.width), depth: size(r.depth) };
+      if (r.sides !== undefined) shape.sides = finite(r.sides) && Number.isInteger(r.sides) && r.sides >= 3 && r.sides <= 64 ? r.sides : invalid();
+      if (r.sweep !== undefined) shape.sweep = finite(r.sweep) && r.sweep > 0 && r.sweep <= 360 ? r.sweep : invalid();
+      if (r.points !== undefined) {
+        if (!Array.isArray(r.points) || r.points.length < 3 || r.points.length > MAX_SHAPE_POINTS) invalid();
+        shape.points = parseVertices(r.points as unknown[], invalid);
+      }
+      if (kind === 'outline' && !shape.points) invalid();
+      return shape;
+    }
+    if (!OPERATIONS.includes(r.type as (typeof OPERATIONS)[number]) || !Array.isArray(r.children)) invalid();
+    return { id: r.id as string, type: r.type as (typeof OPERATIONS)[number], children: (r.children as unknown[]).map((c) => node(c, depth + 1)) };
+  };
+  try {
+    const nodes = raw.map((n) => node(n, 0));
+    return nodes.length > 0 ? nodes : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const MATERIALS: MaterialKind[] = ['fabric', 'leather', 'wood', 'metal', 'glass', 'plastic', 'custom'];

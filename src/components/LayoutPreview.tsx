@@ -1,9 +1,9 @@
-import { furniturePolygon } from '../model/conflicts';
 import { doorLeaves, featureFrame, toRoom } from '../model/features';
 import { arcPoints, boundingBox, type Polygon } from '../model/polygon';
 import { stairPolygons } from '../model/stairs';
 import type { Project } from '../model/types';
 import { wallBodies } from '../model/wallGeometry';
+import { roomFootprint, ringsSvgPath } from '../model/shape';
 import { outlinePolygon } from '../model/walls';
 
 interface LayoutPreviewProps {
@@ -33,12 +33,12 @@ export function LayoutPreview({ project, movedIds, label }: LayoutPreviewProps) 
       {project.furniture
         .filter((f) => f.category === 'floorCovering')
         .map((f) => (
-          <polygon key={f.id} points={points(furniturePolygon(f))} fill={f.color} opacity={0.45} />
+          <path key={f.id} d={ringsSvgPath(roomFootprint(f).rings)} fillRule="evenodd" fill={f.color} opacity={0.45} />
         ))}
       {project.furniture
         .filter((f) => f.category !== 'floorCovering')
         .map((f) => (
-          <polygon key={f.id} points={points(furniturePolygon(f))} fill={f.color} className={movedIds.has(f.id) ? 'preview-moved' : 'preview-piece'} />
+          <path key={f.id} d={ringsSvgPath(roomFootprint(f).rings)} fillRule="evenodd" fill={f.color} className={movedIds.has(f.id) ? 'preview-moved' : 'preview-piece'} />
         ))}
       {walls.map((w, i) => (
         <polygon key={`w${i}`} points={points(w.polygon)} className="preview-wall" />

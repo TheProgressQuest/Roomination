@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { Circle, Group, Line, Path, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
 import { polygonArea } from '../../model/polygon';
-import { localFootprint } from '../../model/shape';
+import { localFootprint, type Ring } from '../../model/shape';
 import type { Furniture, Point } from '../../model/types';
 import { useAssetImage } from '../useAssetImage';
 import { readableText, shade, type CanvasPalette } from '../../render/palette';
@@ -64,9 +64,9 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
       {outline ? (
         // A drawn outline: exactly the footprint used for collisions (curves flattened to 0.5 cm).
         <>
-          <Line
-            points={outline.points.flatMap((p) => [p.x * scale, p.y * scale])}
-            closed
+          <Path
+            data={ringsPath(outline.rings, scale)}
+            fillRule="evenodd"
             fill={item.color}
             {...photoFill(true)}
             stroke={stroke}
@@ -174,17 +174,25 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
  * The flattened outline in local cm, the edges facing the front (+y), and a point well
  * inside the shape for the label (the bounding-box centre may fall outside an L or U shape).
  */
-function drawnOutline(item: Furniture): { points: Point[]; front: [Point, Point][]; label: Point } {
-  const { outline, parts } = localFootprint(item);
+function drawnOutline(item: Furniture): { rings: Ring[]; front: [Point, Point][]; label: Point } {
+  const { rings, parts } = localFootprint(item);
   const front: [Point, Point][] = [];
-  outline.forEach((a, i) => {
-    const b = outline[(i + 1) % outline.length];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    // Outlines are clockwise on screen, so the outward normal is (dy, −dx) / length.
-    if (len > 0 && -(b.x - a.x) / len > 0.7) front.push([a, b]);
-  });
+  for (const { outer } of rings) {
+    outer.forEach((a, i) => {
+      const b = outer[(i + 1) % outer.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      // Outlines are clockwise on screen, so the outward normal is (dy, −dx) / length.
+      if (len > 0 && -(b.x - a.x) / len > 0.7) front.push([a, b]);
+    });
+  }
   // The average of a convex piece's corners is always inside it.
   const biggest = parts.reduce((best, p) => (polygonArea(p) > polygonArea(best) ? p : best), parts[0]);
   const label = { x: biggest.reduce((s, p) => s + p.x, 0) / biggest.length, y: biggest.reduce((s, p) => s + p.y, 0) / biggest.length };
-  return { points: outline, front, label };
+  return { rings, front, label };
+}
+
+/** SVG path data for every part and hole, in pixels (filled with the even-odd rule, so holes stay open). */
+function ringsPath(rings: Ring[], scale: number): string {
+  const loop = (poly: Point[]) => `M${poly.map((p) => `${(p.x * scale).toFixed(2)},${(p.y * scale).toFixed(2)}`).join('L')}Z`;
+  return rings.map((r) => [r.outer, ...r.holes].map(loop).join('')).join('');
 }
