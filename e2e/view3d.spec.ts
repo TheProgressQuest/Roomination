@@ -285,6 +285,41 @@ test.describe('3D rooms', { tag: '@3d' }, () => {
     });
   }
 
+  test('keeps holes open and circles round in 3D', async ({ page }, info) => {
+    await openApp(page);
+    const room = ROOMS_3D.holesAndCurves();
+    await load(page, info, room, 'holes');
+    await open3D(page);
+    await page.getByRole('radio', { name: 'Top-down' }).click();
+    await settled(page);
+    const shot = (await panel3d(page).locator('canvas').screenshot()).toString('base64');
+    // Reads screenshot pixels in the page (no image library needed).
+    const colourAt = async (p: ScreenPoint) =>
+      page.evaluate(
+        async ([data, x, y]) => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${data}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(image, 0, 0);
+          const scale = image.width / (document.querySelector('[aria-label="3D view"] canvas') as HTMLCanvasElement).clientWidth;
+          return [...ctx.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data.slice(0, 3)];
+        },
+        [shot, p.x, p.y] as const,
+      );
+    const red = (c: number[]) => c[0] > 120 && c[0] > c[1] * 1.8 && c[0] > c[2] * 1.8;
+    const green = (c: number[]) => c[1] > 70 && c[1] > c[0] * 1.5 && c[1] > c[2] * 1.2;
+    // The bench's top is red; its hole shows the floor.
+    expect(red(await colourAt(await project(page, { x: 150 - 82, y: 200 }, 45)))).toBe(true);
+    expect(red(await colourAt(await project(page, { x: 150, y: 200 }, 0)))).toBe(false);
+    // The table is green at its middle, but not at the corners of its bounding square.
+    expect(green(await colourAt(await project(page, { x: 390, y: 200 }, 75)))).toBe(true);
+    expect(green(await colourAt(await project(page, { x: 390 + 44, y: 200 + 44 }, 75)))).toBe(false);
+  });
+
   test('renders an optimized layout exactly where the optimizer put it', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: 'Optimize layout' }).first().click();

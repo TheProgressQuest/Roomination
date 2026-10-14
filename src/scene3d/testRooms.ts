@@ -175,7 +175,38 @@ export function customFurniture(): Project {
 }
 
 /** The 3D rooms tested in the browser (an 11th, "optimized layout", is made by running the optimizer). */
-export const ROOMS_3D = { rectangle, lShaped, uShaped, angledWalls, partitions, manyDoors, windows, stairs, furnitureTypes, customFloor, customFurniture };
+/** A 4-curve circle of radius r (κ ≈ 0.5523). */
+function circle(r: number) {
+  const k = 0.5523 * r;
+  return [
+    { x: 0, y: -r, c1: { x: k, y: -r }, c2: { x: r, y: -k } },
+    { x: r, y: 0, c1: { x: r, y: k }, c2: { x: k, y: r } },
+    { x: 0, y: r, c1: { x: -k, y: r }, c2: { x: -r, y: k } },
+    { x: -r, y: 0, c1: { x: -r, y: -k }, c2: { x: -k, y: -r } },
+  ];
+}
+
+/** 12. Shapes with holes and true curves: a square ring bench and a round table. */
+export function holesAndCurves(): Project {
+  const room = createRectangularRoom(520, 400);
+  const square = (half: number) => [
+    { x: -half, y: -half },
+    { x: half, y: -half },
+    { x: half, y: half },
+    { x: -half, y: half },
+  ];
+  const ring = normaliseShape({ points: square(100), holes: [square(65)] });
+  const round = normaliseShape({ points: circle(50) });
+  return {
+    ...createEmptyProject(room, 'Holes and curves'),
+    furniture: [
+      createFurniture({ name: 'Ring bench', kind: 'sofa', x: 150, y: 200, ...ring, height: 45, color: '#d0021b' }),
+      createFurniture({ name: 'Round table', kind: 'table', x: 390, y: 200, ...round, height: 75, color: '#0b7a3b' }),
+    ],
+  };
+}
+
+export const ROOMS_3D = { rectangle, lShaped, uShaped, angledWalls, partitions, manyDoors, windows, stairs, furnitureTypes, customFloor, customFurniture, holesAndCurves };
 
 /**
  * A deliberately heavy project for performance checks: 40 walls (a zig-zag top wall),

@@ -8,6 +8,70 @@ anywhere. There are no accounts, no analytics, no ads and no servers.
 
 ## Features
 
+### Design and navigation (Phase 4)
+- **The Progress Quest look:** clean neutral surfaces in light mode and blue-black in dark mode,
+  with **Savage Ultramarine** (`#1F2BD6`) marking what matters: the active tab, the 2D/3D switch,
+  selection, focus and the main action. Every interface colour is a design token in one place
+  (`src/styles.css`); text and controls meet WCAG AA contrast in both themes.
+- **Your colours stay yours:** floors, walls, furniture and your board settings are never changed
+  by the theme.
+- **Four tabs** organise the tools panel by what you're doing:
+  - **Build:** room size, walls, doors, windows and features, stairs;
+  - **Furnish:** standard furniture, custom furniture, the **Shape Builder**, photos, the library,
+    checks;
+  - **Design:** floor, walls and the board around the room;
+  - **Optimize:** the optimizer and the optional **Feng Shui / Harmony** settings.
+
+  Simple controls show first; more detail is a click away. The tabs work with the keyboard (arrow
+  keys, Home, End) and the last one you used is remembered on this device. The **2D Plan / 3D
+  View** switch always stays above the plan.
+
+### Shape Builder (Phase 4)
+Build a piece's outline from basic shapes: **Furnish → Shape Builder**, or **Shape Builder** in a
+piece's *Shape & look*.
+
+- **Shapes:** rectangle, square, circle, ellipse, triangle, regular polygon (3–64 sides) and
+  curved section (a curved band, like a curved sofa, up to a full ring).
+- **Edit:** drag to move; drag the corner handle to resize and the round handle to turn; or type
+  exact positions, sizes and angles. Arrow keys nudge (Shift: 10 cm), `[` and `]` turn by 15°,
+  Delete removes, Ctrl/⌘ D duplicates, Ctrl/⌘ Z undoes.
+- **Choose several:** Shift-click, or tick them in the parts list (handy on touch screens).
+- **Combine:**
+  - **Group:** parts stay separate but move together, and the gaps between them stay free floor;
+  - **Merge:** joins parts into one outline;
+  - **Cut out:** cuts the later shapes out of the first (a cut in the middle makes a **hole**);
+  - **Overlap:** keeps only the shared area;
+  - **Separate:** undoes any of these.
+- **Real geometry everywhere:** holes and separate parts are kept in collisions, the room boundary,
+  the optimizer, saving, loading, export and the 3D view. A stool can stand in the middle of a
+  ring-shaped bench. A circle stays four true curves, so it's round in 2D and 3D.
+- **Editable later:** the recipe of shapes and operations is saved with the piece, so you can
+  reopen it and move or resize its parts.
+
+### Feng Shui / Harmony (Phase 4, optional)
+Off until you switch it on (**Optimize → Feng Shui / Harmony**). It's an interpretive design
+tradition, and Roomination treats it that way: it measures a few arrangement ideas from the plan,
+labels them as interpretive preferences, and **makes no claims about luck, health or wealth**.
+
+- **Commanding position:** for the bed, desk or main seat (depending on the room's purpose),
+  measured from where the person sits or lies and which way they look:
+  - can they see the entrance;
+  - are they out of the doorway's straight line;
+  - is there a solid wall behind them.
+- **Bedroom:** room on both sides of a double bed, and balanced bedside tables.
+- **Office:** room behind the seated person.
+- **Living room:** seats turned towards each other at a sociable distance, and a clear entrance.
+- **Flow:** explained as open, direct walking routes (measured), never as an "energy".
+- **Bagua map:** an optional, see-through overlay on the floor, drawn underneath the furniture so it
+  never gets in the way of selecting or moving anything. Choose a tradition:
+  - **Entrance (Western):** a 3 × 3 grid lined up with the main entrance;
+  - **Compass (classical):** eight directions around the room's centre. You type which way the top
+    of the plan faces; Roomination **never guesses it** and never uses your location or device
+    sensors.
+
+  Each area has a short explanation of its traditional association.
+- Feng Shui never overrides the hard rules, and it can be switched off completely.
+
 ### Room & furniture (Phase 1)
 - Rooms with exact measurements, shown in cm or ft/in
 - A correctly scaled floor plan with a measurement grid and dimension labels
@@ -66,15 +130,30 @@ Find these under **Walls** in the left panel (or **Add → Walls** on a phone).
 - Roomination shows rise per step and tread depth as planning estimates only. **It does not check
   building codes or stair safety.**
 
-### Optimize Layout (Phase 3A)
-Click **Optimize** in the header (or the ✨ button on a phone). Roomination tries many
-arrangements **on your device** and suggests up to three genuinely different layouts.
+### Optimize Layout (Phase 3A, improved in Phase 4)
+Click **Optimize** in the header, in the **Optimize** tab, or the ✨ button on a phone. Roomination
+tries many arrangements **on your device** and suggests up to three genuinely different layouts.
 
-- **Emphasis:**
-  - **Functional:** clear doorways and walkways, reachable stairs, vents and outlets, and furniture
-    you can actually use.
-  - **Aesthetic:** alignment, balance, tidy spacing, seating and TV facing each other.
-  - **Balanced:** a slider sets how much each counts, e.g. 70% function / 30% aesthetics.
+- **Room purpose:** living room, bedroom, home office, studio, dining room or multipurpose.
+  Roomination guesses it from the furniture; you can change it. It chooses which pieces matter
+  most (for example the bed in a bedroom).
+- **Modes** (function / appearance / Feng Shui):
+  - **Functional** (85 / 15 / 0): clear doorways and walkways, reachable stairs, vents and outlets,
+    and furniture you can actually use.
+  - **Balanced:** a slider sets how much function and appearance count.
+  - **Aesthetic** (30 / 70 / 0): alignment, balance, tidy spacing, seating and TV facing each
+    other.
+  - **Feng Shui** (45 / 15 / 40): only when Feng Shui is switched on.
+  - **Custom:** your own percentages, which always add up to 100%.
+- **Practical in every mode** (Phase 4): a layout that looks tidy but isn't usable scores lower in
+  every mode. Roomination checks:
+  - space in front of each piece: legroom at a sofa, room to pull out a desk chair, to open
+    storage, and to watch a TV;
+  - room to get into a double bed from both sides;
+  - walking routes that aren't needlessly long.
+- **The usual pairings, assumed** (Phase 4): a chair goes with a desk, seats face the TV, the coffee
+  table goes in front of the sofa, bedside tables beside the bed, dining chairs around the table.
+  They're listed in the dialog, can be switched off, and never override a relationship you set.
 - **Hard rules always apply, whatever the emphasis:** pieces stay inside the room's real outline,
   never overlap furniture, walls, columns or radiators, and stay off stairs and out of door swings.
   Overlaps you previously allowed only apply to the exact positions you approved.
@@ -93,8 +172,11 @@ arrangements **on your device** and suggests up to three genuinely different lay
 
   Nothing is assumed from names or categories.
 - **Each suggestion shows:**
-  - a floor-plan preview (moved pieces dashed);
-  - overall, functional, aesthetic* and preference scores;
+  - a floor-plan preview (moved pieces dashed), next to your current layout;
+  - a measured **before / after table**: overlaps, blocked doors and stairs, reachable floor,
+    extra walking, pieces with what they go with, room in front, and the functional, appearance
+    and (when on) Feng Shui scores;
+  - overall, functional, aesthetic*, Feng Shui* and preference scores;
   - *why it's suggested*, *trade-offs* and *still to look at*;
   - a full **score breakdown** with the measurement behind each number.
 
@@ -120,6 +202,11 @@ Progress shows as it runs, and **Cancel** stops it at once.
   not just as a percentage of empty floor.
 - **Scoring rules, algorithm, measured timings and limitations:** see
   [ADR-0002](docs/adr/0002-layout-optimizer.md).
+
+Why Phase 4 changed it, and the audit that found 27 practical problems hidden behind scores of
+97–100: [ADR-0005](docs/adr/0005-design-shape-builder-optimizer-feng-shui.md). Ten realistic test
+rooms (`src/optimizer/scenarios.ts`) now check every suggestion for practical sense, not just a high
+score.
 
 Typical times on a laptop:
 - **Quick:** 0.1–0.4 s.
@@ -183,8 +270,9 @@ the production build:
 | Draw calls / triangles | 53 / 16,772 | 53 / 16,772 |
 
 ### Custom and photo furniture (Phase 3C)
-Furniture isn't limited to rectangles. Under **Add furniture** you'll find three new options:
-**Draw custom furniture**, **Create from photos**, and your **furniture library**.
+Furniture isn't limited to rectangles. In the **Furnish** tab you'll find **Draw custom
+furniture**, **Create from photos**, the **Shape Builder** (Phase 4) and your **furniture
+library**.
 
 - **Drawing:**
   - Click or tap to place corners, or start from a template: L-shaped desk, corner table, angled
@@ -236,7 +324,8 @@ Design and trade-offs: [ADR-0004](docs/adr/0004-custom-and-photo-furniture.md).
 - An allowed overlap applies to that **one pair of objects** only. It's saved, can be withdrawn,
   and is forgotten once the objects no longer overlap. Allowing an overlap is never presented as
   "safe".
-- **Checks** in the left panel lists everything that needs a look, plus what you've allowed.
+- **Checks** (in the **Furnish** tab, whose label shows how many are open) lists everything that
+  needs a look, plus what you've allowed.
 - Overlaps use exact geometry for rotated shapes. While you drag, only the moving item is
   re-checked, so dragging stays smooth and never spams messages.
 
@@ -246,7 +335,7 @@ browsers reuse the page for up to 10 minutes, and an open tab keeps the version 
 **reload the page** to get the latest release.
 
 ### Look & feel
-- **Light, dark or system theme**, remembered on this device.
+- **Light, dark or system theme**, remembered on this device (see *Design and navigation*).
 - **Floors:** plain, hardwood, light oak, dark walnut, ceramic tile, concrete or carpet. You can set
   the colour, pattern size, angle and texture strength. Textures are generated in the browser and
   anchored to the room's corner in real centimetres, so they stay aligned at any zoom.
@@ -263,7 +352,7 @@ browsers reuse the page for up to 10 minutes, and an open tab keeps the version 
   crashing. Projects saved by Phase 1 load automatically.
 
 ### Works everywhere
-- **Desktop:** three panels (tools · plan · properties).
+- **Desktop:** three panels (tools with their four tabs · plan · properties).
 - **Tablet:** the plan takes priority, and the tools panel folds away.
 - **Phone:** the plan comes first. A bar underneath offers **Edit**, rotate and delete, and **Add**
   opens a sheet of items, walls and stairs. Double-tap an item to edit it (the Edit button always
@@ -310,10 +399,11 @@ configuration. GitHub Pages is free for public repositories.
 
 | Folder | What lives there |
 | --- | --- |
-| `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); custom furniture outlines and their convex decomposition (`shape.ts`, `shapeEdit.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
+| `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); custom furniture outlines, holes and separate parts, and their convex decomposition (`shape.ts`, `shapeEdit.ts`); the Bagua map (`bagua.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
 | `src/state/` | `editor.ts`, the single reducer every change goes through (validation, overlap prompts, undo history), plus selection, display preferences and the optimizer run state. |
-| `src/optimizer/` | The layout optimizer. Main modules: walking-space grid (`circulation.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations (`explain.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
-| `src/storage/` | IndexedDB persistence (Dexie: projects, photos, furniture library), import/export validation and migration (schema v1–v6), and ZIP packaging for projects with photos. |
+| `src/optimizer/` | The layout optimizer. Main modules: walking-space grid and walking distances (`circulation.ts`); practical checks (`practical.ts`); assumed pairings and room purpose (`semantics.ts`); Feng Shui scoring (`fengShui.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations and before/after tables (`explain.ts`); realistic test rooms (`scenarios.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
+| `src/builder/` | The Shape Builder (lazy-loaded): the recipe maths (`recipe.ts`, pure and unit-tested, using polygon-clipping) and its interface. |
+| `src/storage/` | IndexedDB persistence (Dexie: projects, photos, furniture library), import/export validation and migration (schema v1–v7), and ZIP packaging for projects with photos. |
 | `src/photo/` | Photo tools (lazy-loaded): image operations (pure, unit-tested), the photo workers, on-device "Smart remove", and outline tracing. |
 | `src/components/studio/` | The furniture studio: drawing and editing custom outlines (lazy-loaded). |
 | `src/scene3d/` | The 3D view. `model.ts` turns a project into plain shapes (pure, unit-tested, in cm, using the same wall and stair geometry as the plan); `furnitureParts.ts` gives each furniture type its shape; `three/RoomViewer.ts` draws them with Three.js. |
@@ -351,6 +441,12 @@ bundled Three.js, with no external textures, models or services.
 - They're edited in your browser.
 - They're stored in its IndexedDB.
 - They're only ever included in a file when you export one yourself.
+
+**Feng Shui's compass method** uses only the bearing you type in. Roomination never reads your
+location, compass or other device sensors.
+
+**Bundled libraries added in Phase 4:** earcut (ISC) triangulates shapes with holes;
+polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only with the builder.
 
 **Smart remove** uses U²-Net-p (Apache-2.0) run by onnxruntime-web (MIT):
 - Both are bundled with Roomination (see `public/models/README.md`).
@@ -392,9 +488,20 @@ bundled Three.js, with no external textures, models or services.
   if you clear site data, so export projects you care about. **Projects → Photos & storage**
   shows usage and removes unused photos only when you confirm.
 - **Custom shapes:**
-  - up to 200 corners;
-  - curves are flattened to within 0.5 cm for all calculations;
-  - the 3D model is the outline extruded to the piece's height, a simplified shape.
+  - up to 2,000 corners in total (outline, holes and separate parts);
+  - curves are flattened to within 0.5 cm for all calculations, and shapes combined in the Shape
+    Builder (merged, cut or overlapped) are stored that way, so they lose their exact curves;
+  - stretching a group that contains a shape turned at an odd angle scales that shape evenly, so it
+    keeps its shape;
+  - the 3D model is the outline extruded to the piece's height, a simplified shape;
+  - the drawing studio edits the main outline; holes and separate parts are edited in the Shape
+    Builder.
+- **Optimizer — pairings:** assumed pairings are educated guesses from furniture types (for
+  example the nearest chair to a desk). Switch them off, or set your own relationships, when they
+  don't fit.
+- **Feng Shui:** traditions differ more than any one scoring can capture. The scores are a guide to
+  a few common principles, not a full consultation. The Bagua map is drawn under the furniture, so
+  some of its labels can be hidden by large pieces (the legend lists every area).
 - **Testing coverage:** browser tests run in Chromium, including simulated phones and tablets.
   Safari, Firefox and real touch devices haven't been tested automatically, and screen readers
   haven't been tested with real assistive software. On CI (which has no GPU) the 3D tests use software

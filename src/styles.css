@@ -21,6 +21,8 @@
   --surface-raised: #ffffff;
   --border: #dde1ea;
   --border-strong: #c2c8d5;
+  /* Edges of text fields and menus: at least 3:1 against their background (WCAG 1.4.11). */
+  --field-border: #858ea2;
   --text: #141a24;
   --text-muted: #535c6e;
 
@@ -71,6 +73,7 @@
   --surface-raised: #1b2230;
   --border: #263042;
   --border-strong: #3b475b;
+  --field-border: #6a7891;
   --text: #e9edf5;
   --text-muted: #9ca7ba;
 
@@ -598,7 +601,7 @@ input[type='text'] {
   width: 100%;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   font-variant-numeric: tabular-nums;
@@ -620,7 +623,7 @@ input[type='text'] {
 
 .field input:hover,
 input[type='text']:hover {
-  border-color: var(--border-strong);
+  border-color: var(--text-muted);
 }
 
 .field input:focus,
@@ -652,7 +655,7 @@ input[type='color'] {
   width: 44px;
   height: 32px;
   padding: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   cursor: pointer;
@@ -1275,7 +1278,7 @@ select {
   min-width: 0;
   min-height: 38px;
   padding: 7px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   color: var(--text);

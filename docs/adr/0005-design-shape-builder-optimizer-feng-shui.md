@@ -27,6 +27,11 @@ Phase 4 asks for five things:
   contrast.
 - **Tokens:** all colours live as CSS custom properties, in one place in `styles.css`. Canvas
   colours read the same values through `render/palette.ts`.
+- **Contrast (measured):** body text 16–17:1; muted text ≥ 5.9:1; ultramarine on white 8.8:1
+  (dark theme: 6.5:1); white on ultramarine 8.8:1. Text-field and menu edges use a separate
+  `--field-border` token at ≥ 3:1 (WCAG 1.4.11); decorative dividers stay lighter.
+- **Type:** the system font (it's tuned for legibility on each platform), replacing the rounded
+  face of the earlier look.
 - **Room materials:** furniture colours, floors, walls and board styles are the person's own and
   are never changed by the theme.
 
@@ -36,8 +41,14 @@ Phase 4 asks for five things:
   ones folded:
   - **Build:** room, walls, doors and windows, stairs, features;
   - **Furnish:** standard furniture, custom furniture, Shape Builder, photos, library;
-  - **Design:** floor, walls, materials, board, 3D view options;
-  - **Optimize:** purpose, mode and weights, pairings, Feng Shui, Bagua, run.
+  - **Design:** floor, walls and the board around the room (3D options stay in the 3D view's own
+    toolbar, where their effect is visible);
+  - **Optimize:** the room's purpose, a button for the optimizer (modes, weights and pairings live
+    in its dialog), Feng Shui and the Bagua map.
+- **Remembered:** the last tab is kept in `localStorage` (a convenience only; Build if storage is
+  blocked).
+- **Checks badge:** the Furnish tab shows how many overlaps are open, so problems aren't hidden by
+  the tabs.
 - **Unchanged:** the 2D/3D switch stays above the canvas.
 - **Keyboard:** tabs follow the ARIA tabs pattern (arrow keys).
 - **Phones:** the same tabs sit above the panel, below the plan.
@@ -58,8 +69,9 @@ Phase 4 asks for five things:
 
 ### Building blocks
 
-- **Shape kinds:** rectangle, square, circle, ellipse, triangle, regular polygon, and free
-  polygons or curves drawn in the studio.
+- **Shape kinds:** rectangle, square, circle, ellipse, triangle, regular polygon, curved section
+  (a band of a ring, up to a full ring with a hole), and outlines drawn in the studio (an existing
+  drawn outline opens in the builder as one part; a plain rectangle opens as a rectangle).
 - **Curves stay curves:** a circle and an ellipse are four cubic Bézier curves, so they stay
   truly round (flattened to within 0.5 cm, like every curve).
 
@@ -180,6 +192,20 @@ Phase 4 asks for five things:
   drags.
 - **Explanations:** each area has a short label and explanation, presented as educational and
   interpretive.
+
+## 8. Verification
+
+- **Unit tests:** holes (area, a stool inside a ring bench, overlapping holes refused, save and
+  load, damaged recipes dropped, 3D extrusion with inward-facing hole walls, round circles), the
+  builder's recipes (every shape, merge, cut, overlap, group, separate, transforms, curved sections),
+  the Bagua map in both traditions, custom-weight rebalancing, and the ten optimizer scenarios.
+- **Browser tests:** tabs with the keyboard, brand colours, Feng Shui and the Bagua overlay (it
+  tints the floor and never blocks selecting furniture), the compass bearing, optimizer modes and
+  the before/after table, the Shape Builder end to end (including reopening a saved recipe), holes
+  and round shapes in the real 3D view, and every tab and dialog at 320, 375, 430, 768, 1024 and
+  1440 px wide.
+- **Bundle:** the main bundle is unchanged in size (about 836 kB, 258 kB gzipped); polygon-clipping
+  is only in the lazy Shape Builder chunk (50 kB).
 
 ## Consequences
 
