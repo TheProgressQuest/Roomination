@@ -1,7 +1,8 @@
 import type { Furniture } from '../model/types';
 import { localFootprint } from '../model/shape';
 import { bodySurface, furnitureParts, visualOf, type FurniturePart } from './furnitureParts';
-import { SURFACES, TILE_PX, surfaceTile, type SurfaceKind } from './materials';
+import { TILE_PX, surfaceTile, tileSizeCm, type SurfaceKind } from './materials';
+import type { UpholsteryPattern } from '../model/types';
 import { shade } from './palette';
 
 /**
@@ -23,7 +24,7 @@ export interface Illustration {
   height: number;
 }
 
-type Item = Pick<Furniture, 'id' | 'name' | 'kind' | 'category' | 'width' | 'depth' | 'height' | 'color' | 'appearance' | 'shape'>;
+type Item = Pick<Furniture, 'id' | 'name' | 'kind' | 'category' | 'width' | 'depth' | 'height' | 'color' | 'appearance' | 'shape'> & Partial<Pick<Furniture, 'components'>>;
 
 const cache = new Map<string, Illustration>();
 const CACHE_LIMIT = 400;
@@ -37,7 +38,7 @@ const MARGIN = 2;
  */
 export function illustrationOf(item: Item, pxPerCm: number, pixelRatio: number): Illustration | null {
   if (typeof document === 'undefined') return null;
-  const key = `${item.id}|${item.name}|${item.kind}|${item.category}|${item.width}|${item.depth}|${item.height}|${item.color}|${item.appearance?.material ?? ''}|${item.appearance?.finish ?? ''}|${item.shape ? JSON.stringify(item.shape) : ''}|${pxPerCm.toFixed(3)}|${pixelRatio}`;
+  const key = `${item.id}|${item.name}|${item.kind}|${item.category}|${item.width}|${item.depth}|${item.height}|${item.color}|${item.appearance?.material ?? ''}|${item.appearance?.finish ?? ''}|${item.shape ? JSON.stringify(item.shape) : ''}|${item.components?.length ? JSON.stringify(item.components) : ''}|${pxPerCm.toFixed(3)}|${pixelRatio}`;
   const hit = cache.get(key);
   if (hit) {
     // Refresh its place in the least-recently-used order.
@@ -55,7 +56,7 @@ export function illustrationOf(item: Item, pxPerCm: number, pixelRatio: number):
   ctx.scale(pixelRatio, pixelRatio);
   ctx.translate(width / 2, height / 2);
   ctx.scale(pxPerCm, pxPerCm);
-  if (item.shape) paintOutline(ctx, item, pxPerCm);
+  if (item.shape && !item.components?.length) paintOutline(ctx, item, pxPerCm);
   else paintParts(ctx, item, pxPerCm);
   const illustration = { canvas, originX: width / 2, originY: height / 2, width, height };
   if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value!);
@@ -81,11 +82,11 @@ export function forgetIllustrationsExcept(keep: number) {
  * into a coarse checker.
  */
 const scaledTiles = new Map<string, HTMLCanvasElement | null>();
-function scaledTile(surface: SurfaceKind, px: number): HTMLCanvasElement | null {
+function scaledTile(surface: SurfaceKind, px: number, weave: UpholsteryPattern = 'plain'): HTMLCanvasElement | null {
   const size = Math.max(4, Math.min(TILE_PX, Math.round(px)));
-  const key = `${surface}|${size}`;
+  const key = `${surface}|${weave}|${size}`;
   if (scaledTiles.has(key)) return scaledTiles.get(key)!;
-  const tile = surfaceTile(surface);
+  const tile = surfaceTile(surface, weave);
   let result: HTMLCanvasElement | null = null;
   if (tile) {
     // Halve repeatedly (a manual mip chain), then a final smooth step to the exact size.
@@ -109,12 +110,12 @@ function scaledTile(surface: SurfaceKind, px: number): HTMLCanvasElement | null 
 }
 
 /** A pattern of a surface's texture at real-world scale, for a context drawing in cm. */
-function surfacePattern(ctx: CanvasRenderingContext2D, surface: SurfaceKind, turn = 0): CanvasPattern | null {
-  const tileCm = SURFACES[surface].tileCm;
+function surfacePattern(ctx: CanvasRenderingContext2D, surface: SurfaceKind, turn = 0, weave: UpholsteryPattern = 'plain', sizeScale = 1): CanvasPattern | null {
+  const tileCm = tileSizeCm(surface, weave, sizeScale);
   // Device pixels per cm right now (the context is scaled to cm, and may be turned).
   const t = ctx.getTransform();
   const devicePx = tileCm * Math.hypot(t.a, t.b);
-  const tile = scaledTile(surface, devicePx);
+  const tile = scaledTile(surface, devicePx, weave);
   if (!tile) return null;
   const pattern = ctx.createPattern(tile, 'repeat');
   if (!pattern) return null;
@@ -162,6 +163,14 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
     case 'ellipsoid':
       path.ellipse(0, 0, w / 2, d / 2, 0, 0, Math.PI * 2);
       break;
+    case 'prism': {
+      const outline = part.outline ?? [];
+      // Seen from above, a part leaning back shows its outline shortened front to back.
+      const k = Math.cos(tilt);
+      outline.forEach((q, i) => (i ? path.lineTo(q.x, q.y * k) : path.moveTo(q.x, q.y * k)));
+      path.closePath();
+      break;
+    }
     case 'leaf':
       // A pointed blade: two arcs meeting at the tips.
       path.moveTo(0, -d / 2);
@@ -177,12 +186,13 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   {
     // Grain runs along the longer side, as in 3D.
     const turn = d > w && (surface === 'wood' || surface === 'metal' || surface === 'brass') ? 90 : 0;
-    const pattern = surfacePattern(ctx, surface, turn);
+    const pattern = surfacePattern(ctx, surface, turn, part.pattern, part.textureScale);
     if (pattern) {
       ctx.save();
       ctx.clip(path);
       ctx.globalCompositeOperation = 'multiply';
       ctx.fillStyle = pattern;
+      // Outlines are centred on their box (the builder keeps them so), so this covers them.
       ctx.fillRect(-w / 2, -d / 2, w, d);
       ctx.restore();
     }
@@ -211,6 +221,7 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   ctx.restore();
 
   detail(ctx, part, surface, w, d, color, pxPerCm);
+  if (part.seams) seams(ctx, part, path, color, pxPerCm);
 
   // A fine, soft outline gives each part definition (darker than its own colour, never black).
   ctx.strokeStyle = surface === 'lampshade' ? 'rgba(160,120,60,0.45)' : shade(color, -0.35);
@@ -220,8 +231,119 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   ctx.restore();
 }
 
+/** Where a prism's outline box is centred, relative to the part's own centre. */
+function boxCentre(part: FurniturePart): { x: number; y: number } {
+  const o = part.outline ?? [];
+  if (o.length === 0) return { x: 0, y: 0 };
+  const xs = o.map((q) => q.x);
+  const ys = o.map((q) => q.y);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
+
+/**
+ * Upholstery seams following the part's own outline: piping (a raised cord just inside the
+ * edge), top-stitching (a fine dashed line) or tufting (buttons in a grid).
+ */
+function seams(ctx: CanvasRenderingContext2D, part: FurniturePart, path: Path2D, color: string, pxPerCm: number) {
+  const line = Math.max(0.5, 0.8 / pxPerCm);
+  ctx.save();
+  ctx.clip(path);
+  switch (part.seams) {
+    case 'piped': {
+      // A wide, soft stroke clipped inside the edge reads as a seam with a cord along it.
+      ctx.strokeStyle = shade(color, -0.3);
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = Math.max(3, 2.2 / pxPerCm + 2.5);
+      ctx.stroke(path);
+      ctx.strokeStyle = shade(color, 0.18);
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = Math.max(1.6, 2.5);
+      ctx.stroke(path);
+      break;
+    }
+    case 'stitched': {
+      // A fine dashed line about 1.6 cm inside the edge.
+      ctx.setLineDash([1.2, 0.9]);
+      ctx.strokeStyle = shade(color, -0.35);
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = line;
+      insetStroke(ctx, part, 1.6);
+      break;
+    }
+    case 'tufted': {
+      const { x: cx, y: cy } = boxCentre(part);
+      const step = Math.max(10, Math.min(part.width, part.depth) / 3);
+      ctx.fillStyle = shade(color, -0.4);
+      for (let x = cx - part.width / 2 + step / 2; x < cx + part.width / 2; x += step) {
+        for (let y = cy - part.depth / 2 + step / 2; y < cy + part.depth / 2; y += step) {
+          if (!ctx.isPointInPath(path, ...devicePoint(ctx, x, y))) continue;
+          const g = ctx.createRadialGradient(x, y, 0, x, y, 2.2);
+          g.addColorStop(0, 'rgba(0,0,0,0.35)');
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+/** A context point in device pixels (for isPointInPath, which ignores the current transform). */
+function devicePoint(ctx: CanvasRenderingContext2D, x: number, y: number): [number, number] {
+  const p = ctx.getTransform().transformPoint(new DOMPoint(x, y));
+  return [p.x, p.y];
+}
+
+/** Strokes the part's outline shrunk towards its centre by `inset` cm (an approximation for seams). */
+function insetStroke(ctx: CanvasRenderingContext2D, part: FurniturePart, inset: number) {
+  const outline =
+    part.shape === 'prism' && part.outline
+      ? part.outline
+      : [
+          { x: -part.width / 2, y: -part.depth / 2 },
+          { x: part.width / 2, y: -part.depth / 2 },
+          { x: part.width / 2, y: part.depth / 2 },
+          { x: -part.width / 2, y: part.depth / 2 },
+        ];
+  const inner = offsetInward(outline, inset);
+  ctx.beginPath();
+  inner.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+  ctx.closePath();
+  ctx.stroke();
+}
+
+/** Moves each corner of a simple outline inwards by `d` along its corner bisector (mitred, capped). */
+export function offsetInward(outline: { x: number; y: number }[], d: number): { x: number; y: number }[] {
+  const n = outline.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) area += outline[i].x * outline[(i + 1) % n].y - outline[(i + 1) % n].x * outline[i].y;
+  const sign = area >= 0 ? 1 : -1; // clockwise on screen: the inside is to the right of each edge
+  return outline.map((p, i) => {
+    const a = outline[(i - 1 + n) % n];
+    const b = outline[(i + 1) % n];
+    const n1 = unitNormal(a, p, sign);
+    const n2 = unitNormal(p, b, sign);
+    const bx = n1.x + n2.x;
+    const by = n1.y + n2.y;
+    const len = Math.hypot(bx, by) || 1;
+    const cos = Math.max(0.35, (n1.x * bx + n1.y * by) / len);
+    return { x: p.x + (bx / len) * (d / cos), y: p.y + (by / len) * (d / cos) };
+  });
+}
+
+function unitNormal(a: { x: number; y: number }, b: { x: number; y: number }, sign: number) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: (-dy / len) * sign, y: (dx / len) * sign };
+}
+
 function isSoft(part: FurniturePart, surface: SurfaceKind): boolean {
-  return ['fabric', 'linen', 'leather', 'lampshade'].includes(surface) || ['cushion', 'pillow', 'mattress', 'duvet', 'throw'].includes(part.role);
+  return ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'lampshade'].includes(surface) || ['cushion', 'pillow', 'mattress', 'duvet', 'throw'].includes(part.role);
 }
 
 /** Role-specific details: duvet folds, seams, leaf midribs, lamp glow, a screen's sheen. */

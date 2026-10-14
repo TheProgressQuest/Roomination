@@ -12,7 +12,9 @@ export type StudioRequest =
   /** Edit (or place) a saved library item. */
   | { mode: 'library'; libraryId: string }
   /** Start from photographs. */
-  | { mode: 'photos' };
+  | { mode: 'photos' }
+  /** Build a piece from components (Advanced Furniture Builder); a new one, or one in the room. */
+  | { mode: 'components'; furnitureId?: string };
 
 export const StudioContext = createContext<(request: StudioRequest) => void>(() => {});
 

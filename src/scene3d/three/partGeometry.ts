@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Euler, Matrix4, Quaternion, SphereGeometry, Vector3 } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Euler, ExtrudeGeometry, Matrix4, Quaternion, Shape, SphereGeometry, Vector2, Vector3 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { FurniturePart } from '../../render/furnitureParts';
 import { CM_PER_SCENE_UNIT } from '../model';
@@ -60,7 +60,46 @@ export function partGeometry(part: FurniturePart, detail: PartDetail): GeometryK
       const [w, len, t] = [Math.max(1, Math.round(part.width)), Math.max(2, Math.round(part.depth / 2) * 2), Math.max(0.5, Math.round(part.height * 2) / 2)];
       return { key: `leaf|${w}|${len}|${t}|${segments}`, scale: new Vector3(m(part.width) / m(w), m(part.height) / m(t), m(part.depth) / m(len)), make: () => leafGeometry(m(w), m(len), m(t), segments) };
     }
+    case 'prism': {
+      // Exact size (outlines vary too much to share by scaling); rounded to 0.5 mm.
+      const outline = (part.outline ?? []).map((p) => ({ x: Math.round(p.x * 20) / 20, y: Math.round(p.y * 20) / 20 }));
+      const h = Math.round(part.height * 20) / 20;
+      const chamfer = part.bevel === 'chamfer';
+      const r = detail === 'low' ? 0 : Math.round(Math.min(part.radius ?? 0, h / 2 - 0.01) * 20) / 20;
+      const bevelSegments = chamfer ? 1 : detail === 'high' ? 3 : 2;
+      return {
+        key: `prism|${outline.map((p) => `${p.x},${p.y}`).join(';')}|${h}|${r}|${r > 0 ? bevelSegments : 0}`,
+        scale: new Vector3(1, 1, 1),
+        make: () => prismGeometry(outline, h, r, bevelSegments),
+      };
+    }
   }
+}
+
+/**
+ * An upright extrusion of a plan outline (cm), centred on its height, with edges rounded or
+ * bevelled by `radius` without growing past the outline (Three's bevel offset pulls it in).
+ */
+export function prismGeometry(outline: { x: number; y: number }[], height: number, radius: number, bevelSegments: number): BufferGeometry {
+  // Plan y becomes 3D z after the turn below, which flips it; pre-flip so the result matches.
+  const shape = new Shape(outline.map((p) => new Vector2(m(p.x), -m(p.y))));
+  const bevel = radius > 0.05;
+  const r = m(radius);
+  const geometry = new ExtrudeGeometry(shape, {
+    depth: Math.max(m(height) - (bevel ? 2 * r : 0), m(0.05)),
+    bevelEnabled: bevel,
+    bevelThickness: r,
+    bevelSize: r,
+    bevelOffset: -r,
+    bevelSegments,
+    curveSegments: 1,
+  });
+  geometry.clearGroups();
+  // Extruded along +z from −r (bevel) to depth + r; stand it up (+y) and centre it.
+  geometry.translate(0, 0, bevel ? r : 0);
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate(0, -m(height) / 2, 0);
+  return withMetreUVs(geometry);
 }
 
 const unitScale = (p: FurniturePart) => new Vector3(m(p.width), m(p.height), m(p.depth));

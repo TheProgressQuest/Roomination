@@ -152,6 +152,122 @@ export interface Furniture {
   clearance?: number;
   /** Material, finish and photo textures. Missing = the default look for its type. */
   appearance?: FurnitureAppearance;
+  /**
+   * Built from components (Advanced Furniture Builder): what the piece looks like in 2D and
+   * 3D. The footprint (`shape`, or width × depth) still decides collisions and layout.
+   */
+  components?: FurnitureComponent[];
+}
+
+export type ComponentType =
+  | 'base'
+  | 'seat'
+  | 'backrest'
+  | 'armrest'
+  | 'cushion'
+  | 'pillow'
+  | 'headrest'
+  | 'leg'
+  | 'foot'
+  | 'tabletop'
+  | 'shelf'
+  | 'drawer'
+  | 'door'
+  | 'support'
+  | 'detail'
+  | 'custom'
+  /** Holds other components so they move together; has no geometry of its own. */
+  | 'group';
+
+/**
+ * A component's geometry:
+ *   - box: a rectangle in plan (`radius` rounds or bevels its edges)
+ *   - cylinder: a circle or ellipse in plan, upright (`taper` narrows its top)
+ *   - ellipsoid: a soft rounded form (pillows, bolsters)
+ *   - polygon: its own outline (`outline`)
+ *   - curved: a curved panel bent through `sweep` degrees (curved backrests)
+ *   - edge: a band following edges of the piece's footprint (`edges`), `depth` thick
+ *   - footprint: the footprint inset by `inset`, minus the components listed in `cut`
+ * Edge and footprint components are recomputed from the footprint by the builder; their
+ * outline is stored (`outline`) so drawing them needs no geometry library.
+ */
+export type ComponentShape = 'box' | 'cylinder' | 'ellipsoid' | 'polygon' | 'curved' | 'edge' | 'footprint';
+export type ComponentEdgeStyle = 'square' | 'rounded' | 'bevel';
+export type UpholsteryPattern = 'plain' | 'stripes' | 'check' | 'herringbone' | 'boucle';
+export type SeamStyle = 'none' | 'piped' | 'stitched' | 'tufted';
+
+/** Follow footprint edges `from` … `to` (indices of its corners, wrapping), trimmed at each end. */
+export interface EdgeAttachment {
+  from: number;
+  to: number;
+  /** cm trimmed off the start and the end of the run. */
+  startTrim: number;
+  endTrim: number;
+  /** cm between the footprint edge and the band (0 = flush). */
+  inset: number;
+  /** How thick the band is, measured in from the edge (cm). */
+  thickness: number;
+  /** Cut the start / end along the corner's bisector, so a neighbouring band meets it neatly. */
+  miterStart: boolean;
+  miterEnd: boolean;
+}
+
+/** Split a footprint component into `count` strips across the run of edge `along`, keeping strip `index`. */
+export interface FootprintSplit {
+  along: number;
+  count: number;
+  index: number;
+  /** cm gap between neighbouring strips. */
+  gap: number;
+}
+
+export interface FurnitureComponent {
+  id: string;
+  name: string;
+  type: ComponentType;
+  /** Positioned relative to this component (its centre, turn and bottom); moves with it. */
+  parentId?: string;
+  shape: ComponentShape;
+  /** Centre in plan, cm (relative to the parent, or to the piece's centre). */
+  x: number;
+  y: number;
+  /** Bottom above the floor (or above the parent's bottom), cm. */
+  z: number;
+  width: number;
+  depth: number;
+  height: number;
+  /** Clockwise turn in plan, degrees. */
+  rotation: number;
+  /** Lean in degrees: positive tips the top towards the back (−y), like a reclined backrest. */
+  tilt?: number;
+  /** Edge rounding (or bevel) size, cm. */
+  radius?: number;
+  edgeStyle?: ComponentEdgeStyle;
+  /** polygon (and computed edge/footprint) outline, relative to the component's centre, unturned. */
+  outline?: Point[];
+  /** curved: how far the panel bends, degrees (it bulges towards the back). */
+  sweep?: number;
+  edges?: EdgeAttachment;
+  /** footprint: inset from the outline, cm. */
+  inset?: number;
+  /** footprint: components whose plan outline is cut away (with `inset` as a gap). */
+  cut?: string[];
+  split?: FootprintSplit;
+  /** cylinder: top radius ÷ bottom radius. */
+  taper?: number;
+  /** Missing = the piece's colour. */
+  color?: string;
+  /** Missing = the piece's material. */
+  material?: MaterialKind;
+  finish?: SurfaceFinish;
+  /** 0 (glossy) – 1 (matte); missing = the material's own. */
+  roughness?: number;
+  /** Texture size multiplier (1 = the material's real-world default). */
+  textureScale?: number;
+  pattern?: UpholsteryPattern;
+  seams?: SeamStyle;
+  locked?: boolean;
+  hidden?: boolean;
 }
 
 /**
@@ -207,7 +323,7 @@ export type BuilderNode =
     }
   | { id: string; type: 'union' | 'subtract' | 'intersect' | 'group'; children: BuilderNode[] };
 
-export type MaterialKind = 'fabric' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'custom';
+export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'custom';
 export type SurfaceFinish = 'matte' | 'satin' | 'gloss';
 
 /** How a piece looks. Photos are referenced by asset id (stored on this device). */

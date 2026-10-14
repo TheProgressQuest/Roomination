@@ -32,6 +32,10 @@ export function CustomFurniturePanel({ units, onPlace }: { units: UnitSystem; on
           <Icon name="upload" size={16} />
           <span className="preset-label">Create from photos</span>
         </button>
+        <button type="button" className="preset" onClick={() => openStudio({ mode: 'components' })}>
+          <Icon name="cube" size={16} />
+          <span className="preset-label">Build from components</span>
+        </button>
       </div>
       <h3 className="list-heading">My furniture library</h3>
       {error && <p className="form-error">{error}</p>}

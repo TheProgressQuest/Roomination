@@ -117,7 +117,15 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
   return (
     <Section
       title="Shape & look"
-      hint={item.shape ? (item.shape.source ? 'Built from shapes: reopen the Shape Builder to change its parts. Collisions and 3D use its exact shape.' : 'Drawn outline: collisions and the 3D view use its exact shape.') : 'A plain rectangle. Draw a custom outline, build one from shapes, add a material or use photos.'}
+      hint={
+        item.components?.length
+          ? `Built from ${item.components.length} components (how it looks in 2D and 3D). Collisions and the optimizer use its ${item.shape ? 'drawn outline' : 'width × depth'}.`
+          : item.shape
+            ? item.shape.source
+              ? 'Built from shapes: reopen the Shape Builder to change its parts. Collisions and 3D use its exact shape.'
+              : 'Drawn outline: collisions and the 3D view use its exact shape.'
+            : 'A plain rectangle. Draw a custom outline, build one from shapes or components, add a material or use photos.'
+      }
     >
       <p className="object-meta">
         <span className={`origin-badge is-${origin}`}>{ORIGIN_LABELS[origin]}</span>
@@ -129,6 +137,9 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
         </button>
         <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'edit', furnitureId: item.id, builder: true })}>
           <Icon name="shapes" size={14} /> Shape Builder
+        </button>
+        <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'components', furnitureId: item.id })}>
+          <Icon name="cube" size={14} /> {item.components?.length ? 'Edit components' : 'Build from components'}
         </button>
         <button
           type="button"

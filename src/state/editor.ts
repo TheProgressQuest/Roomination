@@ -9,6 +9,7 @@ import { DEFAULT_FENG_SHUI } from '../model/furnitureKinds';
 import { MIN_FURNITURE_SIZE, MIN_ROOM_SIZE, normalizeRotation, roundLength } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { normaliseShape, pieceToRoom, scaleShape, shapeProblem } from '../model/shape';
+import { scaleComponents, shiftComponents } from '../model/components';
 import { applyRoomChange } from '../model/roomChange';
 import type { FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, Placement, Point, Project, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
@@ -397,6 +398,14 @@ function applyEdit(project: Project, action: EditAction): Project | string {
         if (!(sx > 0 && sy > 0 && Number.isFinite(sx) && Number.isFinite(sy))) return `Furniture must be at least ${MIN_FURNITURE_SIZE} cm wide and deep.`;
         changes = { ...changes, shape: scaleShape(current.shape, sx, sy) };
       }
+      // Components stretch with the piece when its size is typed in (not when the builder
+      // supplies new components along with it).
+      if (current.components?.length && !('components' in changes) && ('width' in changes || 'depth' in changes || 'height' in changes)) {
+        const sx = (changes.width ?? current.width) / current.width;
+        const sy = (changes.depth ?? current.depth) / current.depth;
+        const sz = (changes.height ?? current.height) / current.height;
+        if ([sx, sy, sz].every((v) => v > 0 && Number.isFinite(v))) changes = { ...changes, components: scaleComponents(current.components, sx, sy, sz) };
+      }
       const problem = changes.shape && shapeProblem(changes.shape);
       if (problem) return problem;
       // Only a new outline needs re-centring; an unchanged one keeps its identity, so its
@@ -566,7 +575,8 @@ function sanitizeFurniture(item: Furniture, newOutline = true): Furniture {
   // nothing shifts on screen); width and depth always equal the outline's real extent.
   const normal = normaliseShape(clean.shape);
   const at = pieceToRoom(item, normal.shift);
-  return { ...clean, shape: normal.shape, width: normal.width, depth: normal.depth, x: roundLength(at.x), y: roundLength(at.y) };
+  const components = clean.components ? { components: shiftComponents(clean.components, -normal.shift.x, -normal.shift.y) } : {};
+  return { ...clean, ...components, shape: normal.shape, width: normal.width, depth: normal.depth, x: roundLength(at.x), y: roundLength(at.y) };
 }
 
 function sanitizeFeature(feature: RoomFeature): RoomFeature {

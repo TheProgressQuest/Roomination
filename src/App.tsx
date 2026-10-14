@@ -28,7 +28,8 @@ import { findConflicts } from './model/conflicts';
 import { withPoses } from './optimizer/search';
 import { allowedPlacement, findFreeWallSpot } from './model/features';
 import { FURNITURE_COLORS, createEmptyProject, createFeature, createFurniture, createId, createSampleProject, createStaircase } from './model/sample';
-import type { FeatureKind, Placement, Point, Project, RoomFeature, SavedLayout } from './model/types';
+import type { FeatureKind, Furniture, Placement, Point, Project, RoomFeature, SavedLayout } from './model/types';
+import type { BuilderPiece } from './builder/FurnitureBuilder';
 import { DEFAULT_WALL_THICKNESS, findSegment, outlineSegments, roomBounds, wallLabel } from './model/walls';
 import { CM_PER_INCH } from './model/units';
 import { canvasPalette, luminance } from './render/palette';
@@ -57,6 +58,14 @@ const AUTOSAVE_DELAY_MS = 400;
 const View3D = lazy(() => import('./components/view3d/View3D'));
 /** So do the furniture studio and its photo tools. */
 const FurnitureStudio = lazy(() => import('./components/studio/FurnitureStudio'));
+/** And the Advanced Furniture Builder (components). */
+const FurnitureBuilder = lazy(() => import('./builder/FurnitureBuilder'));
+
+interface BuilderSession {
+  /** The piece in the room being rebuilt, or none for a new piece. */
+  furnitureId?: string;
+  initial: BuilderPiece;
+}
 
 interface StudioSession {
   request: StudioRequest;
@@ -96,6 +105,7 @@ export function App() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [studio, setStudio] = useState<StudioSession | null>(null);
+  const [builder, setBuilder] = useState<BuilderSession | null>(null);
   const optimizer = useOptimizer();
   /** A layout shown on the plan without changing the project (non-destructive preview). */
   const [preview, setPreview] = useState<{ title: string; positions: SavedLayout['positions'] } | null>(null);
@@ -304,6 +314,14 @@ export function App() {
 
   const openStudio = useCallback(
     async (request: StudioRequest) => {
+      if (request.mode === 'components') {
+        const piece = request.furnitureId ? project.furniture.find((f) => f.id === request.furnitureId) : undefined;
+        if (request.furnitureId && !piece) return;
+        setAddOpen(false);
+        setEditorOpen(false);
+        setBuilder({ furnitureId: piece?.id, initial: piece ? builderPieceOf(piece) : NEW_BUILDER_PIECE });
+        return;
+      }
       let initial: FurnitureTemplate | null = null;
       if (request.mode === 'edit') {
         const piece = project.furniture.find((f) => f.id === request.furnitureId);
@@ -331,8 +349,8 @@ export function App() {
     const { request } = session;
     let action: EditorAction | null = null;
     if (request.mode === 'edit') {
-      const { name, kind, category, height, color, shape, clearance, appearance } = template;
-      action = { type: 'furniture/update', id: request.furnitureId, changes: { name, kind, category, height, color, shape, clearance, appearance } };
+      const { name, kind, category, height, color, shape, clearance, appearance, components } = template;
+      action = { type: 'furniture/update', id: request.furnitureId, changes: { name, kind, category, height, color, shape, clearance, appearance, ...(components ? { components } : {}) } };
     } else if (request.mode !== 'library') {
       const cascade = (project.furniture.length % 5) * 15;
       const centre = roomCentre(project);
@@ -355,6 +373,36 @@ export function App() {
       libraryChanged();
       dispatch({ type: 'notice/show', message: `Saved “${template.name}” to your furniture library.` });
     }
+    return null;
+  }
+
+  /** Applies what the Advanced Furniture Builder made, as one undoable step. */
+  async function saveBuilder(piece: BuilderPiece): Promise<string | null> {
+    const session = builder;
+    if (!session) return null;
+    let action: EditorAction;
+    const current = session.furnitureId ? project.furniture.find((f) => f.id === session.furnitureId) : undefined;
+    const appearance = { ...(current?.appearance ?? {}), material: piece.material, finish: piece.finish };
+    if (current) {
+      const changes: Partial<Furniture> = { name: piece.name, kind: piece.kind, color: piece.color, height: piece.height, components: piece.components, appearance };
+      // A plain footprint's size may have been changed (or grown to fit) in the builder.
+      if (!current.shape) Object.assign(changes, { width: piece.width, depth: piece.depth, shape: piece.shape });
+      else if (piece.shape) changes.shape = piece.shape;
+      action = { type: 'furniture/update', id: current.id, changes };
+    } else {
+      const cascade = (project.furniture.length % 5) * 15;
+      const centre = roomCentre(project);
+      action = {
+        type: 'furniture/add',
+        furniture: createFurniture({ name: piece.name, kind: piece.kind, category: 'furniture', color: piece.color, width: piece.width, depth: piece.depth, height: piece.height, shape: piece.shape, components: piece.components, appearance, x: centre.x + cascade, y: centre.y + cascade }),
+      };
+    }
+    // Try it first: a refusal leaves the builder open with everything built.
+    const tried = editorReducer(state, action);
+    if (tried.notice && tried.notice !== state.notice) return tried.notice.message;
+    setBuilder(null);
+    dispatch(action);
+    if (action.type === 'furniture/add') setSelection({ kind: 'object', id: action.furniture.id });
     return null;
   }
 
@@ -852,6 +900,24 @@ export function App() {
           </LoadBoundary>
         )}
 
+        {builder && (
+          <LoadBoundary title="Advanced Furniture Builder" onClose={() => setBuilder(null)}>
+            <Suspense fallback={null}>
+              <FurnitureBuilder
+                title={builder.furnitureId ? `Components of ${builder.initial.name}` : 'Advanced Furniture Builder'}
+                initial={builder.initial}
+                units={project.units}
+                touch={isTouch}
+                existing={!!builder.furnitureId}
+                startWithTemplates={!builder.furnitureId || builder.initial.components.length === 0}
+                saveLabel={builder.furnitureId ? 'Save changes' : 'Add to room'}
+                onSave={saveBuilder}
+                onCancel={() => setBuilder(null)}
+              />
+            </Suspense>
+          </LoadBoundary>
+        )}
+
         {activeId && (
           <ProjectsDialog
             open={projectsOpen}
@@ -1004,5 +1070,26 @@ function studioTitle({ request, initial }: StudioSession): string {
       return `Edit ${initial.name}`;
     case 'library':
       return `Edit ${initial.name} (library)`;
+    case 'components':
+      return `Components of ${initial.name}`;
   }
+}
+
+/** What the builder starts from for a new piece: an empty 2-seat footprint (templates offered first). */
+const NEW_BUILDER_PIECE: BuilderPiece = { name: 'Custom piece', kind: 'sofa', color: '#e2d9c8', material: 'fabric', finish: 'matte', width: 160, depth: 90, height: 80, components: [] };
+
+/** A piece in the room, as the builder edits it. */
+function builderPieceOf(piece: Furniture): BuilderPiece {
+  return {
+    name: piece.name,
+    kind: piece.kind,
+    color: piece.color,
+    material: piece.appearance?.material ?? (['sofa', 'armchair', 'bed'].includes(piece.kind) ? 'fabric' : 'wood'),
+    finish: piece.appearance?.finish ?? 'matte',
+    width: piece.width,
+    depth: piece.depth,
+    height: piece.height,
+    shape: piece.shape,
+    components: piece.components ?? [],
+  };
 }

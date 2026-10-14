@@ -1,4 +1,5 @@
-import type { Furniture, MaterialKind } from '../model/types';
+import { placeComponents } from '../model/components';
+import type { ComponentType, Furniture, FurnitureComponent, MaterialKind, Point, SeamStyle, SurfaceFinish, UpholsteryPattern } from '../model/types';
 import { seededRandom } from '../model/random';
 import { luminance, shade } from './palette';
 import type { SurfaceKind } from './materials';
@@ -25,7 +26,9 @@ export type PartShape =
   /** A soft ellipsoid filling its box (pillows, cushions seen from above). */
   | 'ellipsoid'
   /** A pointed, gently curved leaf blade lying along +y. */
-  | 'leaf';
+  | 'leaf'
+  /** An upright extrusion of `outline` (irregular seats, bands along edges, curved panels). */
+  | 'prism';
 
 export type PartRole =
   | 'frame'
@@ -78,6 +81,16 @@ export interface FurniturePart {
   /** A fixed colour; otherwise the piece's colour, shaded by `shade`. */
   color?: string;
   shade?: number;
+  /** 'prism': its plan outline relative to (x, y), before `yaw`. */
+  outline?: Point[];
+  /** How `radius` shapes the edges: rounded (default) or a flat bevel (chamfer). */
+  bevel?: 'round' | 'chamfer';
+  /** Surface look overrides (component-built furniture). */
+  finish?: SurfaceFinish;
+  roughness?: number;
+  textureScale?: number;
+  pattern?: UpholsteryPattern;
+  seams?: SeamStyle;
 }
 
 /** What a piece looks like: its kind, plus a refinement from its name for décor and chairs. */
@@ -102,7 +115,7 @@ export type Visual =
   | 'rug'
   | 'block';
 
-type Item = Pick<Furniture, 'id' | 'name' | 'kind' | 'category' | 'width' | 'depth' | 'height'> & Partial<Pick<Furniture, 'color' | 'appearance'>>;
+type Item = Pick<Furniture, 'id' | 'name' | 'kind' | 'category' | 'width' | 'depth' | 'height'> & Partial<Pick<Furniture, 'color' | 'appearance' | 'components'>>;
 
 /** The visual design a piece gets. Names only refine décor and chairs; the kind decides the rest. */
 export function visualOf(item: Pick<Furniture, 'name' | 'kind' | 'category'>): Visual {
@@ -544,8 +557,93 @@ function vase(w: number, d: number, h: number): FurniturePart[] {
 
 /** The parts that make up one piece, in its local frame (empty sizes dropped). */
 export function furnitureParts(item: Item): FurniturePart[] {
-  return partsFor(item).filter((p) => p.width > 0.05 && p.depth > 0.05 && p.height > 0.05);
+  const parts = item.components?.length ? componentParts(item.components) : partsFor(item);
+  return parts.filter((p) => p.width > 0.05 && p.depth > 0.05 && p.height > 0.05);
 }
+
+const COMPONENT_ROLES: Record<ComponentType, PartRole> = {
+  base: 'frame',
+  seat: 'seat',
+  backrest: 'back',
+  armrest: 'arm',
+  cushion: 'cushion',
+  pillow: 'pillow',
+  headrest: 'cushion',
+  leg: 'leg',
+  foot: 'leg',
+  tabletop: 'top',
+  shelf: 'shelf',
+  drawer: 'drawer',
+  door: 'door',
+  support: 'base',
+  detail: 'frame',
+  custom: 'frame',
+  group: 'frame',
+};
+
+/**
+ * Parts for a piece built from components (Advanced Furniture Builder). Unlike the built-in
+ * designs these follow the person's components exactly, even where they reach past the
+ * footprint (the builder warns about that).
+ */
+export function componentParts(components: readonly FurnitureComponent[]): FurniturePart[] {
+  const parts: FurniturePart[] = [];
+  for (const placed of placeComponents(components)) {
+    const c = placed.component;
+    const radius = Math.max(0, c.radius ?? 0);
+    const look: Partial<FurniturePart> = {
+      role: COMPONENT_ROLES[c.type],
+      surface: c.material ?? 'body',
+      ...(c.color ? { color: c.color } : {}),
+      ...(c.finish ? { finish: c.finish } : {}),
+      ...(c.roughness !== undefined ? { roughness: c.roughness } : {}),
+      ...(c.textureScale !== undefined && c.textureScale !== 1 ? { textureScale: c.textureScale } : {}),
+      ...(c.pattern && c.pattern !== 'plain' ? { pattern: c.pattern } : {}),
+      ...(c.seams && c.seams !== 'none' ? { seams: c.seams } : {}),
+      ...(c.tilt ? { tilt: c.tilt } : {}),
+      ...(placed.yaw ? { yaw: placed.yaw } : {}),
+    };
+    const at = { x: placed.x, y: placed.y, z: placed.z, height: c.height };
+    const bevel = c.edgeStyle === 'bevel' ? ('chamfer' as const) : undefined;
+    let outline = placed.outline;
+    // A bevelled box is drawn as a prism (rounded boxes have their own geometry).
+    if (!outline && c.shape === 'box' && bevel && radius > 0) outline = rectOutline(c.width, c.depth);
+    if (outline && outline.length >= 3) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const q of outline) {
+        minX = Math.min(minX, q.x);
+        maxX = Math.max(maxX, q.x);
+        minY = Math.min(minY, q.y);
+        maxY = Math.max(maxY, q.y);
+      }
+      const r = c.edgeStyle === 'square' ? 0 : Math.min(radius, (maxX - minX) / 2, (maxY - minY) / 2, c.height / 2);
+      parts.push({ ...at, width: maxX - minX, depth: maxY - minY, shape: 'prism', outline, radius: r, ...(bevel ? { bevel } : {}), ...look } as FurniturePart);
+      continue;
+    }
+    const base = { ...at, width: c.width, depth: c.depth, ...look };
+    switch (c.shape) {
+      case 'cylinder':
+        parts.push({ ...base, shape: c.taper !== undefined && c.taper !== 1 ? 'cone' : 'cylinder', ...(c.taper !== undefined && c.taper !== 1 ? { taper: c.taper } : {}) } as FurniturePart);
+        break;
+      case 'ellipsoid':
+        parts.push({ ...base, shape: 'ellipsoid' } as FurniturePart);
+        break;
+      default:
+        parts.push({ ...base, shape: 'rounded', radius: c.edgeStyle === 'square' ? 0 : Math.min(radius, c.width / 2, c.depth / 2, c.height / 2) } as FurniturePart);
+    }
+  }
+  return parts;
+}
+
+const rectOutline = (w: number, d: number): Point[] => [
+  { x: -w / 2, y: -d / 2 },
+  { x: w / 2, y: -d / 2 },
+  { x: w / 2, y: d / 2 },
+  { x: -w / 2, y: d / 2 },
+];
 
 function partsFor(item: Item): FurniturePart[] {
   const { width: w, depth: d, height: h } = item;
@@ -605,11 +703,12 @@ export function partCorners(p: FurniturePart): { x: number; y: number; z: number
   const t = ((p.tilt ?? 0) * Math.PI) / 180;
   const yaw = ((p.yaw ?? 0) * Math.PI) / 180;
   const corners: { x: number; y: number; z: number }[] = [];
-  for (const sx of [-0.5, 0.5]) {
-    for (const sy of [-0.5, 0.5]) {
+  const ring = p.shape === 'prism' && p.outline ? p.outline : [-0.5, 0.5].flatMap((sx) => [-0.5, 0.5].map((sy) => ({ x: sx * p.width, y: sy * p.depth })));
+  for (const q of ring) {
+    {
       for (const sz of [-0.5, 0.5]) {
-        const lx = sx * p.width;
-        let ly = sy * p.depth;
+        const lx = q.x;
+        let ly = q.y;
         let lz = sz * p.height;
         // Tilt raises +y: rotate (y, z) by t.
         [ly, lz] = [ly * Math.cos(t) - lz * Math.sin(t), ly * Math.sin(t) + lz * Math.cos(t)];

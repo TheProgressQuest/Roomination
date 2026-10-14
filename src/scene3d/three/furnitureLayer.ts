@@ -28,7 +28,7 @@ import type { Ring } from '../../model/shape';
 import type { SurfaceKind } from '../../render/materials';
 import { loadAssetImage } from '../../storage/assets';
 import { CM_PER_SCENE_UNIT, type SceneFurniture } from '../model';
-import type { FurnitureMaterials } from './furnitureMaterials';
+import { lookKey, type FurnitureMaterials, type SurfaceLook } from './furnitureMaterials';
 import { partGeometry, partMatrix, type PartDetail } from './partGeometry';
 
 /**
@@ -139,7 +139,7 @@ export class FurnitureLayer {
   build(furniture: SceneFurniture[]) {
     this.clear();
     const generation = this.generation;
-    const bySurface = new Map<string, { surface: SurfaceKind; finish: SurfaceFinish; casts: boolean; parts: PlacedPart[] }>();
+    const bySurface = new Map<string, { surface: SurfaceKind; finish: SurfaceFinish; look: SurfaceLook; casts: boolean; parts: PlacedPart[] }>();
     let parts = 0;
     for (const piece of furniture) {
       this.pieces.set(piece.id, { footprint: piece, batched: [], extruded: null, owned: [] });
@@ -151,14 +151,16 @@ export class FurnitureLayer {
         // Small details don't cast shadow-map shadows (their contact shadow is enough), which
         // keeps the shadow pass cheap in rooms full of books and leaves.
         const casts = !SHADOWLESS_ROLES.has(part.role);
-        const key = `${part.surface}|${piece.finish}|${casts}`;
-        const group = bySurface.get(key) ?? { surface: part.surface, finish: piece.finish, casts, parts: [] };
+        const finish = part.finish ?? piece.finish;
+        const look: SurfaceLook = { pattern: part.pattern, scale: part.textureScale, roughness: part.roughness };
+        const key = `${part.surface}|${finish}|${lookKey(look)}|${casts}`;
+        const group = bySurface.get(key) ?? { surface: part.surface, finish, look, casts, parts: [] };
         group.parts.push({ owner: piece.id, geometry: geometry.key, matrix: placement.clone().multiply(partMatrix(part, geometry.scale)), color: new Color(part.color) });
         bySurface.set(key, group);
         parts++;
       }
     }
-    for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.casts, group.parts);
+    for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.look, group.casts, group.parts);
     this.addContactShadows(furniture);
     this.partCount = parts + furniture.filter((f) => f.extruded).length;
     this.batches = bySurface.size + furniture.filter((f) => f.extruded).length;
@@ -224,7 +226,7 @@ export class FurnitureLayer {
 
   // ---------------------------------------------------------------------------
 
-  private addBatch(surface: SurfaceKind, finish: SurfaceFinish, casts: boolean, parts: PlacedPart[]) {
+  private addBatch(surface: SurfaceKind, finish: SurfaceFinish, look: SurfaceLook, casts: boolean, parts: PlacedPart[]) {
     if (parts.length === 0) return;
     const unique = [...new Set(parts.map((p) => p.geometry))];
     let vertices = 0;
@@ -234,7 +236,7 @@ export class FurnitureLayer {
       vertices += g.getAttribute('position').count;
       indices += g.index!.count;
     }
-    const mesh = new BatchedMesh(parts.length, vertices, indices, this.materials.get(surface, finish));
+    const mesh = new BatchedMesh(parts.length, vertices, indices, this.materials.get(surface, finish, '#ffffff', look));
     const ids = new Map(unique.map((key) => [key, mesh.addGeometry(this.geometries.get(key)!.value)]));
     const owners: string[] = [];
     for (const part of parts) {

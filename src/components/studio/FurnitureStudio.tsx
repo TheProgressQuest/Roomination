@@ -72,6 +72,9 @@ interface Draft {
 const MATERIALS: { value: MaterialKind | 'none'; label: string }[] = [
   { value: 'none', label: 'Plain' },
   { value: 'fabric', label: 'Fabric' },
+  { value: 'cotton', label: 'Cotton' },
+  { value: 'linen', label: 'Linen' },
+  { value: 'velvet', label: 'Velvet' },
   { value: 'leather', label: 'Leather' },
   { value: 'wood', label: 'Wood' },
   { value: 'metal', label: 'Metal' },
@@ -333,8 +336,15 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       draft.material || draft.photos.length > 0 || Object.keys(textures).length > 0
         ? { material: draft.material ?? ('custom' as const), finish: draft.finish, ...(Object.keys(textures).length ? { textures } : {}), ...(draft.photos.length ? { photos: draft.photos } : {}) }
         : undefined;
+    // Components that follow the footprint (backrests along edges, seats) are reshaped to a new outline.
+    let components = initial.components;
+    if (components?.length && JSON.stringify(shape) !== JSON.stringify(initial.shape ?? { points: start.points })) {
+      const { recomputeComponents } = await import('../../builder/componentGeometry');
+      components = recomputeComponents({ width, depth, shape: outlineUntouched ? undefined : shape, components }).components;
+    }
     const template: FurnitureTemplate = {
       ...initial,
+      ...(components ? { components } : {}),
       name: draft.name.trim() || 'Custom piece',
       kind: draft.kind,
       category: draft.category,

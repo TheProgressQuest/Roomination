@@ -1,5 +1,5 @@
 import { seededRandom } from '../model/random';
-import type { MaterialKind, SurfaceFinish } from '../model/types';
+import type { MaterialKind, SurfaceFinish, UpholsteryPattern } from '../model/types';
 
 /**
  * Surface materials shared by the 2D presentation plan and the 3D view, so a wooden table
@@ -29,7 +29,9 @@ export const TILE_PX = 256;
 
 export const SURFACES: Record<SurfaceKind, SurfacePreset> = {
   fabric: { roughness: 0.94, metalness: 0, tileCm: 12, pattern: fabric },
+  cotton: { roughness: 0.92, metalness: 0, tileCm: 8, pattern: twill },
   linen: { roughness: 0.96, metalness: 0, tileCm: 18, pattern: linen },
+  velvet: { roughness: 0.78, metalness: 0, tileCm: 40, pattern: velvet },
   leather: { roughness: 0.5, metalness: 0, tileCm: 30, pattern: leather },
   wood: { roughness: 0.62, metalness: 0, tileCm: 110, pattern: woodGrain },
   metal: { roughness: 0.32, metalness: 0.85, tileCm: 40, pattern: brushed },
@@ -53,29 +55,103 @@ export function roughnessFor(kind: SurfaceKind, finish: SurfaceFinish): number {
   return Math.min(1, Math.max(0.02, SURFACES[kind].roughness + FINISH_ROUGHNESS[finish]));
 }
 
-const tiles = new Map<SurfaceKind, HTMLCanvasElement | null>();
+const tiles = new Map<string, HTMLCanvasElement | null>();
 
 /**
  * The detail texture of a surface (a pale tile to multiply with the colour), or null for a
  * plain one. Generated once per session and shared by every piece and both views.
  */
-export function surfaceTile(kind: SurfaceKind): HTMLCanvasElement | null {
-  if (tiles.has(kind)) return tiles.get(kind)!;
+export function surfaceTile(kind: SurfaceKind, weave: UpholsteryPattern = 'plain'): HTMLCanvasElement | null {
+  const key = `${kind}|${weave}`;
+  if (tiles.has(key)) return tiles.get(key)!;
   const pattern = SURFACES[kind].pattern;
+  const overlay = WEAVES[weave];
   let canvas: HTMLCanvasElement | null = null;
-  if (pattern && typeof document !== 'undefined') {
+  if ((pattern || overlay) && typeof document !== 'undefined') {
     canvas = document.createElement('canvas');
     canvas.width = canvas.height = TILE_PX;
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, TILE_PX, TILE_PX);
-      pattern(ctx, TILE_PX);
+      if (overlay) {
+        // A patterned tile spans PATTERN_TILE_CM: the material's own detail repeats inside it.
+        const repeats = Math.max(1, Math.round(PATTERN_TILE_CM / SURFACES[kind].tileCm));
+        const cell = TILE_PX / repeats;
+        if (pattern) {
+          const base = surfaceTile(kind);
+          if (base) for (let i = 0; i < repeats; i++) for (let j = 0; j < repeats; j++) ctx.drawImage(base, i * cell, j * cell, cell, cell);
+        }
+        overlay(ctx, TILE_PX);
+      } else pattern!(ctx, TILE_PX);
     } else canvas = null;
   }
-  tiles.set(kind, canvas);
+  tiles.set(key, canvas);
   return canvas;
 }
+
+/** Real-world size of one tile of a surface with a woven pattern and a size multiplier, cm. */
+export function tileSizeCm(kind: SurfaceKind, weave: UpholsteryPattern = 'plain', scale = 1): number {
+  return (WEAVES[weave] ? PATTERN_TILE_CM : SURFACES[kind].tileCm) * (scale > 0 ? scale : 1);
+}
+
+/** Patterned upholstery tiles cover this much fabric (stripes and checks repeat inside it). */
+export const PATTERN_TILE_CM = 24;
+
+/** Woven or printed upholstery patterns, drawn over the material's own detail. */
+const WEAVES: Record<UpholsteryPattern, ((ctx: CanvasRenderingContext2D, size: number) => void) | null> = {
+  plain: null,
+  stripes: (ctx, size) => {
+    // Four soft stripes per 24 cm, each with a fine edge line.
+    const band = size / 8;
+    for (let i = 0; i < 8; i += 2) {
+      ctx.fillStyle = 'rgba(0,0,0,0.09)';
+      ctx.fillRect(i * band, 0, band, size);
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.fillRect(i * band + band * 0.1, 0, Math.max(1, band * 0.04), size);
+    }
+  },
+  check: (ctx, size) => {
+    const band = size / 6;
+    ctx.fillStyle = 'rgba(0,0,0,0.07)';
+    for (let i = 0; i < 6; i += 2) {
+      ctx.fillRect(i * band, 0, band, size);
+      ctx.fillRect(0, i * band, size, band);
+    }
+  },
+  herringbone: (ctx, size) => {
+    // Zig-zag twill columns.
+    const col = size / 12;
+    const step = col;
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = Math.max(1, col * 0.18);
+    for (let c = 0; c < 12; c++) {
+      const dir = c % 2 ? 1 : -1;
+      for (let y = -step; y < size + step; y += step * 0.5) {
+        ctx.beginPath();
+        ctx.moveTo(c * col, y);
+        ctx.lineTo((c + 1) * col, y + dir * step * 0.5);
+        ctx.stroke();
+      }
+    }
+  },
+  boucle: (ctx, size) => {
+    // Small looped bobbles.
+    const random = seededRandom(29);
+    for (let i = 0; i < 900; i++) {
+      const x = random() * size;
+      const y = random() * size;
+      const r = 1 + random() * 2.2;
+      ctx.strokeStyle = `rgba(0,0,0,${0.05 + random() * 0.06})`;
+      ctx.lineWidth = 0.8;
+      wrapped(size, (dx, dy) => {
+        ctx.beginPath();
+        ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+    }
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Patterns. Deterministic (seeded), seamless, and subtle: detail, not decoration.
@@ -108,6 +184,38 @@ function fabric(ctx: CanvasRenderingContext2D, size: number) {
     const len = 4 + random() * 14;
     ctx.fillStyle = `rgba(0,0,0,${0.02 + random() * 0.03})`;
     wrapped(size, (dx, dy) => ctx.fillRect(x + dx, y + dy, len, 1.2));
+  }
+}
+
+/** Cotton: a fine diagonal twill. */
+function twill(ctx: CanvasRenderingContext2D, size: number) {
+  const random = seededRandom(17);
+  const step = size / 48;
+  ctx.lineWidth = step * 0.45;
+  for (let i = -48; i < 96; i++) {
+    ctx.strokeStyle = `rgba(0,0,0,${0.03 + random() * 0.03})`;
+    ctx.beginPath();
+    ctx.moveTo(i * step, 0);
+    ctx.lineTo(i * step + size, size);
+    ctx.stroke();
+  }
+}
+
+/** Velvet: a smooth pile with soft, cloudy variations in sheen. */
+function velvet(ctx: CanvasRenderingContext2D, size: number) {
+  const random = seededRandom(23);
+  for (let i = 0; i < 28; i++) {
+    const x = random() * size;
+    const y = random() * size;
+    const r = size * (0.1 + random() * 0.22);
+    const dark = random() > 0.5;
+    wrapped(size, (dx, dy) => {
+      const g = ctx.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
+      g.addColorStop(0, dark ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.0)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x + dx - r, y + dy - r, r * 2, r * 2);
+    });
   }
 }
 

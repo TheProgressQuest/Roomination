@@ -1,6 +1,6 @@
 import { CanvasTexture, Color, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace, type Texture } from 'three';
-import type { SurfaceFinish } from '../../model/types';
-import { SURFACES, roughnessFor, surfaceTile, type SurfaceKind } from '../../render/materials';
+import type { SurfaceFinish, UpholsteryPattern } from '../../model/types';
+import { SURFACES, roughnessFor, surfaceTile, tileSizeCm, type SurfaceKind } from '../../render/materials';
 
 /**
  * Three.js versions of the shared surface materials (render/materials). Detail textures
@@ -12,9 +12,20 @@ import { SURFACES, roughnessFor, surfaceTile, type SurfaceKind } from '../../ren
 
 export type MaterialQuality = 'low' | 'medium' | 'high';
 
+/** Per-part look overrides (component-built furniture). */
+export interface SurfaceLook {
+  pattern?: UpholsteryPattern;
+  /** Texture size multiplier. */
+  scale?: number;
+  /** 0–1, replaces the material's own roughness. */
+  roughness?: number;
+}
+
+export const lookKey = (look: SurfaceLook = {}) => `${look.pattern ?? 'plain'}|${look.scale ?? 1}|${look.roughness ?? ''}`;
+
 /** Creates and caches materials and detail textures; dispose() frees them all. */
 export class FurnitureMaterials {
-  private readonly textures = new Map<SurfaceKind, Texture | null>();
+  private readonly textures = new Map<string, Texture | null>();
   private readonly materials = new Map<string, MeshStandardMaterial>();
 
   constructor(private quality: MaterialQuality = 'medium') {}
@@ -30,24 +41,28 @@ export class FurnitureMaterials {
    * A shared material for a surface and finish. White unless `color` is given: batched
    * meshes supply each part's colour per instance.
    */
-  get(kind: SurfaceKind, finish: SurfaceFinish, color = '#ffffff'): MeshStandardMaterial {
-    const key = `${kind}|${finish}|${color}`;
+  get(kind: SurfaceKind, finish: SurfaceFinish, color = '#ffffff', look: SurfaceLook = {}): MeshStandardMaterial {
+    const key = `${kind}|${finish}|${color}|${lookKey(look)}`;
     const hit = this.materials.get(key);
     if (hit) return hit;
-    const material = this.create(kind, finish, color);
+    const material = this.create(kind, finish, color, look);
     this.materials.set(key, material);
     return material;
   }
 
   /** A material owned by the caller (e.g. one holding a photo); not cached here. */
-  create(kind: SurfaceKind, finish: SurfaceFinish, color = '#ffffff'): MeshStandardMaterial {
+  create(kind: SurfaceKind, finish: SurfaceFinish, color = '#ffffff', look: SurfaceLook = {}): MeshStandardMaterial {
     const preset = SURFACES[kind];
     const material = new MeshStandardMaterial({
       color,
-      roughness: roughnessFor(kind, finish),
+      roughness: look.roughness !== undefined ? Math.min(1, Math.max(0.02, look.roughness)) : roughnessFor(kind, finish),
       metalness: preset.metalness,
-      map: this.texture(kind),
+      map: this.texture(kind, look),
     });
+    if (kind === 'velvet') {
+      // Velvet's pile catches light at grazing angles.
+      material.roughness = Math.max(material.roughness, 0.7);
+    }
     if (preset.opacity !== undefined) {
       material.transparent = true;
       material.opacity = preset.opacity;
@@ -61,20 +76,21 @@ export class FurnitureMaterials {
     return material;
   }
 
-  private texture(kind: SurfaceKind): Texture | null {
+  private texture(kind: SurfaceKind, look: SurfaceLook = {}): Texture | null {
     if (this.quality === 'low') return null;
-    if (this.textures.has(kind)) return this.textures.get(kind)!;
-    const tile = surfaceTile(kind);
+    const key = `${kind}|${look.pattern ?? 'plain'}|${look.scale ?? 1}`;
+    if (this.textures.has(key)) return this.textures.get(key)!;
+    const tile = surfaceTile(kind, look.pattern);
     let texture: Texture | null = null;
     if (tile) {
       texture = new CanvasTexture(tile);
       texture.wrapS = texture.wrapT = RepeatWrapping;
       texture.colorSpace = SRGBColorSpace;
-      const perMetre = 100 / SURFACES[kind].tileCm;
+      const perMetre = 100 / tileSizeCm(kind, look.pattern, look.scale);
       texture.repeat.set(perMetre, perMetre);
       texture.anisotropy = this.quality === 'high' ? 8 : 4;
     }
-    this.textures.set(kind, texture);
+    this.textures.set(key, texture);
     return texture;
   }
 

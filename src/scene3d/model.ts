@@ -397,7 +397,8 @@ function furnitureBlocks(item: Furniture): SceneFurniture {
   };
   // Drawn shapes keep their true outline; photo textures need real surfaces to sit on, so a
   // textured rectangle is extruded too (its outline is simply the rectangle).
-  const extrude = item.shape !== undefined || Object.keys(textures).length > 0;
+  // Component-built pieces are drawn from their components (their footprint still collides).
+  const extrude = !item.components?.length && (item.shape !== undefined || Object.keys(textures).length > 0);
   if (!extrude) return { ...base, parts: furnitureParts(item).map(resolve) };
   const { rings, parts: convex } = localFootprint(item);
   const visual = visualOf(item);

@@ -6,7 +6,13 @@ import { DEFAULT_CEILING_HEIGHT, DEFAULT_FLOOR, DEFAULT_WALL_COLOR, createId } f
 import {
   CURRENT_SCHEMA_VERSION,
   type BuilderNode,
+  type ComponentEdgeStyle,
+  type ComponentShape,
+  type ComponentType,
+  type FurnitureComponent,
   type PrimitiveKind,
+  type SeamStyle,
+  type UpholsteryPattern,
   type FengShuiSettings,
   type FloorStyle,
   type Furniture,
@@ -33,6 +39,7 @@ import {
 } from '../model/types';
 import { DEFAULT_WALL_THICKNESS, MAX_ROOM_SPAN, MAX_WALL_THICKNESS, findSegment, validateRoom } from '../model/walls';
 import { MAX_SHAPE_POINTS, normaliseShape, pieceToRoom, shapeProblem } from '../model/shape';
+import { COMPONENT_TYPE_LABELS, MAX_COMPONENTS, shiftComponents } from '../model/components';
 
 /**
  * Reading projects from untrusted sources: browser storage (possibly written by an
@@ -350,6 +357,8 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   if (clearance) item.clearance = clearance;
   const appearance = parseAppearance(raw.appearance);
   if (appearance) item.appearance = appearance;
+  const components = parseComponents(raw.components);
+  if (components) item.components = components;
   if (raw.shape === undefined) return item;
   return withShape(item, parseShape(raw.shape, label));
 }
@@ -371,9 +380,11 @@ export function parseFurnitureTemplate(raw: unknown): FurnitureTemplate | null {
 /** Attaches a shape, keeping width/depth equal to its outline and the piece exactly where it was. */
 function withShape(item: Furniture, shape: FurnitureShape): Furniture {
   const normal = normaliseShape(shape);
-  // The outline's centre may move when re-centred; move the piece the same amount (rotated).
+  // The outline's centre may move when re-centred; move the piece the same amount (rotated),
+  // and its components back by it, so nothing moves in the room.
   const at = pieceToRoom(item, normal.shift);
-  return { ...item, shape: normal.shape, width: normal.width, depth: normal.depth, x: at.x, y: at.y };
+  const moved = item.components ? { components: shiftComponents(item.components, -normal.shift.x, -normal.shift.y) } : {};
+  return { ...item, ...moved, shape: normal.shape, width: normal.width, depth: normal.depth, x: at.x, y: at.y };
 }
 
 /** A custom outline from a file. Throws (with a plain reason) if it can't be used. */
@@ -468,7 +479,95 @@ export function parseBuilderNodes(raw: unknown): BuilderNode[] | undefined {
   }
 }
 
-const MATERIALS: MaterialKind[] = ['fabric', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'custom'];
+const COMPONENT_TYPES = Object.keys(COMPONENT_TYPE_LABELS) as ComponentType[];
+const COMPONENT_SHAPES: ComponentShape[] = ['box', 'cylinder', 'ellipsoid', 'polygon', 'curved', 'edge', 'footprint'];
+const EDGE_STYLES: ComponentEdgeStyle[] = ['square', 'rounded', 'bevel'];
+const PATTERNS: UpholsteryPattern[] = ['plain', 'stripes', 'check', 'herringbone', 'boucle'];
+const SEAMS: SeamStyle[] = ['none', 'piped', 'stitched', 'tufted'];
+const MAX_COMPONENT_SIZE = 2000;
+
+/**
+ * Component-built furniture. Components only change how a piece looks, so a damaged one is
+ * dropped (never rejecting the project); sizes, outlines and lists are bounded.
+ */
+export function parseComponents(raw: unknown): FurnitureComponent[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  let corners = 0;
+  const seen = new Set<string>();
+  const out: FurnitureComponent[] = [];
+  for (const r of raw.slice(0, MAX_COMPONENTS)) {
+    if (!isRecord(r) || typeof r.id !== 'string' || r.id.length === 0 || r.id.length > 100 || seen.has(r.id)) continue;
+    const type = oneOf(r.type, COMPONENT_TYPES, null);
+    const shape = oneOf(r.shape, COMPONENT_SHAPES, null);
+    const place = (v: unknown) => (finite(v) && Math.abs(v) <= MAX_COMPONENT_SIZE ? v : null);
+    const size = (v: unknown) => (finite(v) && v > 0 && v <= MAX_COMPONENT_SIZE ? v : null);
+    const [x, y, z] = [place(r.x), place(r.y), place(r.z)];
+    const [width, depth, height] = [size(r.width), size(r.depth), size(r.height)];
+    if (!type || !shape || x === null || y === null || z === null || width === null || depth === null || height === null || !finite(r.rotation)) continue;
+    const c: FurnitureComponent = {
+      id: r.id,
+      name: typeof r.name === 'string' ? r.name.slice(0, MAX_NAME_LENGTH) : 'Component',
+      type,
+      shape,
+      x,
+      y,
+      z,
+      width,
+      depth,
+      height,
+      rotation: normalizeRotation(r.rotation),
+    };
+    if (typeof r.parentId === 'string' && r.parentId.length <= 100 && r.parentId !== r.id) c.parentId = r.parentId;
+    if (finite(r.tilt) && Math.abs(r.tilt) <= 89) c.tilt = r.tilt;
+    if (finite(r.radius) && r.radius >= 0 && r.radius <= MAX_COMPONENT_SIZE) c.radius = r.radius;
+    const edgeStyle = oneOf(r.edgeStyle, EDGE_STYLES, null);
+    if (edgeStyle) c.edgeStyle = edgeStyle;
+    if (Array.isArray(r.outline) && r.outline.length >= 3 && corners + r.outline.length <= MAX_SHAPE_POINTS) {
+      const pts = r.outline.map((p) => (isRecord(p) && place(p.x) !== null && place(p.y) !== null ? { x: p.x as number, y: p.y as number } : null));
+      if (pts.every((p) => p !== null)) {
+        c.outline = pts as Point[];
+        corners += pts.length;
+      }
+    }
+    if (finite(r.sweep) && r.sweep > 0 && r.sweep <= 300) c.sweep = r.sweep;
+    if (isRecord(r.edges) && [r.edges.from, r.edges.to].every((v) => finite(v) && Number.isInteger(v) && v >= 0 && v < MAX_SHAPE_POINTS)) {
+      const len = (v: unknown) => (finite(v) && v >= 0 && v <= MAX_COMPONENT_SIZE ? v : 0);
+      c.edges = { from: r.edges.from as number, to: r.edges.to as number, startTrim: len(r.edges.startTrim), endTrim: len(r.edges.endTrim), inset: len(r.edges.inset), thickness: len(r.edges.thickness) || depth, miterStart: r.edges.miterStart === true, miterEnd: r.edges.miterEnd === true };
+    }
+    if (finite(r.inset) && r.inset >= 0 && r.inset <= MAX_COMPONENT_SIZE) c.inset = r.inset;
+    if (Array.isArray(r.cut)) {
+      const cut = r.cut.filter((k): k is string => typeof k === 'string' && k.length <= 100).slice(0, MAX_COMPONENTS);
+      if (cut.length) c.cut = [...new Set(cut)];
+    }
+    if (isRecord(r.split) && [r.split.along, r.split.count, r.split.index].every((v) => finite(v) && Number.isInteger(v) && v >= 0) && (r.split.count as number) >= 1 && (r.split.count as number) <= 12) {
+      c.split = { along: r.split.along as number, count: r.split.count as number, index: Math.min(r.split.index as number, (r.split.count as number) - 1), gap: finite(r.split.gap) && r.split.gap >= 0 && r.split.gap <= 50 ? r.split.gap : 0 };
+    }
+    if (finite(r.taper) && r.taper > 0 && r.taper <= 10) c.taper = r.taper;
+    if (r.color !== undefined) {
+      const hex = color(r.color, '');
+      if (hex) c.color = hex;
+    }
+    const material = oneOf(r.material, MATERIALS, null);
+    if (material) c.material = material;
+    const finish = oneOf(r.finish, FINISHES, null);
+    if (finish) c.finish = finish;
+    if (finite(r.roughness) && r.roughness >= 0 && r.roughness <= 1) c.roughness = r.roughness;
+    if (finite(r.textureScale) && r.textureScale >= 0.1 && r.textureScale <= 10) c.textureScale = r.textureScale;
+    const pattern = oneOf(r.pattern, PATTERNS, null);
+    if (pattern) c.pattern = pattern;
+    const seams = oneOf(r.seams, SEAMS, null);
+    if (seams) c.seams = seams;
+    if (r.locked === true) c.locked = true;
+    if (r.hidden === true) c.hidden = true;
+    seen.add(c.id);
+    out.push(c);
+  }
+  // Parents that weren't kept are let go (their children stay, placed on their own).
+  for (const c of out) if (c.parentId && !seen.has(c.parentId)) delete c.parentId;
+  return out.length > 0 ? out : undefined;
+}
+
+const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'custom'];
 const FINISHES: SurfaceFinish[] = ['matte', 'satin', 'gloss'];
 /** Photos are referenced by the SHA-256 of their bytes. */
 const ASSET_ID = /^[0-9a-f]{64}$/;
