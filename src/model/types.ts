@@ -322,7 +322,17 @@ export interface Staircase {
 // Layout optimizer
 // ---------------------------------------------------------------------------
 
-export type OptimizerMode = 'functional' | 'balanced' | 'aesthetic';
+export type OptimizerMode = 'functional' | 'balanced' | 'aesthetic' | 'fengShui' | 'custom';
+
+/** How much each kind of score counts, in percent (they add up to 100). */
+export interface OptimizerWeights {
+  functional: number;
+  aesthetic: number;
+  fengShui: number;
+}
+
+/** What a room is mainly for; chooses sensible optimizer defaults (the person can override). */
+export type RoomPurpose = 'living' | 'bedroom' | 'office' | 'studio' | 'dining' | 'multipurpose';
 export type OptimizerEffort = 'quick' | 'standard' | 'thorough';
 
 export interface OptimizerSettings {
@@ -334,6 +344,31 @@ export interface OptimizerSettings {
   effort: OptimizerEffort;
   /** Same project + settings + seed ⇒ same suggestions. */
   seed: number;
+  /** Custom mode's weights. */
+  weights: OptimizerWeights;
+  /** What the room is for (null: guessed from its furniture). */
+  purpose: RoomPurpose | null;
+  /** Assume the usual pairings (desk + chair, sofa → TV, …) the person hasn't drawn. */
+  assumePairings: boolean;
+}
+
+/**
+ * How the Bagua map is laid over the room. Traditions differ, and they aren't interchangeable:
+ *   - entrance: the "Western"/BTB approach — a 3×3 grid aligned to the wall with the main door.
+ *   - compass:  the classical approach — eight directions taken from the room's real compass
+ *               orientation, which the person must enter (it's never guessed from the screen).
+ */
+export type BaguaMethod = 'entrance' | 'compass';
+
+/** Optional Feng Shui (an interpretive design philosophy). Saved with the project. */
+export interface FengShuiSettings {
+  enabled: boolean;
+  method: BaguaMethod;
+  showBagua: boolean;
+  /** Compass bearing of the plan's "up" direction, degrees clockwise from true north (compass method). */
+  northBearing: number | null;
+  /** The main entrance (a door id); the first door when not set. */
+  entranceId: string | null;
 }
 
 /** A remembered arrangement: only positions and rotations, keyed by furniture id. */
@@ -344,7 +379,7 @@ export interface SavedLayout {
   positions: { id: string; x: number; y: number; rotation: number }[];
 }
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 /** Everything that makes up one saved design. */
 export interface Project {
@@ -359,6 +394,8 @@ export interface Project {
   relationships: Relationship[];
   optimizer: OptimizerSettings;
   savedLayouts: SavedLayout[];
+  /** Optional Feng Shui settings (missing in projects from before Phase 4). */
+  fengShui?: FengShuiSettings;
   /**
    * Overlaps the user has explicitly accepted. Each key names one specific pair of
    * objects and one kind of constraint (see `conflictKey`), never a global switch.

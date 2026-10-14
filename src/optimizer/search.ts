@@ -1,6 +1,6 @@
 import { findConflicts, isSolid } from '../model/conflicts';
 import { footprintInside, roomFootprint } from '../model/shape';
-import type { Furniture, Point, Project } from '../model/types';
+import type { Furniture, OptimizerWeights, Point, Project } from '../model/types';
 import { frontOf, isHard, localToRoom, measure, score, type LayoutContext } from './scoring';
 
 /**
@@ -79,13 +79,19 @@ export function candidatePoses(item: Furniture, project: Project, context: Layou
       for (const { n, inset } of sides) {
         const along = { x: wall.start.x + d.x * t, y: wall.start.y + d.y * t };
         poses.push({ x: along.x + n.x * (item.depth / 2 + inset), y: along.y + n.y * (item.depth / 2 + inset), rotation: rotationFacing(n) });
+        if (item.kind === 'desk') {
+          // Also "commanding": out from the wall with the person sitting between desk and wall,
+          // facing into the room (needs about a metre behind the desk for the chair).
+          const out = item.depth / 2 + inset + 100;
+          poses.push({ x: along.x + n.x * out, y: along.y + n.y * out, rotation: rotationFacing({ x: -n.x, y: -n.y }) });
+        }
       }
     }
   }
 
   // Positions defined by relationships with pieces already in place.
   const placed = (id: string) => project.furniture.find((f) => f.id === id);
-  for (const r of project.relationships) {
+  for (const r of context.relationships) {
     if (r.b === item.id && r.type !== 'faces') {
       const a = placed(r.a);
       if (!a) continue;
@@ -134,9 +140,9 @@ export function candidatePoses(item: Furniture, project: Project, context: Layou
  * Order of placement: a piece waits for the pieces it relates to (a chair waits for its
  * desk; a sofa that faces a TV waits for the TV), otherwise larger pieces go first.
  */
-export function placementOrder(movable: Furniture[], project: Project): Furniture[] {
+export function placementOrder(movable: Furniture[], project: Project, relationships: Project['relationships']): Furniture[] {
   const dependsOn = new Map<string, Set<string>>(movable.map((f) => [f.id, new Set()]));
-  for (const r of project.relationships) {
+  for (const r of relationships) {
     const [dependent, anchor] = r.type === 'faces' ? [r.a, r.b] : [r.b, r.a];
     dependsOn.get(dependent)?.add(anchor);
   }
@@ -174,7 +180,7 @@ export function construct(project: Project, movable: Furniture[], context: Layou
   const movableIds = new Set(movable.map((m) => m.id));
   const unplaced: string[] = [];
 
-  for (const item of placementOrder(movable, project)) {
+  for (const item of placementOrder(movable, project, context.relationships)) {
     // Fixed pieces plus those placed so far; pieces still waiting are left out, so they can't block anything.
     const placedSoFar = withPoses(project, poses);
     const base = { ...placedSoFar, furniture: placedSoFar.furniture.filter((f) => !movableIds.has(f.id) || poses.has(f.id)) };
@@ -264,7 +270,7 @@ export function* anneal(project: Project, start: Arrangement, movable: Furniture
   return { poses: best, objective: bestValue, unplaced: [] };
 }
 
-/** The objective used during search: the overall score at a given function weighting. */
-export function objectiveFor(context: LayoutContext, functionWeight: number): Objective {
-  return (project) => score(project, measure(project, context), context, functionWeight).overall;
+/** The objective used during search: the overall score at a given weighting. */
+export function objectiveFor(context: LayoutContext, weights: OptimizerWeights): Objective {
+  return (project) => score(project, measure(project, context), context, weights).overall;
 }

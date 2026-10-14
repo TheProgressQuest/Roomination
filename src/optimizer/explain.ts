@@ -1,8 +1,8 @@
-import { describeConflict, obstacleName } from '../model/conflicts';
+import { describeConflict, findConflicts, obstacleName } from '../model/conflicts';
 import { PREFERENCE_LABELS, RELATIONSHIP_LABELS } from '../model/furnitureKinds';
-import type { Project } from '../model/types';
+import type { Project, Relationship } from '../model/types';
 import { formatLength } from '../model/units';
-import type { Metrics, Scores } from './scoring';
+import { isHard, type Metrics, type Scores } from './scoring';
 
 /**
  * Plain-language reasons for a suggestion. Every sentence is produced from a measured
@@ -27,7 +27,7 @@ const MIN_AREA_M2 = 0.3;
 const MIN_DISTANCE_CM = 40;
 const MIN_PREFERENCE_CHANGE = 0.3;
 
-export function explain(before: Side, after: Side, lockedIds: string[], walkway: number): Explanation {
+export function explain(before: Side, after: Side, lockedIds: string[], walkway: number, relationships: Relationship[] = []): Explanation {
   const improvements: string[] = [];
   const tradeoffs: string[] = [];
   const units = after.project.units;
@@ -106,6 +106,74 @@ export function explain(before: Side, after: Side, lockedIds: string[], walkway:
     if (was - now >= MIN_PREFERENCE_CHANGE) tradeoffs.push(`No longer met: ${label}.`);
   }
 
+  // The usual pairings (desk + chair, sofa → TV, …): said the way a person would.
+  const pairText = (r: Relationship, met: boolean) => {
+    const [a, b] = [name(r.a), name(r.b)];
+    switch (r.type) {
+      case 'faces':
+        return met ? `Turned the ${a} to face the ${b}.` : `The ${a} no longer faces the ${b}.`;
+      case 'inFrontOf':
+        return met ? `Placed the ${b} in front of the ${a}.` : `The ${b} is no longer in front of the ${a}.`;
+      case 'beside':
+        return met ? `Put the ${b} beside the ${a}.` : `The ${b} is no longer beside the ${a}.`;
+      case 'near':
+        return met ? `Brought the ${b} to the ${a}.` : `The ${b} is farther from the ${a}.`;
+    }
+  };
+  for (const r of relationships) {
+    if (!r.id.startsWith('assumed:')) continue;
+    const was = before.metrics.pairs.get(r.id) ?? 0;
+    const now = after.metrics.pairs.get(r.id) ?? 0;
+    if (now >= 0.7 && was < 0.5) improvements.push(pairText(r, true));
+    if (was >= 0.7 && now < 0.5) tradeoffs.push(pairText(r, false));
+  }
+
+  // Room in front of each piece (legroom, pulling a chair out, opening doors).
+  for (const space of after.metrics.frontSpace) {
+    const previous = before.metrics.frontSpace.find((f) => f.id === space.id);
+    if (!previous) continue;
+    const item = after.project.furniture.find((f) => f.id === space.id);
+    const amount = formatLength(Math.min(space.clear, 999), units);
+    if (space.clear >= space.need && previous.clear < space.need) {
+      improvements.push(item?.kind === 'desk' ? `Gave the ${name(space.id)} room to pull its chair out (${amount}).` : `Cleared space in front of the ${name(space.id)} (now ${amount}).`);
+    }
+    if (space.clear < space.need && previous.clear >= space.need) tradeoffs.push(`Less space in front of the ${name(space.id)} (${amount}).`);
+  }
+  for (const bed of after.metrics.bedSides) {
+    const previous = before.metrics.bedSides.find((b) => b.id === bed.id);
+    const both = (sides: [number, number]) => Math.min(...sides) >= 60;
+    if (previous && both(bed.sides) && !both(previous.sides)) improvements.push(`Made both sides of the ${name(bed.id)} reachable.`);
+    if (previous && !both(bed.sides) && both(previous.sides)) tradeoffs.push(`One side of the ${name(bed.id)} is harder to reach.`);
+  }
+  if (b.detour - a.detour >= 0.1) improvements.push(`Shortened walking routes: walks are now ${pct(a.detour - 1)} longer than in an empty room (was ${pct(b.detour - 1)}).`);
+  if (a.detour - b.detour >= 0.1) tradeoffs.push(`Walking routes are longer: ${pct(a.detour - 1)} longer than in an empty room (was ${pct(b.detour - 1)}).`);
+
+  // Feng Shui — an interpretive preference, labelled as such.
+  if (after.metrics.fengShui && before.metrics.fengShui) {
+    for (const now of after.metrics.fengShui.commanding) {
+      const was = before.metrics.fengShui.commanding.find((c) => c.itemId === now.itemId);
+      if (!was) continue;
+      const item = after.project.furniture.find((f) => f.id === now.itemId);
+      const who = item?.kind === 'bed' ? `the ${name(now.itemId)} so you can see the entrance from it` : `the ${name(now.itemId)} so the seated person can see the entrance`;
+      if (now.seesEntrance >= 0.8 && was.seesEntrance < 0.5) improvements.push(`Positioned ${who} (Feng Shui).`);
+      if (was.seesEntrance >= 0.8 && now.seesEntrance < 0.5) tradeoffs.push(`The entrance is no longer in view from the ${name(now.itemId)} (Feng Shui).`);
+      if (now.outOfDoorLine === 1 && was.outOfDoorLine < 1) improvements.push(`Kept the ${name(now.itemId)} out of direct line with the doorway (Feng Shui).`);
+      if (now.outOfDoorLine < 1 && was.outOfDoorLine === 1) tradeoffs.push(`The ${name(now.itemId)} is now in line with the doorway (Feng Shui).`);
+      if (now.support - was.support >= 0.5) improvements.push(`Gave the ${name(now.itemId)} a solid wall behind it (Feng Shui).`);
+    }
+    const fsComponent = (m: Metrics, id: string) => m.fengShui?.components.find((c) => c.id === id)?.value ?? null;
+    for (const [id, better, worse] of [
+      ['entry', 'Opened up the space just inside the entrance (Feng Shui).', 'The space inside the entrance is more crowded (Feng Shui).'],
+      ['conversation', 'Turned the seating towards each other for conversation (Feng Shui).', 'The seating is less conversational (Feng Shui).'],
+    ] as const) {
+      const was = fsComponent(before.metrics, id);
+      const now = fsComponent(after.metrics, id);
+      if (was === null || now === null) continue;
+      if (now - was >= 0.3) improvements.push(better);
+      if (was - now >= 0.3) tradeoffs.push(worse);
+    }
+  }
+
   // Appearance — labelled as a matter of taste.
   const component = (s: Scores, id: string) => s.components.find((c) => c.id === id)?.value ?? null;
   for (const [id, better, worse] of [
@@ -145,6 +213,51 @@ export function warningsFor(side: Side): string[] {
     if (result.unavailable) warnings.push(`${item} — “${PREFERENCE_LABELS[preference].toLowerCase()}”: ${result.unavailable}`);
   }
   return warnings;
+}
+
+function pct(fraction: number): string {
+  return `${Math.max(0, Math.round(fraction * 100))}%`;
+}
+
+export interface ComparisonRow {
+  label: string;
+  before: string;
+  after: string;
+  /** true: better, false: worse, null: unchanged or not comparable. */
+  better: boolean | null;
+}
+
+/**
+ * Side-by-side measurements of the current layout and a suggestion, all calculated (never
+ * estimated). Feng Shui appears only when it's switched on, labelled as interpretive.
+ */
+export function compare(before: Side, after: Side, relationships: Relationship[]): ComparisonRow[] {
+  const rows: ComparisonRow[] = [];
+  const row = (label: string, b: number, a: number, format: (v: number) => string, higherIsBetter: boolean) =>
+    rows.push({ label, before: format(b), after: format(a), better: Math.abs(a - b) < 1e-6 ? null : higherIsBetter ? a > b : a < b });
+  const hard = (side: Side) => findConflicts(side.project).filter((c) => isHard(c, side.project) && c.type === 'collision').length;
+  const doorIssues = (side: Side) =>
+    side.metrics.circulation.unreachableDoors + findConflicts(side.project).filter((c) => c.otherKind === 'feature' && side.project.features.find((f) => f.id === c.otherId)?.kind === 'door').length;
+  const stairIssues = (side: Side) => side.metrics.circulation.unreachableStairs + findConflicts(side.project).filter((c) => c.otherKind === 'stairs').length;
+  const met = (side: Side) => {
+    const values = [...side.metrics.pairs.values(), ...relationships.filter((r) => !r.id.startsWith('assumed:')).map((r) => side.metrics.relationships.get(r.id) ?? 0)];
+    return values.filter((v) => v >= 0.7).length;
+  };
+  const pairsTotal = after.metrics.pairs.size + relationships.filter((r) => !r.id.startsWith('assumed:')).length;
+  const roomy = (side: Side) => side.metrics.frontSpace.filter((f) => f.clear >= f.need).length;
+  const n = (v: number) => String(v);
+
+  row('Overlapping furniture', hard(before), hard(after), n, false);
+  row('Doors blocked or swung into', doorIssues(before), doorIssues(after), n, false);
+  if (before.project.stairs.length > 0) row('Stairs blocked', stairIssues(before), stairIssues(after), n, false);
+  row('Floor you can walk to', before.metrics.circulation.reachableFloor, after.metrics.circulation.reachableFloor, (v) => `${Math.round(v * 100)}%`, true);
+  row('Extra walking (vs. an empty room)', before.metrics.circulation.detour - 1, after.metrics.circulation.detour - 1, pct, false);
+  if (pairsTotal > 0) row('Pieces placed with what they go with', met(before), met(after), (v) => `${v} of ${pairsTotal}`, true);
+  if (after.metrics.frontSpace.length > 0) row('Pieces with room in front', roomy(before), roomy(after), (v) => `${v} of ${after.metrics.frontSpace.length}`, true);
+  row('Functional score', before.scores.functional, after.scores.functional, (v) => Math.round(v).toString(), true);
+  row('Appearance score (subjective)', before.scores.aesthetic, after.scores.aesthetic, (v) => Math.round(v).toString(), true);
+  if (before.scores.fengShui !== null && after.scores.fengShui !== null) row('Feng Shui (interpretive preference)', before.scores.fengShui, after.scores.fengShui, (v) => Math.round(v).toString(), true);
+  return rows;
 }
 
 function count(n: number, one: string, many: string): string {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { furniturePolygon } from '../model/conflicts';
-import { DEFAULT_OPTIMIZER, functionWeightFor } from '../model/furnitureKinds';
+import { DEFAULT_OPTIMIZER, functionWeightFor, weightsFor } from '../model/furnitureKinds';
 import { convexInsidePolygon } from '../model/polygon';
 import { createFeature, createFurniture } from '../model/sample';
 import type { OptimizerSettings, Project } from '../model/types';
@@ -71,16 +71,19 @@ describe('scoring', () => {
     const context = createContext(project, new Set(movableIds(project)), quick);
     const metrics = measure(project, context);
     for (const weight of [0.9, 0.6, 0.2]) {
-      const s = score(project, metrics, context, weight);
+      const s = score(project, metrics, context, { functional: weight, aesthetic: 1 - weight, fengShui: 0 });
       const blend = weight * s.functional + (1 - weight) * s.aesthetic;
-      expect(s.overall).toBeCloseTo(s.preferences === null ? blend : 0.7 * blend + 0.3 * s.preferences, 6);
+      const practical = s.components.filter((c) => ['pairs', 'frontSpace', 'bedAccess', 'connectivity', 'usable'].includes(c.id));
+      const practicality = practical.reduce((t, c) => t + c.value * c.weight, 0) / practical.reduce((t, c) => t + c.weight, 0);
+      const raw = s.preferences === null ? blend : 0.7 * blend + 0.3 * s.preferences;
+      expect(s.overall).toBeCloseTo(raw * (0.5 + 0.5 * practicality), 6);
     }
   });
 
   it('each group score is the weighted mean of its components', () => {
     const project = smallBedroom();
     const context = createContext(project, new Set(movableIds(project)), quick);
-    const s = score(project, measure(project, context), context, 0.6);
+    const s = score(project, measure(project, context), context, { functional: 0.6, aesthetic: 0.4, fengShui: 0 });
     const functional = s.components.filter((c) => c.group === 'functional');
     const expected = (100 * functional.reduce((sum, c) => sum + c.value * c.weight, 0)) / functional.reduce((sum, c) => sum + c.weight, 0);
     expect(s.functional).toBeCloseTo(expected, 6);
@@ -96,10 +99,18 @@ describe('scoring', () => {
     expect(blocked).toBeLessThan(clear);
   });
 
-  it('mode presets set the function weighting; Balanced uses the slider', () => {
-    expect(functionWeightFor({ mode: 'functional', functionWeight: 0.3 })).toBe(0.9);
-    expect(functionWeightFor({ mode: 'aesthetic', functionWeight: 0.8 })).toBe(0.2);
-    expect(functionWeightFor({ mode: 'balanced', functionWeight: 0.7 })).toBe(0.7);
+  it('mode presets set the weighting; Balanced uses the slider; Custom adds up to 100%', () => {
+    const w = DEFAULT_OPTIMIZER.weights;
+    expect(functionWeightFor({ mode: 'functional', functionWeight: 0.3, weights: w })).toBeCloseTo(0.85);
+    expect(functionWeightFor({ mode: 'aesthetic', functionWeight: 0.8, weights: w })).toBeCloseTo(0.3);
+    expect(functionWeightFor({ mode: 'balanced', functionWeight: 0.7, weights: w })).toBeCloseTo(0.7);
+    const custom = weightsFor({ mode: 'custom', functionWeight: 0.5, weights: { functional: 50, aesthetic: 25, fengShui: 25 } }, true);
+    expect(custom.functional + custom.aesthetic + custom.fengShui).toBeCloseTo(1);
+    expect(custom.fengShui).toBeCloseTo(0.25);
+    // With Feng Shui switched off, its share is redistributed and counts for nothing.
+    const off = weightsFor({ mode: 'custom', functionWeight: 0.5, weights: { functional: 50, aesthetic: 25, fengShui: 25 } }, false);
+    expect(off).toEqual({ functional: 50 / 75, aesthetic: 25 / 75, fengShui: 0 });
+    expect(weightsFor({ mode: 'fengShui', functionWeight: 0.5, weights: w }, false).fengShui).toBe(0);
   });
 });
 

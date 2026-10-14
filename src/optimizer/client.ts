@@ -37,9 +37,11 @@ export function startOptimization(input: OptimizeInput, onProgress: (done: numbe
       settle({
         status: 'cancelled',
         message: 'Optimization was cancelled. Your layout hasn’t changed.',
-        baseline: { scores: { overall: 0, functional: 0, aesthetic: 0, preferences: null, components: [] }, warnings: [], valid: true },
+        baseline: { scores: { overall: 0, functional: 0, aesthetic: 0, fengShui: null, preferences: null, components: [] }, warnings: [], valid: true },
         suggestions: [],
         unmet: [],
+        assumed: [],
+        purpose: 'multipurpose',
         seed: input.settings.seed,
         algorithmVersion: 0,
       });

@@ -1,9 +1,9 @@
 import { isSolid } from '../model/conflicts';
 import { normalizeRotation } from '../model/geometry';
-import { functionWeightFor, PREFERENCE_LABELS, RELATIONSHIP_LABELS } from '../model/furnitureKinds';
+import { PREFERENCE_LABELS, RELATIONSHIP_LABELS, weightsFor } from '../model/furnitureKinds';
 import { seededRandom } from '../model/random';
-import type { OptimizerSettings, Project } from '../model/types';
-import { explain, warningsFor } from './explain';
+import type { OptimizerSettings, OptimizerWeights, Project, RoomPurpose } from '../model/types';
+import { compare, explain, warningsFor, type ComparisonRow } from './explain';
 import { anneal, construct, fitsHard, hasMoved, objectiveFor, withPoses, type Arrangement, type SearchBudget } from './search';
 import { createContext, measure, score, type LayoutContext, type Scores } from './scoring';
 
@@ -17,7 +17,7 @@ import { createContext, measure, score, type LayoutContext, type Scores } from '
  */
 
 /** Bump when the algorithm changes in a way that changes results for the same seed. */
-export const ALGORITHM_VERSION = 1;
+export const ALGORITHM_VERSION = 2;
 
 export interface OptimizeInput {
   project: Project;
@@ -31,13 +31,16 @@ export interface Suggestion {
   title: string;
   /** What this suggestion was optimised for, e.g. "More functional". */
   emphasis: string;
-  functionWeight: number;
+  /** The weighting this suggestion was searched with. */
+  weights: OptimizerWeights;
   positions: { id: string; x: number; y: number; rotation: number }[];
   /** Scored with the user's weighting, so suggestions can be compared fairly. */
   scores: Scores;
   improvements: string[];
   tradeoffs: string[];
   warnings: string[];
+  /** Current layout vs this suggestion, measured. */
+  comparison: ComparisonRow[];
   movedCount: number;
 }
 
@@ -49,6 +52,10 @@ export interface OptimizeResult {
   suggestions: Suggestion[];
   /** Preferences or relationships no suggestion could fully meet. */
   unmet: string[];
+  /** Pairings assumed from the furniture (shown, and can be switched off). */
+  assumed: string[];
+  /** What the room was treated as (chosen, or guessed). */
+  purpose: RoomPurpose;
   seed: number;
   algorithmVersion: number;
 }
@@ -61,21 +68,33 @@ const BUDGETS: Record<OptimizerSettings['effort'], SearchBudget & { restarts: nu
 
 interface Profile {
   emphasis: string;
-  functionWeight: number;
+  weights: OptimizerWeights;
 }
 
-/** The user's own emphasis first, then contrasting ones. */
-function profiles(settings: OptimizerSettings): Profile[] {
-  const own = functionWeightFor(settings);
-  const ownLabel = settings.mode === 'functional' ? 'Most functional' : settings.mode === 'aesthetic' ? 'Most aesthetic' : `Your balance (${Math.round(own * 100)}% function)`;
+const percent = (w: OptimizerWeights) => `${Math.round(w.functional * 100)}% function, ${Math.round(w.aesthetic * 100)}% appearance${w.fengShui > 0 ? `, ${Math.round(w.fengShui * 100)}% Feng Shui` : ''}`;
+
+/** The person's own emphasis first, then contrasting ones (Feng Shui only when it's switched on). */
+function profiles(settings: OptimizerSettings, fengShui: boolean): Profile[] {
+  const own = weightsFor(settings, fengShui);
+  const labels: Record<OptimizerSettings['mode'], string> = {
+    functional: 'Most functional',
+    aesthetic: 'Most aesthetic',
+    fengShui: 'Feng Shui / Harmony',
+    balanced: `Your balance (${percent(own)})`,
+    custom: `Your mix (${percent(own)})`,
+  };
   const all: Profile[] = [
-    { emphasis: ownLabel, functionWeight: own },
-    { emphasis: 'Most functional', functionWeight: 0.9 },
-    { emphasis: 'Balanced', functionWeight: 0.6 },
-    { emphasis: 'Most aesthetic', functionWeight: 0.2 },
+    { emphasis: labels[settings.mode], weights: own },
+    ...(fengShui ? [{ emphasis: 'Feng Shui / Harmony', weights: weightsFor({ ...settings, mode: 'fengShui' }, true) }] : []),
+    { emphasis: 'Most functional', weights: weightsFor({ ...settings, mode: 'functional' }, fengShui) },
+    { emphasis: 'Balanced', weights: { functional: 0.6, aesthetic: 0.4, fengShui: 0 } },
+    { emphasis: 'Most aesthetic', weights: weightsFor({ ...settings, mode: 'aesthetic' }, fengShui) },
   ];
-  // Drop contrasting profiles that duplicate the user's own.
-  return all.filter((p, i) => i === 0 || Math.abs(p.functionWeight - own) > 0.05).slice(0, 3);
+  // Drop contrasting profiles that duplicate one already chosen.
+  const differ = (a: OptimizerWeights, b: OptimizerWeights) => Math.max(Math.abs(a.functional - b.functional), Math.abs(a.aesthetic - b.aesthetic), Math.abs(a.fengShui - b.fengShui)) > 0.05;
+  const chosen: Profile[] = [];
+  for (const p of all) if (chosen.every((c) => differ(c.weights, p.weights))) chosen.push(p);
+  return chosen.slice(0, 3);
 }
 
 export type ProgressCallback = (done: number, total: number) => void;
@@ -84,10 +103,11 @@ export function optimize(input: OptimizeInput, onProgress: ProgressCallback = ()
   const { project, settings } = input;
   const movableIds = new Set(input.movableIds.filter((id) => project.furniture.some((f) => f.id === id && !f.locked)));
   const context = createContext(project, movableIds, settings);
-  const userWeight = functionWeightFor(settings);
+  const userWeights = weightsFor(settings, context.fengShui);
+  const nameOf = (id: string) => project.furniture.find((f) => f.id === id)?.name ?? 'A piece';
   const evaluate = (p: Project) => {
     const metrics = measure(p, context);
-    return { metrics, scores: score(p, metrics, context, userWeight) };
+    return { metrics, scores: score(p, metrics, context, userWeights) };
   };
   const base = evaluate(project);
   const movable = project.furniture.filter((f) => movableIds.has(f.id));
@@ -100,6 +120,8 @@ export function optimize(input: OptimizeInput, onProgress: ProgressCallback = ()
     baseline,
     suggestions,
     unmet,
+    assumed: context.relationships.filter((r) => r.id.startsWith('assumed:')).map((r) => RELATIONSHIP_LABELS[r.type](nameOf(r.a), nameOf(r.b))),
+    purpose: context.purpose,
     seed: settings.seed,
     algorithmVersion: ALGORITHM_VERSION,
   });
@@ -109,7 +131,7 @@ export function optimize(input: OptimizeInput, onProgress: ProgressCallback = ()
   }
 
   const budget = BUDGETS[settings.effort];
-  const runs = profiles(settings);
+  const runs = profiles(settings, context.fengShui);
   const total = runs.length * budget.restarts * (budget.steps + movable.length * 10);
   let done = 0;
   const tick = (amount: number) => {
@@ -126,7 +148,7 @@ export function optimize(input: OptimizeInput, onProgress: ProgressCallback = ()
   const unplacedCounts = new Map<string, number>();
 
   for (const [profileIndex, profile] of runs.entries()) {
-    const objective = objectiveFor(context, profile.functionWeight);
+    const objective = objectiveFor(context, profile.weights);
     for (let restart = 0; restart < budget.restarts; restart++) {
       if (shouldStop()) return result('cancelled', 'Optimization was cancelled. Your layout hasn’t changed.');
       const random = seededRandom(mixSeed(settings.seed, profileIndex, restart));
@@ -179,15 +201,17 @@ export function optimize(input: OptimizeInput, onProgress: ProgressCallback = ()
     // Positions are kept exact (not rounded): what's scored is exactly what's shown and applied.
     const arranged = withPoses(project, c.poses);
     const evaluated = evaluate(arranged);
-    const explanation = explain({ project, ...base }, { project: arranged, ...evaluated }, lockedIds, settings.walkwayWidth);
+    const explanation = explain({ project, ...base }, { project: arranged, ...evaluated }, lockedIds, settings.walkwayWidth, context.relationships);
+    const comparison = compare({ project, ...base }, { project: arranged, ...evaluated }, context.relationships);
     return {
       id: `${settings.seed}-${i}`,
       title: `Layout ${String.fromCharCode(65 + i)}`,
       emphasis: c.profile.emphasis,
-      functionWeight: c.profile.functionWeight,
+      weights: c.profile.weights,
       positions: [...c.poses].map(([id, pose]) => ({ id, x: pose.x, y: pose.y, rotation: normalizeRotation(pose.rotation) })),
       scores: evaluated.scores,
       ...explanation,
+      comparison,
       movedCount: movable.filter((f) => hasMoved(f, c.poses.get(f.id)!)).length,
     };
   });
@@ -252,13 +276,14 @@ function unmetPreferences(project: Project, suggestions: Suggestion[], context: 
   for (const [key] of results[0].preferences) {
     const values = results.map((m) => m.preferences.get(key)?.value);
     if (values.some((v) => v === null || v === undefined)) continue;
-    if (Math.max(...(values as number[])) < 0.5) {
+    // "Fully met" means at least 75%: half of "reachable from both sides" is one side, i.e. not met.
+    if (Math.max(...(values as number[])) < 0.75) {
       const [id, preference] = key.split(':') as [string, keyof typeof PREFERENCE_LABELS];
       unmet.push(`${name(id)}: “${PREFERENCE_LABELS[preference].toLowerCase()}”`);
     }
   }
   for (const r of project.relationships) {
-    if (Math.max(...results.map((m) => m.relationships.get(r.id) ?? 0)) < 0.5) unmet.push(RELATIONSHIP_LABELS[r.type](name(r.a), name(r.b)));
+    if (Math.max(...results.map((m) => m.relationships.get(r.id) ?? 0)) < 0.75) unmet.push(RELATIONSHIP_LABELS[r.type](name(r.a), name(r.b)));
   }
   return unmet;
 }

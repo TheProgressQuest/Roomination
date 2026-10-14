@@ -5,6 +5,7 @@ import { DEFAULT_OPTIMIZER, FURNITURE_KIND_LABELS, PREFERENCE_LABELS, guessKind 
 import { DEFAULT_CEILING_HEIGHT, DEFAULT_FLOOR, DEFAULT_WALL_COLOR, createId } from '../model/sample';
 import {
   CURRENT_SCHEMA_VERSION,
+  type FengShuiSettings,
   type FloorStyle,
   type Furniture,
   type FurnitureAppearance,
@@ -105,7 +106,7 @@ function parseUnsafe(data: unknown): ParseResult {
   if (version > CURRENT_SCHEMA_VERSION) {
     return { ok: false, error: 'This project was made with a newer version of Roomination. Please update the app.' };
   }
-  if (![1, 2, 3, 4, 5, 6].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
+  if (![1, 2, 3, 4, 5, 6, 7].includes(version)) return { ok: false, error: 'That project format isn’t recognised.' };
 
   try {
     return { ok: true, project: buildProject(data, version) };
@@ -167,6 +168,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     : [];
 
   const ids = new Set(furniture.map((f) => f.id));
+  const fengShui = parseFengShui(data.fengShui, features);
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     name,
@@ -179,6 +181,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     optimizer: parseOptimizer(data.optimizer),
     savedLayouts: parseSavedLayouts(data.savedLayouts, ids),
     acceptedOverlaps,
+    ...(fengShui ? { fengShui } : {}),
   };
 }
 
@@ -203,11 +206,40 @@ function parseOptimizer(raw: unknown): OptimizerSettings {
   if (!isRecord(raw)) return DEFAULT_OPTIMIZER;
   const d = DEFAULT_OPTIMIZER;
   return {
-    mode: oneOf(raw.mode, ['functional', 'balanced', 'aesthetic'] as const, d.mode),
+    mode: oneOf(raw.mode, ['functional', 'balanced', 'aesthetic', 'fengShui', 'custom'] as const, d.mode),
     functionWeight: finite(raw.functionWeight) && raw.functionWeight >= 0 && raw.functionWeight <= 1 ? raw.functionWeight : d.functionWeight,
     walkwayWidth: finite(raw.walkwayWidth) && raw.walkwayWidth >= 40 && raw.walkwayWidth <= 200 ? raw.walkwayWidth : d.walkwayWidth,
     effort: oneOf(raw.effort, ['quick', 'standard', 'thorough'] as const, d.effort),
     seed: finite(raw.seed) && Number.isInteger(raw.seed) && raw.seed >= 0 && raw.seed < 2 ** 31 ? raw.seed : d.seed,
+    weights: parseWeights(raw.weights) ?? d.weights,
+    purpose: oneOf(raw.purpose, ['living', 'bedroom', 'office', 'studio', 'dining', 'multipurpose'] as const, null),
+    assumePairings: typeof raw.assumePairings === 'boolean' ? raw.assumePairings : d.assumePairings,
+  };
+}
+
+/** Custom weights: three non-negative numbers, rescaled to add up to exactly 100. */
+function parseWeights(raw: unknown): OptimizerSettings['weights'] | null {
+  if (!isRecord(raw)) return null;
+  const values = [raw.functional, raw.aesthetic, raw.fengShui];
+  if (!values.every((v) => finite(v) && v >= 0)) return null;
+  const [f, a, fs] = values as number[];
+  const total = f + a + fs;
+  if (total <= 0) return null;
+  const functional = Math.round((f / total) * 100);
+  const aesthetic = Math.round((a / total) * 100);
+  return { functional, aesthetic, fengShui: 100 - functional - aesthetic };
+}
+
+/** Feng Shui settings; anything unusable is dropped (Feng Shui is optional). */
+function parseFengShui(raw: unknown, features: RoomFeature[]): FengShuiSettings | null {
+  if (!isRecord(raw)) return null;
+  const doors = new Set(features.filter((f) => f.kind === 'door').map((f) => f.id));
+  return {
+    enabled: raw.enabled === true,
+    method: oneOf(raw.method, ['entrance', 'compass'] as const, 'entrance'),
+    showBagua: raw.showBagua === true,
+    northBearing: finite(raw.northBearing) ? normalizeRotation(raw.northBearing) : null,
+    entranceId: typeof raw.entranceId === 'string' && doors.has(raw.entranceId) ? raw.entranceId : null,
   };
 }
 

@@ -1,24 +1,32 @@
 import { findConflicts, furniturePolygon, isSolid, type Conflict } from '../model/conflicts';
 import { featureFrame, featureZones, toRoom } from '../model/features';
-import { functionWeightFor } from '../model/furnitureKinds';
+import { weightsFor } from '../model/furnitureKinds';
 import { boundingBox, pointInPolygon, projectOntoSegment, type Polygon } from '../model/polygon';
 import { layoutStair, stairPolygons, stairToRoom } from '../model/stairs';
-import type { Furniture, FurnitureKind, OptimizerSettings, PlacementPreference, Point, Project, Relationship } from '../model/types';
+import type { Furniture, FurnitureKind, OptimizerSettings, OptimizerWeights, PlacementPreference, Point, Project, Relationship, RoomPurpose } from '../model/types';
 import { wallBodies } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
-import { analyseCirculation, createGrid, type CirculationGrid, type CirculationResult } from './circulation';
+import { analyseCirculation, baselineWalk, createGrid, type CirculationGrid, type CirculationResult } from './circulation';
+import { scoreFengShui, type FengShuiResult } from './fengShui';
+import { bedSideClearances, fixedObstacleEdges, frontClearance, frontNeed, obstaclesFor, partnersOf } from './practical';
+import { allRelationships, guessPurpose } from './semantics';
 
 /**
  * Layout scoring. Everything here is measured from geometry; nothing is guessed.
  *
- * Three groups, each 0–100:
- *   - Functional: can you get around and use things?
+ * Groups, each 0–100:
+ *   - Functional: can you get around and actually use things? (walkways, doors and stairs,
+ *     room in front of each piece, beds you can get into, pieces near what they go with,
+ *     walks that don't detour round furniture)
  *   - Aesthetic: tidy, aligned, balanced — a *subjective* judgement, reported as such.
- *   - Preferences: the user's own wishes and relationships (only if any are set).
+ *   - Feng Shui: an optional, interpretive preference score (see fengShui.ts).
+ *   - Preferences: the person's own wishes and relationships (only if any are set).
  *
- * Overall = 70% × (w·Functional + (1−w)·Aesthetic) + 30% × Preferences, where w is the
- * function weighting (from the mode or the Balanced slider). Without preferences,
- * Overall = w·Functional + (1−w)·Aesthetic.
+ * Overall = 70% × (wF·Functional + wA·Aesthetic + wS·Feng Shui) + 30% × Preferences, with
+ * the weights from the chosen mode (they add up to 1). Without preferences, the 70/30
+ * split is dropped. In every mode the result is then scaled by practicality (pairings,
+ * room in front of pieces, bed access, reachable doors and furniture): from ×0.5 for a
+ * thoroughly impractical layout to ×1 for a practical one.
  *
  * Hard constraints (staying inside the room, not colliding, keeping doorways and stairs
  * clear) are *not* part of the score: layouts that break them are rejected outright,
@@ -28,7 +36,7 @@ import { analyseCirculation, createGrid, type CirculationGrid, type CirculationR
 export interface ScoreComponent {
   id: string;
   label: string;
-  group: 'functional' | 'aesthetic' | 'preferences';
+  group: 'functional' | 'aesthetic' | 'fengShui' | 'preferences';
   /** 0–1. */
   value: number;
   /** Relative weight within its group. */
@@ -41,6 +49,8 @@ export interface Scores {
   overall: number;
   functional: number;
   aesthetic: number;
+  /** null when Feng Shui is switched off. */
+  fengShui: number | null;
   /** null when no preferences or relationships are set. */
   preferences: number | null;
   components: ScoreComponent[];
@@ -58,6 +68,13 @@ export interface Metrics {
   relationships: Map<string, number>;
   usableCount: number;
   usableTotal: number;
+  /** Free space in front of each piece that needs some (cm), with what it needs. */
+  frontSpace: { id: string; clear: number; need: number }[];
+  /** Double beds: space beside each long side (cm). */
+  bedSides: { id: string; sides: [number, number] }[];
+  /** Assumed pairings (desk + chair, …): how well each is met, keyed by relationship id. */
+  pairs: Map<string, number>;
+  fengShui: FengShuiResult | null;
 }
 
 export interface PreferenceResult {
@@ -87,6 +104,14 @@ export interface LayoutContext {
   /** Furniture that never moves in this run (locked, or not selected). */
   fixedIds: Set<string>;
   settings: OptimizerSettings;
+  /** The person's relationships plus assumed pairings (worked out once, from the starting layout). */
+  relationships: Relationship[];
+  purpose: RoomPurpose;
+  /** Walking distances with no movable furniture, for measuring detours. */
+  baselineWalk: Float64Array;
+  /** Walls, solid features and stairs as edges (they never move during a run). */
+  fixedEdges: ReturnType<typeof fixedObstacleEdges>;
+  fengShui: boolean;
 }
 
 export function createContext(project: Project, movableIds: Set<string>, settings: OptimizerSettings): LayoutContext {
@@ -115,19 +140,26 @@ export function createContext(project: Project, movableIds: Set<string>, setting
     return [stairToRoom(stair, before)];
   });
 
+  const grid = createGrid(room, fixedObstacles);
+  const roomCentre = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
   return {
     project,
     room,
-    roomCentre: { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 },
+    roomCentre,
     roomRadius: Math.hypot(box.maxX - box.minX, box.maxY - box.minY) / 2,
     walls: wallSegments(project.room),
     windows: project.features.filter((f) => f.kind === 'window').map((w) => featureFrame(w, project.room)),
     outlets: project.features.filter((f) => f.kind === 'outlet').map((o) => featureFrame(o, project.room)),
     doorPoints,
     stairPoints,
-    grid: createGrid(room, fixedObstacles),
+    grid,
     fixedIds,
     settings,
+    relationships: allRelationships(project, settings.assumePairings),
+    purpose: settings.purpose ?? guessPurpose(project),
+    baselineWalk: baselineWalk(grid, doorPoints[0] ?? roomCentre, walkway),
+    fixedEdges: fixedObstacleEdges(project),
+    fengShui: project.fengShui?.enabled ?? false,
   };
 }
 
@@ -239,7 +271,7 @@ const WALL_STANDING: FurnitureKind[] = ['television', 'bookshelf', 'cabinet', 's
 // ---------------------------------------------------------------------------
 
 /** Where a person stands to use a piece, by kind. Pieces with no "use side" return none. */
-function usePoints(item: Furniture, project: Project, walkway: number): Point[] {
+function usePoints(item: Furniture, relationships: Relationship[], walkway: number): Point[] {
   const reach = walkway * 0.35;
   const front = localToRoom(item, { x: 0, y: item.depth / 2 + reach });
   const sides = [localToRoom(item, { x: -(item.width / 2 + reach), y: 0 }), localToRoom(item, { x: item.width / 2 + reach, y: 0 })];
@@ -252,7 +284,7 @@ function usePoints(item: Furniture, project: Project, walkway: number): Point[] 
       return sides;
     case 'desk':
       // A chair set in front of the desk is the place you use it from.
-      return project.relationships.some((r) => r.type === 'inFrontOf' && r.a === item.id) ? [] : [front];
+      return relationships.some((r) => r.type === 'inFrontOf' && r.a === item.id) ? [] : [front];
     case 'chair':
     case 'table':
     case 'coffeeTable':
@@ -268,8 +300,8 @@ export function measure(project: Project, context: LayoutContext): Metrics {
   const walkway = context.settings.walkwayWidth;
   const solids = project.furniture.filter(isSolid);
   const moving = solids.filter((f) => !context.fixedIds.has(f.id));
-  const uses = solids.map((item) => ({ id: item.id, points: usePoints(item, project, walkway) })).filter((u) => u.points.length > 0);
-  const circulation = analyseCirculation(context.grid, moving.map(furniturePolygon), { doors: context.doorPoints, stairs: context.stairPoints, uses }, walkway);
+  const uses = solids.map((item) => ({ id: item.id, points: usePoints(item, context.relationships, walkway) })).filter((u) => u.points.length > 0);
+  const circulation = analyseCirculation(context.grid, moving.map(furniturePolygon), { doors: context.doorPoints, stairs: context.stairPoints, uses }, walkway, context.baselineWalk);
 
   const usedItems = uses.filter((u) => {
     const item = project.furniture.find((f) => f.id === u.id)!;
@@ -281,6 +313,14 @@ export function measure(project: Project, context: LayoutContext): Metrics {
   for (const v of context.grid.fixed) blockedCells += v;
   const freeArea = (context.grid.cols * context.grid.rows - blockedCells) * context.grid.cell ** 2 - solids.filter((f) => !context.fixedIds.has(f.id)).reduce((s, f) => s + f.width * f.depth, 0);
 
+  const obstacles = obstaclesFor(project, context.fixedEdges);
+  const frontSpace = solids.flatMap((item) => {
+    const need = frontNeed(item.kind);
+    return need === null ? [] : [{ id: item.id, clear: frontClearance(item, obstacles, partnersOf(item, context.relationships)), need }];
+  });
+  const bedSides = solids.filter((f) => f.kind === 'bed' && f.width >= 120).map((bed) => ({ id: bed.id, sides: bedSideClearances(bed, obstacles, partnersOf(bed, context.relationships)) }));
+  const assumed = context.relationships.filter((r) => r.id.startsWith('assumed:'));
+
   return {
     circulation,
     freeFloorM2: Math.max(0, freeArea) / 10_000,
@@ -289,6 +329,10 @@ export function measure(project: Project, context: LayoutContext): Metrics {
     relationships: new Map(project.relationships.map((r) => [r.id, relationshipScore(r, project)])),
     usableCount,
     usableTotal: usedItems.length,
+    frontSpace,
+    bedSides,
+    pairs: new Map(assumed.map((r) => [r.id, relationshipScore(r, project)])),
+    fengShui: context.fengShui ? scoreFengShui(project, context.purpose, circulation, context.relationships, obstacles) : null,
   };
 }
 
@@ -412,7 +456,7 @@ export function isHard(conflict: Conflict, project: Project): boolean {
 // Scoring
 // ---------------------------------------------------------------------------
 
-export function score(project: Project, metrics: Metrics, context: LayoutContext, functionWeight = functionWeightFor(context.settings)): Scores {
+export function score(project: Project, metrics: Metrics, context: LayoutContext, weights: OptimizerWeights = weightsFor(context.settings, context.fengShui)): Scores {
   const c = metrics.circulation;
   const components: ScoreComponent[] = [];
   const add = (component: ScoreComponent) => components.push({ ...component, value: Math.max(0, Math.min(1, component.value)) });
@@ -461,6 +505,48 @@ export function score(project: Project, metrics: Metrics, context: LayoutContext
       detail: `${metrics.usableCount} of ${metrics.usableTotal} pieces can be reached from their usable side`,
     });
   }
+  if (metrics.pairs.size > 0) {
+    const values = [...metrics.pairs.values()];
+    add({
+      id: 'pairs',
+      label: 'Furniture works together',
+      group: 'functional',
+      weight: 3,
+      value: mean(values),
+      detail: `${values.filter((v) => v >= 0.7).length} of ${values.length} usual pairings in place (e.g. a chair at the desk, the sofa facing the TV)`,
+    });
+  }
+  if (metrics.frontSpace.length > 0) {
+    // Full marks with the space a piece needs; nothing with under a third of it.
+    const values = metrics.frontSpace.map((f) => ramp(f.clear, f.need, f.need * 0.35));
+    add({
+      id: 'frontSpace',
+      label: 'Room to use each piece',
+      group: 'functional',
+      weight: 3,
+      value: mean(values),
+      detail: `${values.filter((v) => v >= 0.99).length} of ${values.length} pieces have enough space in front (legroom, chair pull-out, open doors)`,
+    });
+  }
+  if (metrics.bedSides.length > 0) {
+    const values = metrics.bedSides.map((b) => 0.5 * ramp(b.sides[0], 60, 30) + 0.5 * ramp(b.sides[1], 60, 30));
+    add({
+      id: 'bedAccess',
+      label: 'Beds reachable from both sides',
+      group: 'functional',
+      weight: 2,
+      value: mean(values),
+      detail: `${values.filter((v) => v >= 0.99).length} of ${values.length} double beds can be reached from both sides`,
+    });
+  }
+  add({
+    id: 'detour',
+    label: 'Short, direct walking routes',
+    group: 'functional',
+    weight: 2,
+    value: ramp(c.detour, 1.1, 1.8),
+    detail: c.detour <= 1.02 ? 'Walks are as direct as in an empty room' : `Walks are about ${Math.round((c.detour - 1) * 100)}% longer than in an empty room`,
+  });
   const clearancePenalty = metrics.softConflicts.reduce((sum, conflict) => sum + softPenalty(conflict, project), 0);
   add({
     id: 'clearances',
@@ -485,7 +571,7 @@ export function score(project: Project, metrics: Metrics, context: LayoutContext
       detail: `${alignment.filter((v) => v >= 0.99).length} of ${solids.length} pieces square to a wall`,
     });
 
-    const awkward = solids.filter((f) => hasAwkwardGap(f, solids, context, project));
+    const awkward = solids.filter((f) => hasAwkwardGap(f, solids, context));
     add({
       id: 'spacing',
       label: 'Tidy spacing',
@@ -554,6 +640,9 @@ export function score(project: Project, metrics: Metrics, context: LayoutContext
     }
   }
 
+  // --- Feng Shui (interpretive, optional) ---------------------------------------
+  for (const c of metrics.fengShui?.components ?? []) add({ ...c, group: 'fengShui' });
+
   // --- Preferences -------------------------------------------------------------
   const prefValues: number[] = [];
   for (const result of metrics.preferences.values()) if (result.value !== null) prefValues.push(result.value);
@@ -576,10 +665,16 @@ export function score(project: Project, metrics: Metrics, context: LayoutContext
   };
   const functional = groupScore('functional') ?? 0;
   const aesthetic = groupScore('aesthetic') ?? 100;
+  const fengShui = metrics.fengShui ? groupScore('fengShui') : null;
   const preferences = groupScore('preferences');
-  const blend = functionWeight * functional + (1 - functionWeight) * aesthetic;
-  const overall = preferences === null ? blend : 0.7 * blend + 0.3 * preferences;
-  return { overall, functional, aesthetic, preferences, components };
+  const blend = weights.functional * functional + weights.aesthetic * aesthetic + weights.fengShui * (fengShui ?? 0);
+  // Practicality applies in every mode: an arrangement can't make up for a chair facing a wall
+  // or a desk with no room for its chair by looking tidy or scoring well on Feng Shui.
+  const practical = components.filter((p) => PRACTICAL.has(p.id));
+  const practicality = practical.length === 0 ? 1 : practical.reduce((s, p) => s + p.value * p.weight, 0) / practical.reduce((s, p) => s + p.weight, 0);
+  const raw = preferences === null ? blend : 0.7 * blend + 0.3 * preferences;
+  const overall = raw * (0.5 + 0.5 * practicality);
+  return { overall, functional, aesthetic, fengShui, preferences, components };
 }
 
 /** How much a soft conflict costs, 0–1. Vents covered matter most. */
@@ -593,17 +688,20 @@ function softPenalty(conflict: Conflict, project: Project): number {
 }
 
 /** A gap of 3–25 cm to a wall or an unrelated piece looks accidental: neither flush nor clear. */
-function hasAwkwardGap(item: Furniture, solids: Furniture[], context: LayoutContext, project: Project): boolean {
+function hasAwkwardGap(item: Furniture, solids: Furniture[], context: LayoutContext): boolean {
   const poly = furniturePolygon(item);
   const nearestWall = Math.min(...poly.map((p) => Math.min(...context.walls.filter((w) => w.chain === 'outline').map((w) => projectOntoSegment(p, w.start, w.end).distance))));
   if (nearestWall > 3 && nearestWall < 25) return true;
-  const related = new Set(project.relationships.filter((r) => r.a === item.id || r.b === item.id).flatMap((r) => [r.a, r.b]));
+  const related = new Set(context.relationships.filter((r) => r.a === item.id || r.b === item.id).flatMap((r) => [r.a, r.b]));
   return solids.some((other) => {
     if (other.id === item.id || related.has(other.id)) return false;
     const gap = polygonGap(poly, furniturePolygon(other));
     return gap > 3 && gap < 25;
   });
 }
+
+/** Components that make a layout practical to live with, whatever the chosen emphasis. */
+const PRACTICAL = new Set(['pairs', 'frontSpace', 'bedAccess', 'connectivity', 'usable']);
 
 function mean(values: number[]): number {
   return values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;

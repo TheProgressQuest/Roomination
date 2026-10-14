@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "interior-design": {
+      "source": "alexclowe/awesome-claude-cowork-plugins",
+      "sourceType": "github",
+      "skillPath": "interior-designer/skills/interior-design/SKILL.md",
+      "computedHash": "2649703ead772f322595481a21c165e8640f595d80e257b9d18e0c82302df3da"
+    }
+  }
+}

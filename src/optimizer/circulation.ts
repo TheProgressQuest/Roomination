@@ -129,6 +129,12 @@ export interface CirculationResult {
   pocketShare: number;
   /** For each piece, which of its use points can be reached. */
   usable: Map<string, boolean[]>;
+  /**
+   * How much longer the walks from the main door to the other doors, the stairs and each
+   * piece's use point are than they'd be with no movable furniture (1 = no detour). Walks
+   * that become impossible count as twice as long.
+   */
+  detour: number;
 }
 
 const SQUEEZE = 0.6;
@@ -137,7 +143,7 @@ const SQUEEZE = 0.6;
  * @param furniture obstacles that move during optimization (added to the fixed ones)
  * @param walkway comfortable walking width in cm
  */
-export function analyseCirculation(grid: CirculationGrid, furniture: Polygon[], targets: CirculationTargets, walkway: number): CirculationResult {
+export function analyseCirculation(grid: CirculationGrid, furniture: Polygon[], targets: CirculationTargets, walkway: number, baselineWalk?: Float64Array): CirculationResult {
   const blocked = grid.fixed.slice();
   for (const polygon of furniture) rasterize(grid, polygon, blocked);
   const distance = distanceTransform(grid, blocked);
@@ -166,8 +172,24 @@ export function analyseCirculation(grid: CirculationGrid, furniture: Polygon[], 
     usable.set(use.id, use.points.map((p) => reachable(p, squeezing, (walkway * SQUEEZE) / 2 + grid.cell * 1.5)));
   }
 
+  // Walking distances (squeeze width, since stepping round furniture is allowed) versus the
+  // same walks with no movable furniture in the room.
+  let detour = 1;
+  if (baselineWalk) {
+    const walk = walkingDistances(grid, distance, start, (walkway * SQUEEZE) / 2);
+    const ends = [...otherDoors, ...targets.stairs, ...targets.uses.map((u) => u.points[0]).filter(Boolean)];
+    const ratios: number[] = [];
+    for (const p of ends) {
+      const cell = cellAt(grid, p);
+      if (cell < 0 || !Number.isFinite(baselineWalk[cell]) || baselineWalk[cell] < grid.cell * 3) continue;
+      ratios.push(Number.isFinite(walk[cell]) ? walk[cell] / baselineWalk[cell] : 2);
+    }
+    if (ratios.length > 0) detour = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  }
+
   const share = (n: number) => (freeCells === 0 ? 0 : n / freeCells);
   return {
+    detour,
     connectivity: destinations === 0 ? 1 : 1 - (unreachableDoors + unreachableStairs) / destinations,
     unreachableDoors,
     unreachableStairs,
@@ -176,6 +198,103 @@ export function analyseCirculation(grid: CirculationGrid, furniture: Polygon[], 
     pocketShare: share(Math.max(0, freeCells - steppableSqueezing)),
     usable,
   };
+}
+
+/**
+ * Walking distance (cm) from `start` to every cell, for a person needing `radius` cm of
+ * clearance (Dijkstra over 8 neighbours). A walk may end at an obstacle's edge, so each
+ * blocked cell next to a walkable one gets a distance too. Unreachable cells are Infinity.
+ */
+export function walkingDistances(grid: CirculationGrid, distance: Float32Array, start: Point, radius: number): Float64Array {
+  const { cols, rows, cell } = grid;
+  // Full precision: storing rounded (32-bit) distances while comparing exact ones would let the
+  // same "improvement" be found over and over.
+  const walk = new Float64Array(cols * rows).fill(Infinity);
+  const origin = nearestStandable(grid, distance, start, radius);
+  if (origin < 0) return walk;
+  const heap = new MinHeap();
+  walk[origin] = 0;
+  heap.push(origin, 0);
+  const diagonal = cell * Math.SQRT2;
+  while (heap.size > 0) {
+    const [i, d] = heap.pop();
+    if (d > walk[i]) continue;
+    const c = i % cols;
+    const r = (i - c) / cols;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (!dr && !dc) continue;
+        const nc = c + dc;
+        const nr = r + dr;
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+        const n = nr * cols + nc;
+        const step = dr && dc ? diagonal : cell;
+        const nd = d + step;
+        if (nd >= walk[n]) continue;
+        walk[n] = nd;
+        // Only open, wide-enough cells carry the walk further; edge cells are destinations.
+        if (distance[n] >= radius) heap.push(n, nd);
+      }
+    }
+  }
+  return walk;
+}
+
+/** Baseline walking distances: the room with only its fixed obstacles (computed once per run). */
+export function baselineWalk(grid: CirculationGrid, start: Point, walkway: number): Float64Array {
+  const distance = distanceTransform(grid, grid.fixed);
+  return walkingDistances(grid, distance, start, (walkway * SQUEEZE) / 2);
+}
+
+function cellAt(grid: CirculationGrid, p: Point): number {
+  const c = Math.floor((p.x - grid.minX) / grid.cell);
+  const r = Math.floor((p.y - grid.minY) / grid.cell);
+  return c < 0 || r < 0 || c >= grid.cols || r >= grid.rows ? -1 : r * grid.cols + c;
+}
+
+/** A small binary heap of (cell, distance) pairs, smallest distance first. */
+class MinHeap {
+  private cells: number[] = [];
+  private keys: number[] = [];
+  get size() {
+    return this.cells.length;
+  }
+  push(cell: number, key: number) {
+    this.cells.push(cell);
+    this.keys.push(key);
+    let i = this.cells.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.keys[parent] <= this.keys[i]) break;
+      this.swap(i, parent);
+      i = parent;
+    }
+  }
+  pop(): [number, number] {
+    const top: [number, number] = [this.cells[0], this.keys[0]];
+    const lastCell = this.cells.pop()!;
+    const lastKey = this.keys.pop()!;
+    if (this.cells.length > 0) {
+      this.cells[0] = lastCell;
+      this.keys[0] = lastKey;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < this.keys.length && this.keys[l] < this.keys[m]) m = l;
+        if (r < this.keys.length && this.keys[r] < this.keys[m]) m = r;
+        if (m === i) break;
+        this.swap(i, m);
+        i = m;
+      }
+    }
+    return top;
+  }
+  private swap(a: number, b: number) {
+    [this.cells[a], this.cells[b]] = [this.cells[b], this.cells[a]];
+    [this.keys[a], this.keys[b]] = [this.keys[b], this.keys[a]];
+  }
 }
 
 /** Cells a person (needing `radius` cm of clearance) can reach from `start`. */

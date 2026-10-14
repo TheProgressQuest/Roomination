@@ -1,4 +1,4 @@
-import type { FurnitureKind, OptimizerSettings, PlacementPreference, RelationshipType } from './types';
+import type { FurnitureKind, OptimizerSettings, OptimizerWeights, PlacementPreference, RelationshipType } from './types';
 
 export const FURNITURE_KIND_LABELS: Record<FurnitureKind, string> = {
   desk: 'Desk',
@@ -88,11 +88,37 @@ export const DEFAULT_OPTIMIZER: OptimizerSettings = {
   walkwayWidth: 75,
   effort: 'standard',
   seed: 1,
+  weights: { functional: 50, aesthetic: 25, fengShui: 25 },
+  purpose: null,
+  assumePairings: true,
 };
 
-/** The function weighting each mode uses (Balanced uses the user's slider). */
-export function functionWeightFor(settings: Pick<OptimizerSettings, 'mode' | 'functionWeight'>): number {
-  if (settings.mode === 'functional') return 0.9;
-  if (settings.mode === 'aesthetic') return 0.2;
-  return settings.functionWeight;
+/**
+ * How much function, appearance and Feng Shui count (fractions adding up to 1) for a mode.
+ * Feng Shui only counts when it's switched on for the project. Hard rules never depend on this.
+ */
+export function weightsFor(settings: Pick<OptimizerSettings, 'mode' | 'functionWeight' | 'weights'>, fengShuiEnabled: boolean): OptimizerWeights {
+  const fromPercent = (w: OptimizerWeights): OptimizerWeights => {
+    const fs = fengShuiEnabled ? Math.max(0, w.fengShui) : 0;
+    const total = Math.max(0, w.functional) + Math.max(0, w.aesthetic) + fs || 1;
+    return { functional: Math.max(0, w.functional) / total, aesthetic: Math.max(0, w.aesthetic) / total, fengShui: fs / total };
+  };
+  switch (settings.mode) {
+    case 'functional':
+      return { functional: 0.85, aesthetic: 0.15, fengShui: 0 };
+    case 'aesthetic':
+      return { functional: 0.3, aesthetic: 0.7, fengShui: 0 };
+    case 'fengShui':
+      return fengShuiEnabled ? { functional: 0.45, aesthetic: 0.15, fengShui: 0.4 } : { functional: 0.6, aesthetic: 0.4, fengShui: 0 };
+    case 'custom':
+      return fromPercent(settings.weights);
+    case 'balanced':
+      return { functional: settings.functionWeight, aesthetic: 1 - settings.functionWeight, fengShui: 0 };
+  }
+}
+
+/** The function weighting of a mode, ignoring Feng Shui (kept for the Balanced slider). */
+export function functionWeightFor(settings: Pick<OptimizerSettings, 'mode' | 'functionWeight' | 'weights'>): number {
+  const w = weightsFor(settings, false);
+  return w.functional / (w.functional + w.aesthetic || 1);
 }
