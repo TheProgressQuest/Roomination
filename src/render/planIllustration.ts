@@ -68,6 +68,13 @@ export function clearIllustrations() {
   cache.clear();
 }
 
+/** Frees illustrations drawn at a pixel ratio other than `keep` (e.g. after a high-resolution export). */
+export function forgetIllustrationsExcept(keep: number) {
+  for (const key of [...cache.keys()]) if (!key.endsWith(`|${keep}`)) cache.delete(key);
+}
+
+
+
 /**
  * A material tile pre-shrunk to the size it's drawn at (`px` canvas pixels per tile), with
  * high-quality smoothing. Patterns aren't mip-mapped, so drawing a big tile tiny would alias

@@ -21,6 +21,11 @@ export function setTextureResolution(pxPerCm: number) {
   resolution = pxPerCm;
 }
 
+/** Frees tiles drawn at other resolutions than the current one (e.g. after an export). */
+export function forgetOtherResolutions() {
+  for (const key of [...cache.keys()]) if (!key.endsWith(`@${resolution}`)) cache.delete(key);
+}
+
 /** How much to scale a tile's pattern to draw it at `screenPxPerCm`. */
 export function patternScale(tile: TextureTile, screenPxPerCm: number): number {
   return (screenPxPerCm * tile.widthCm) / tile.image.width;

@@ -7,7 +7,8 @@ import type { Project } from '../model/types';
 import { formatLength } from '../model/units';
 import { asRectangle, roomArea } from '../model/walls';
 import type { CanvasPalette } from '../render/palette';
-import { setTextureResolution, PX_PER_CM } from '../render/textures';
+import { forgetIllustrationsExcept } from '../render/planIllustration';
+import { forgetOtherResolutions, setTextureResolution, PX_PER_CM } from '../render/textures';
 import type { CameraPreset, PresentationPreferences } from '../state/preferences';
 
 /**
@@ -127,6 +128,9 @@ export async function renderPlanImage(o: PlanExportOptions): Promise<HTMLCanvasE
     host.remove();
     Konva.pixelRatio = savedRatio;
     setTextureResolution(PX_PER_CM);
+    // Free the large bitmaps made for the export; the plan on screen keeps its own.
+    forgetOtherResolutions();
+    forgetIllustrationsExcept(Math.min(4, savedRatio || 1));
   }
 }
 
