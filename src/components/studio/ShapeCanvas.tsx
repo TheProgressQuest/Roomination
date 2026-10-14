@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { boundingBox, type Box } from '../../model/polygon';
-import { flattenShape, isCurved } from '../../model/shape';
+import { boundingBox, type Box, type Polygon } from '../../model/polygon';
+import { flattenShape, isCurved, ringsSvgPath, type Ring } from '../../model/shape';
 import { edgeLength, insertVertex, moveControl, moveVertex } from '../../model/shapeEdit';
 import type { Point, ShapeVertex, UnitSystem } from '../../model/types';
 import { formatLength } from '../../model/units';
@@ -29,6 +29,9 @@ interface ShapeCanvasProps {
   points: ShapeVertex[];
   /** False while drawing a new outline corner by corner. */
   closed: boolean;
+  /** Holes in the outline and separate parts (from the Shape Builder): shown, not edited here. */
+  holes?: Polygon[];
+  islands?: Ring[];
   selection: StudioSelection;
   snap: number;
   units: UnitSystem;
@@ -58,7 +61,8 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
 
   // The view is fitted when the studio opens and on request; it stays put while editing,
   // so the outline never jumps under the pointer.
-  const [view, setView] = useState<Box>(() => fitView(points, reference));
+  const framed = (pts: ShapeVertex[]) => [...pts, ...(props.islands ?? []).flatMap((r) => r.outer)];
+  const [view, setView] = useState<Box>(() => fitView(framed(points), reference));
   const [pxPerCm, setPxPerCm] = useState(1);
   useEffect(() => {
     const el = svg.current;
@@ -74,7 +78,7 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
     return () => observer.disconnect();
   }, [view]);
   useEffect(() => {
-    if (reference) setView(fitView(latest.current, reference));
+    if (reference) setView(fitView(framed(latest.current), reference));
   }, [reference]);
 
   const outline = useMemo(() => (closed && points.length >= 3 ? flattenShape({ points }) : null), [points, closed]);
@@ -184,7 +188,13 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
           ))}
         </g>
 
-        {outline && <polygon className="shape-fill" points={outline.map((p) => `${p.x},${p.y}`).join(' ')} vectorEffect="non-scaling-stroke" />}
+        {outline &&
+          (props.holes?.length ? (
+            <path className="shape-fill" d={ringsSvgPath([{ outer: outline, holes: props.holes }])} fillRule="evenodd" vectorEffect="non-scaling-stroke" />
+          ) : (
+            <polygon className="shape-fill" points={outline.map((p) => `${p.x},${p.y}`).join(' ')} vectorEffect="non-scaling-stroke" />
+          ))}
+        {props.islands?.length ? <path className="shape-fill is-fixed" d={ringsSvgPath(props.islands)} fillRule="evenodd" vectorEffect="non-scaling-stroke" pointerEvents="none" /> : null}
         {!closed && points.length > 0 && (
           <polyline className="shape-draft" points={[...points, ...(hover && !measuring ? [snapped(hover)] : [])].map((p) => `${p.x},${p.y}`).join(' ')} vectorEffect="non-scaling-stroke" />
         )}
@@ -333,7 +343,7 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
         <button type="button" className="icon-button small" aria-label="Zoom out" onClick={() => setView(zoom(view, 1.25))}>
           <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
         </button>
-        <button type="button" className="icon-button small" aria-label="Fit the outline in view" onClick={() => setView(fitView(points, reference))}>
+        <button type="button" className="icon-button small" aria-label="Fit the outline in view" onClick={() => setView(fitView(framed(points), reference))}>
           <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" /></svg>
         </button>
       </div>

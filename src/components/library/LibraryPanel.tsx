@@ -24,6 +24,10 @@ export function CustomFurniturePanel({ units, onPlace }: { units: UnitSystem; on
           <Icon name="drawRoom" size={16} />
           <span className="preset-label">Draw custom furniture</span>
         </button>
+        <button type="button" className="preset" onClick={() => openStudio({ mode: 'builder' })}>
+          <Icon name="shapes" size={16} />
+          <span className="preset-label">Shape Builder</span>
+        </button>
         <button type="button" className="preset" onClick={() => openStudio({ mode: 'photos' })}>
           <Icon name="upload" size={16} />
           <span className="preset-label">Create from photos</span>

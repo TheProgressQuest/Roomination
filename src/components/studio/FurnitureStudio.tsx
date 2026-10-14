@@ -1,9 +1,9 @@
 import { Suspense, lazy, useEffect, useId, useMemo, useState } from 'react';
 import { FURNITURE_KIND_LABELS } from '../../model/furnitureKinds';
 import { boundingBox } from '../../model/polygon';
-import { flattenShape, isCurved, shapeProblem, shapeTemplate, SHAPE_TEMPLATE_LABELS, type ShapeTemplate } from '../../model/shape';
+import { flattenShape, isCurved, ringsSvgPath, scaleShape, shapeProblem, shapeRings, shapeTemplate, SHAPE_TEMPLATE_LABELS, type ShapeTemplate } from '../../model/shape';
 import { cornerAngle, deleteVertex, edgeLength, insertVertex, moveVertex, resizeShape, setCornerAngle, setEdgeLength, shapeSize, toggleCurve } from '../../model/shapeEdit';
-import type { FurnitureCategory, FurnitureKind, MaterialKind, Point, ShapeVertex, SurfaceFinish, UnitSystem } from '../../model/types';
+import type { FurnitureCategory, FurnitureKind, FurnitureShape, MaterialKind, Point, ShapeVertex, SurfaceFinish, UnitSystem } from '../../model/types';
 import { cmToInput, formatLength, inputToCm, inputUnitLabel } from '../../model/units';
 import { traceAlphaOutline } from '../../photo/trace';
 import type { FurnitureTemplate } from '../../storage/projectFile';
@@ -22,6 +22,7 @@ import type { WorkshopPhoto } from '../../photo/PhotoWorkshop';
  */
 
 const PhotoWorkshop = lazy(() => import('../../photo/PhotoWorkshop'));
+const ShapeBuilder = lazy(() => import('../../builder/ShapeBuilder'));
 
 export interface StudioResult {
   template: FurnitureTemplate;
@@ -37,6 +38,8 @@ interface FurnitureStudioProps {
   startDrawing?: boolean;
   /** Start by adding photos. */
   startWithPhotos?: boolean;
+  /** Start in the Shape Builder. */
+  startWithBuilder?: boolean;
   units: UnitSystem;
   touch: boolean;
   /** Offer "Also save to my furniture library" (off when already editing a library item). */
@@ -59,6 +62,10 @@ interface Draft {
   textures: { top?: string; front?: string; side?: string };
   photos: string[];
   points: ShapeVertex[];
+  /** Holes, separate parts and the Shape Builder recipe (the outline is edited here; these come from the builder). */
+  holes?: ShapeVertex[][];
+  islands?: FurnitureShape['islands'];
+  source?: FurnitureShape['source'];
   closed: boolean;
 }
 
@@ -89,6 +96,12 @@ const SNAPS = [
   { value: 10, label: '10 cm' },
 ];
 
+/** Width and depth of a whole shape (all its parts). */
+function shapeBox(shape: FurnitureShape): { width: number; depth: number } {
+  const box = boundingBox(shapeRings(shape).flatMap((r) => r.outer));
+  return { width: box.maxX - box.minX, depth: box.maxY - box.minY };
+}
+
 function draftFrom(t: FurnitureTemplate, drawing: boolean): Draft {
   const rectangle: ShapeVertex[] = [
     { x: -t.width / 2, y: -t.depth / 2 },
@@ -108,9 +121,23 @@ function draftFrom(t: FurnitureTemplate, drawing: boolean): Draft {
     textures: { ...(t.appearance?.textures ?? {}) },
     photos: [...(t.appearance?.photos ?? [])],
     points: drawing ? [] : (t.shape?.points ?? rectangle),
+    ...(drawing ? {} : { holes: t.shape?.holes, islands: t.shape?.islands, source: t.shape?.source }),
     closed: !drawing,
   };
 }
+
+/** The draft's whole shape: its outline plus any holes and separate parts. */
+function draftShape(draft: Draft): FurnitureShape {
+  return {
+    points: draft.points,
+    ...(draft.holes?.length ? { holes: draft.holes } : {}),
+    ...(draft.islands?.length ? { islands: draft.islands } : {}),
+    ...(draft.source?.length ? { source: draft.source } : {}),
+  };
+}
+
+/** A new outline: a recipe no longer describes a hand-edited outline, so it's let go. */
+const withPoints = (draft: Draft, points: ShapeVertex[]): Draft => ({ ...draft, points, source: undefined });
 
 export default function FurnitureStudio(props: FurnitureStudioProps) {
   const { units, touch, initial } = props;
@@ -125,6 +152,13 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
   const [snap, setSnap] = useState(1);
   const [saveToLibrary, setSaveToLibrary] = useState(false);
   const [workshopOpen, setWorkshopOpen] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  /** Remounts the drawing (refitting the view) when the builder replaces the shape. */
+  const [canvasKey, setCanvasKey] = useState(0);
+  const startWithBuilder = props.startWithBuilder ?? false;
+  useEffect(() => {
+    if (startWithBuilder) setBuilderOpen(true);
+  }, [startWithBuilder]);
   // Open the photo tools only once the studio itself is showing: modal dialogs stack in the
   // order they open, and the photo tools must sit on top.
   const startWithPhotos = props.startWithPhotos ?? false;
@@ -143,8 +177,9 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
   const toInput = (cm: number) => Math.round(cmToInput(cm, units) * 100) / 100;
   const toCm = (v: number) => inputToCm(v, units);
 
-  const problem = draft.closed ? shapeProblem({ points: draft.points }) : null;
-  const size = draft.closed && draft.points.length >= 3 ? shapeSize(draft.points) : null;
+  const problem = draft.closed ? shapeProblem(draftShape(draft)) : null;
+  const composite = !!(draft.holes?.length || draft.islands?.length);
+  const size = draft.closed && draft.points.length >= 3 ? (composite ? shapeBox(draftShape(draft)) : shapeSize(draft.points)) : null;
 
   /** Records a finished change as one undo step (nothing is recorded if nothing changed). */
   function commit(next: Draft) {
@@ -155,14 +190,36 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
     setCommitted(next);
     setMessage(null);
   }
-  const update = (changes: Partial<Draft>) => commit({ ...draft, ...changes });
+  const update = (changes: Partial<Draft>) => commit('points' in changes ? withPoints({ ...draft, ...changes }, changes.points!) : { ...draft, ...changes });
+
+  /** Stretches the whole shape (holes and separate parts too) about its centre. */
+  function resize(width: number, depth: number) {
+    if (!composite) {
+      update({ points: resizeShape(draft.points, width, depth) });
+      return;
+    }
+    const shape = draftShape(draft);
+    const box = boundingBox(shapeRings(shape).flatMap((r) => r.outer));
+    const sx = width / Math.max(box.maxX - box.minX, 1e-9);
+    const sy = depth / Math.max(box.maxY - box.minY, 1e-9);
+    const c = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+    const scaled = scaleShape(shape, sx, sy);
+    const back = (pts: ShapeVertex[]) => pts.map((v) => ({ x: v.x + c.x - c.x * sx, y: v.y + c.y - c.y * sy, ...(v.c1 && v.c2 ? { c1: { x: v.c1.x + c.x - c.x * sx, y: v.c1.y + c.y - c.y * sy }, c2: { x: v.c2.x + c.x - c.x * sx, y: v.c2.y + c.y - c.y * sy } } : {}) }));
+    commit({
+      ...draft,
+      points: back(scaled.points),
+      holes: scaled.holes?.map(back),
+      islands: scaled.islands?.map((i) => ({ points: back(i.points), ...(i.holes ? { holes: i.holes.map(back) } : {}) })),
+      source: undefined,
+    });
+  }
 
   function onCanvasChange(points: ShapeVertex[], done: boolean) {
     if (!done) {
-      setDraft({ ...draft, points });
+      setDraft(withPoints(draft, points));
       return;
     }
-    commit({ ...draft, points });
+    commit(withPoints(draft, points));
   }
 
   function undo() {
@@ -185,12 +242,12 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
   }
 
   function useTemplate(template: ShapeTemplate) {
-    commit({ ...draft, points: shapeTemplate(template).points, closed: true });
+    commit({ ...draft, points: shapeTemplate(template).points, holes: undefined, islands: undefined, source: undefined, closed: true });
     setSelection(null);
   }
 
   function startDrawing() {
-    commit({ ...draft, points: [], closed: false });
+    commit({ ...draft, points: [], holes: undefined, islands: undefined, source: undefined, closed: false });
     setSelection(null);
   }
 
@@ -204,7 +261,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       setMessage('A shape needs at least three corners.');
       return;
     }
-    commit({ ...draft, points: deleteVertex(draft.points, index) });
+    commit(withPoints(draft, deleteVertex(draft.points, index)));
     setSelection(null);
   }
 
@@ -235,7 +292,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       setMessage('No clear silhouette found. Remove the background first (Photos → Edit), or trace the outline by hand.');
       return;
     }
-    commit({ ...draft, points: outline, closed: true });
+    commit({ ...draft, points: outline, holes: undefined, islands: undefined, source: undefined, closed: true });
     setSelection(null);
     setMessage('Outline traced from the photo. Photos are rarely perfectly square-on, so check the width and depth against the real piece.');
   }
@@ -266,8 +323,9 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
     }
     // A standard piece whose outline wasn't touched stays standard (keeping its per-type 3D
     // look, e.g. a sofa's back and arms) even if its colour, material or photos changed.
-    const outlineUntouched = !initial.shape && JSON.stringify(draft.points) === JSON.stringify(start.points);
-    const { width, depth } = outlineUntouched ? { width: initial.width, depth: initial.depth } : shapeSize(draft.points);
+    const shape = draftShape(draft);
+    const outlineUntouched = !initial.shape && JSON.stringify(shape) === JSON.stringify({ points: start.points });
+    const { width, depth } = outlineUntouched ? { width: initial.width, depth: initial.depth } : shapeBox(shape);
     const textures = Object.fromEntries(Object.entries(draft.textures).filter(([, v]) => v));
     const appearance =
       draft.material || draft.photos.length > 0 || Object.keys(textures).length > 0
@@ -282,7 +340,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       color: draft.color,
       width,
       depth,
-      shape: outlineUntouched ? undefined : { points: draft.points },
+      shape: outlineUntouched ? undefined : shape,
       ...(draft.clearance > 0 ? { clearance: draft.clearance } : { clearance: undefined }),
       appearance,
     };
@@ -346,6 +404,9 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
               Reset
             </button>
             <TemplatePicker onPick={useTemplate} onDraw={startDrawing} />
+            <button type="button" className="secondary small" onClick={() => setBuilderOpen(true)} title="Combine rectangles, circles, curves and more into one shape">
+              <Icon name="shapes" size={16} /> Shape Builder
+            </button>
             {!draft.closed && (
               <button type="button" className="primary small" onClick={closeOutline} disabled={draft.points.length < 3}>
                 Close shape
@@ -355,7 +416,10 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
           </div>
 
           <ShapeCanvas
+            key={canvasKey}
             points={draft.points}
+            holes={draft.holes?.map((h) => flattenShape({ points: h }))}
+            islands={draft.islands?.map((i) => ({ outer: flattenShape({ points: i.points }), holes: (i.holes ?? []).map((h) => flattenShape({ points: h })) }))}
             closed={draft.closed}
             selection={selection}
             snap={snap}
@@ -395,8 +459,8 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
             <section className="studio-section">
               <h3>Overall size</h3>
               <div className="field-grid two">
-                <NumberField label="Width" suffix={unit} min={0} value={toInput(size.width)} onCommit={(v) => v > 0 && update({ points: resizeShape(draft.points, toCm(v), size.depth) })} />
-                <NumberField label="Depth" suffix={unit} min={0} value={toInput(size.depth)} onCommit={(v) => v > 0 && update({ points: resizeShape(draft.points, size.width, toCm(v)) })} />
+                <NumberField label="Width" suffix={unit} min={0} value={toInput(size.width)} onCommit={(v) => v > 0 && resize(toCm(v), size.depth)} />
+                <NumberField label="Depth" suffix={unit} min={0} value={toInput(size.depth)} onCommit={(v) => v > 0 && resize(size.width, toCm(v))} />
               </div>
               <p className="hint">Changing these stretches the whole outline. Front is at the bottom of the drawing.</p>
             </section>
@@ -546,6 +610,28 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
         </div>
       </div>
 
+      {builderOpen && (
+        <Suspense fallback={<p className="hint">Loading the Shape Builder…</p>}>
+          <ShapeBuilder
+            shape={draft.closed && draft.points.length >= 3 ? draftShape(draft) : null}
+            units={units}
+            color={draft.color}
+            onCancel={() => setBuilderOpen(false)}
+            onDone={({ shape }) => {
+              setBuilderOpen(false);
+              commit({ ...draft, points: shape.points, holes: shape.holes, islands: shape.islands, source: shape.source, closed: true });
+              setSelection(null);
+              setCanvasKey((k) => k + 1);
+              setMessage(
+                shape.holes?.length || shape.islands?.length
+                  ? 'Shape made in the Shape Builder. Its holes and separate parts are kept; reopen the builder to change them.'
+                  : 'Shape made in the Shape Builder. Reopen the builder to change its parts, or fine-tune the outline here.',
+              );
+            }}
+          />
+        </Suspense>
+      )}
+
       {workshopOpen && (
         <Suspense fallback={<p className="hint">Loading photo tools…</p>}>
           <PhotoWorkshop onDone={onWorkshopDone} onCancel={() => setWorkshopOpen(false)} />
@@ -643,8 +729,8 @@ function AppearancePreview({ draft }: { draft: Draft }) {
   const top = useAssetImage(draft.textures.top);
   const front = useAssetImage(draft.textures.front);
   if (!draft.closed || draft.points.length < 3) return null;
-  const outline = flattenShape({ points: draft.points });
-  const box = boundingBox(outline);
+  const rings = shapeRings(draftShape(draft));
+  const box = boundingBox(rings.flatMap((r) => r.outer));
   const w = box.maxX - box.minX || 1;
   const d = box.maxY - box.minY || 1;
   const h = draft.height || 1;
@@ -660,7 +746,7 @@ function AppearancePreview({ draft }: { draft: Draft }) {
               </pattern>
             </defs>
           )}
-          <polygon points={outline.map((p) => `${p.x},${p.y}`).join(' ')} fill={top ? `url(#${id})` : draft.color} stroke="rgba(0,0,0,0.35)" strokeWidth={Math.max(w, d) / 150} />
+          <path d={ringsSvgPath(rings)} fillRule="evenodd" fill={top ? `url(#${id})` : draft.color} stroke="rgba(0,0,0,0.35)" strokeWidth={Math.max(w, d) / 150} />
         </svg>
         <figcaption>Above</figcaption>
       </figure>

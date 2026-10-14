@@ -117,7 +117,7 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
   return (
     <Section
       title="Shape & look"
-      hint={item.shape ? 'Drawn outline: collisions and the 3D view use its exact shape.' : 'A plain rectangle. Draw a custom outline, add a material or use photos.'}
+      hint={item.shape ? (item.shape.source ? 'Built from shapes: reopen the Shape Builder to change its parts. Collisions and 3D use its exact shape.' : 'Drawn outline: collisions and the 3D view use its exact shape.') : 'A plain rectangle. Draw a custom outline, build one from shapes, add a material or use photos.'}
     >
       <p className="object-meta">
         <span className={`origin-badge is-${origin}`}>{ORIGIN_LABELS[origin]}</span>
@@ -126,6 +126,9 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
       <div className="button-row">
         <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'edit', furnitureId: item.id })}>
           <Icon name="edit" size={14} /> Edit shape & look
+        </button>
+        <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'edit', furnitureId: item.id, builder: true })}>
+          <Icon name="shapes" size={14} /> Shape Builder
         </button>
         <button
           type="button"

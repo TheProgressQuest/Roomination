@@ -794,6 +794,7 @@ export function App() {
                 initial={studio.initial}
                 startDrawing={studio.request.mode === 'new' && !studio.request.template}
                 startWithPhotos={studio.request.mode === 'photos'}
+                startWithBuilder={studio.request.mode === 'builder' || (studio.request.mode === 'edit' && !!studio.request.builder)}
                 units={project.units}
                 touch={isTouch}
                 offerLibrary={studio.request.mode !== 'library'}
@@ -950,6 +951,8 @@ function studioTitle({ request, initial }: StudioSession): string {
       return 'Draw custom furniture';
     case 'photos':
       return 'Create furniture from photos';
+    case 'builder':
+      return 'Build furniture from shapes';
     case 'edit':
       return `Edit ${initial.name}`;
     case 'library':

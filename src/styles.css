@@ -2618,6 +2618,151 @@ select {
   color: var(--accepted);
 }
 
+/* ---------- Shape Builder ---------- */
+.builder-canvas .shape-canvas-svg:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.builder-grid-line {
+  stroke: var(--border);
+}
+
+.builder-front {
+  fill: var(--text-muted);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.builder-result {
+  fill-opacity: 0.55;
+  stroke: var(--text);
+  pointer-events: none;
+}
+
+.builder-part {
+  fill: transparent;
+  stroke: var(--text-muted);
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+
+.builder-part:hover {
+  stroke: var(--accent);
+}
+
+.builder-part.is-selected {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+  stroke-width: 2px;
+}
+
+.builder-box {
+  fill: none;
+  stroke: var(--accent);
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.builder-handle {
+  fill: var(--surface-raised);
+  stroke: var(--accent);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+
+.builder-add {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 6px;
+}
+
+.builder-add-button {
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 6px;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.builder-icon {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.builder-tree,
+.builder-tree .builder-tree {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.builder-tree .builder-tree {
+  margin-top: 2px;
+  padding-left: 22px;
+  border-left: 1px dashed var(--border-strong);
+  margin-left: 12px;
+}
+
+.builder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+}
+
+.builder-row button {
+  flex: 1;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.builder-row button:hover {
+  background: var(--surface-sunk);
+}
+
+.builder-row.is-selected button {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  font-weight: 700;
+}
+
+.builder-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.builder-summary {
+  margin: 0;
+  font-weight: 700;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+}
+
+.shape-fill.is-fixed {
+  opacity: 0.7;
+}
+
 /* ---------- Responsive ---------- */
 
 /* Tablet: the plan gets priority; tools can fold to a rail; editing uses the modal. */
@@ -2801,6 +2946,8 @@ select {
   .lock-toggle,
   .score-breakdown summary,
   .corner-list button,
+  .builder-row button,
+  .builder-check,
   .studio-select select,
   .file-button {
     min-height: 44px;
