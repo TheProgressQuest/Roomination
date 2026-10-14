@@ -82,6 +82,11 @@ describe('shapes with holes and separate parts', () => {
     let deep: unknown = { id: 'leaf', type: 'shape', kind: 'square', x: 0, y: 0, rotation: 0, width: 10, depth: 10 };
     for (let i = 0; i < 20; i++) deep = { id: `g${i}`, type: 'group', children: [deep] };
     expect(parseBuilderNodes([deep])).toBeUndefined();
+    // Too many corners across all the drawn parts.
+    const big = Array.from({ length: 1500 }, (_, i) => ({ x: Math.cos(i), y: Math.sin(i) }));
+    const part = (id: string) => ({ id, type: 'shape', kind: 'outline', x: 0, y: 0, rotation: 0, width: 10, depth: 10, points: big });
+    expect(parseBuilderNodes([part('a')])).toHaveLength(1);
+    expect(parseBuilderNodes([part('a'), part('b')])).toBeUndefined();
     const bench = createFurniture({ name: 'Ring bench', x: 250, y: 250, ...normaliseShape(ring), height: 45 });
     const saved = JSON.parse(serializeProject({ ...createEmptyProject(createRectangularRoom(500, 500), 'Bad recipe'), furniture: [bench] }));
     saved.project.furniture[0].shape.source = [{ id: 'x', type: 'nonsense' }];

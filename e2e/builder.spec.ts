@@ -126,3 +126,21 @@ async function centreOf(dialog: Locator, part: string, label: string): Promise<n
   await tree.getByRole('button', { name: 'Square', exact: true }).click();
   return value;
 }
+
+test('undo in the Shape Builder never also undoes the studio underneath', async ({ page }) => {
+  await openApp(page);
+  await toolsTab(page, 'Furnish');
+  await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+  const studio = page.getByRole('dialog', { name: 'Draw custom furniture' });
+  await studio.getByLabel('Start from a shape').selectOption('lDesk');
+  await studio.getByRole('button', { name: 'Shape Builder' }).click();
+  const dialog = builder(page);
+  await dialog.getByRole('button', { name: 'Circle' }).click();
+  await dialog.locator('.shape-canvas-svg').focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(dialog.locator('.builder-tree > li')).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  // The studio still has the L-shaped desk (its one undo step wasn't used up).
+  await expect(studio.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  await expect(studio.locator('.corner-list li')).toHaveCount(6);
+});

@@ -351,6 +351,8 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
   // Keyboard shortcuts while the studio is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The Shape Builder and photo tools have their own undo while they're open on top.
+      if (builderOpen || workshopOpen) return;
       if ((e.target as HTMLElement)?.closest('input, select, textarea')) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'z') {

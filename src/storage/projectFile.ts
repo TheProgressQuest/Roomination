@@ -433,6 +433,7 @@ function parseVertices(list: unknown[], onError: () => never): ShapeVertex[] {
 export function parseBuilderNodes(raw: unknown): BuilderNode[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   let count = 0;
+  let corners = 0;
   const invalid = (): never => {
     throw new Error('invalid');
   };
@@ -448,7 +449,9 @@ export function parseBuilderNodes(raw: unknown): BuilderNode[] | undefined {
       if (r.sides !== undefined) shape.sides = finite(r.sides) && Number.isInteger(r.sides) && r.sides >= 3 && r.sides <= 64 ? r.sides : invalid();
       if (r.sweep !== undefined) shape.sweep = finite(r.sweep) && r.sweep > 0 && r.sweep <= 360 ? r.sweep : invalid();
       if (r.points !== undefined) {
-        if (!Array.isArray(r.points) || r.points.length < 3 || r.points.length > MAX_SHAPE_POINTS) invalid();
+        if (!Array.isArray(r.points) || r.points.length < 3) invalid();
+        corners += (r.points as unknown[]).length;
+        if (corners > MAX_SHAPE_POINTS) invalid();
         shape.points = parseVertices(r.points as unknown[], invalid);
       }
       if (kind === 'outline' && !shape.points) invalid();
