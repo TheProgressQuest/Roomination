@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { findConflicts } from '../model/conflicts';
 import { DEFAULT_OPTIMIZER } from '../model/furnitureKinds';
 import { createFurniture, createRectangularRoom } from '../model/sample';
@@ -18,6 +18,9 @@ import { movableIds } from './testRooms';
  * Real-world validation: suggestions must obey every hard rule AND make practical sense.
  * A high score alone never counts as success.
  */
+
+// Each test runs the optimizer one or more times (1–3 s here); CI machines can be several times slower.
+vi.setConfig({ testTimeout: 30_000 });
 
 const settings: OptimizerSettings = { ...DEFAULT_OPTIMIZER, effort: 'standard', seed: 1 };
 const run = (project: Project, changes: Partial<OptimizerSettings> = {}) => optimize({ project, settings: { ...settings, ...changes }, movableIds: movableIds(project) });
