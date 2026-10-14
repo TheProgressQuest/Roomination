@@ -138,7 +138,7 @@ describe('editing helpers', () => {
     expect(placeComponents(moved).map((p) => p.x)).toEqual([-10, 50]);
     // Turning the group and ungrouping keeps every member where it was.
     const turned = components.map((c) => (c.id === groupId ? { ...c, rotation: 90, z: 4 } : c));
-    const placedTurned = placeComponents(turned).map((p) => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, z: p.z }));
+    const placedTurned = placeComponents(turned).map((p) => ({ x: Math.round(p.x * 100) / 100 || 0, y: Math.round(p.y * 100) / 100 || 0, z: p.z }));
     const flat = ungroupComponents(turned, groupId!);
     expect(flat.some((c) => c.type === 'group')).toBe(false);
     expect(placeComponents(flat).map((p) => ({ x: p.x, y: p.y, z: p.z }))).toEqual(placedTurned);

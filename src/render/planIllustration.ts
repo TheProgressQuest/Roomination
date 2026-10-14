@@ -136,23 +136,81 @@ function paintParts(ctx: CanvasRenderingContext2D, item: Item, pxPerCm: number) 
     .sort((a, b) => a.top - b.top || a.i - b.i)
     .map(({ p }) => p);
   const visual = visualOf(item);
+  const painted: { part: FurniturePart; top: number }[] = [];
   for (const part of parts) {
     // Legs and bases are hidden from above under anything wider; skip the clutter.
     if ((part.role === 'leg' || part.role === 'base') && visual !== 'officeChair' && visual !== 'lamp') continue;
     const surface: SurfaceKind = part.surface === 'body' ? body : part.surface;
     const color = part.color ?? (part.shade ? shade(item.color, part.shade) : item.color);
+    // How far it stands above what it overlaps (what its shadow falls on).
+    const top = part.z + part.height;
+    // The surface where its shadow lands (just down and to the right of its centre).
+    const landing = { x: part.x + Math.min(6, part.width * 0.2), y: part.y + Math.min(8, part.depth * 0.35) };
+    const below = painted.filter((q) => q.top < top && contains(q.part, landing)).reduce((max, q) => Math.max(max, q.top), -Infinity);
+    if (Number.isFinite(below) && part.role !== 'leaf' && part.role !== 'book') castShadow(ctx, part, top - below, pxPerCm);
     paintPart(ctx, part, surface, color, pxPerCm);
+    painted.push({ part, top });
   }
+}
+
+/** Whether a plan point lies within a part's box (in the part's own turned frame). */
+function contains(part: FurniturePart, p: { x: number; y: number }): boolean {
+  const yaw = ((part.yaw ?? 0) * Math.PI) / 180;
+  const dx = p.x - part.x;
+  const dy = p.y - part.y;
+  const lx = dx * Math.cos(yaw) + dy * Math.sin(yaw);
+  const ly = -dx * Math.sin(yaw) + dy * Math.cos(yaw);
+  return Math.abs(lx) <= part.width / 2 && Math.abs(ly) <= part.depth / 2;
 }
 
 function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: SurfaceKind, color: string, pxPerCm: number) {
   ctx.save();
   ctx.translate(part.x, part.y);
   if (part.yaw) ctx.rotate((part.yaw * Math.PI) / 180);
+  const w = part.width;
+  const d = seenDepth(part);
+  const path = partPath(part);
+
+  // Base colour, then the material's texture multiplied over it at real-world scale.
+  ctx.fillStyle = color;
+  ctx.fill(path);
+  paintSurface(ctx, part, path, surface, w, d, color, pxPerCm);
+  ctx.restore();
+}
+
+/** A closed outline with its corners rounded by up to `r` (never more than half the shorter neighbouring edge). */
+function roundedPolygon(path: Path2D, pts: { x: number; y: number }[], r: number) {
+  const n = pts.length;
+  if (n < 3) return;
+  if (r <= 0.05) {
+    pts.forEach((q, i) => (i ? path.lineTo(q.x, q.y) : path.moveTo(q.x, q.y)));
+    path.closePath();
+    return;
+  }
+  const mid = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const start = mid(pts[n - 1], pts[0]);
+  path.moveTo(start.x, start.y);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    const prev = pts[(i - 1 + n) % n];
+    const next = pts[(i + 1) % n];
+    const limit = Math.min(Math.hypot(p.x - prev.x, p.y - prev.y), Math.hypot(next.x - p.x, next.y - p.y)) / 2;
+    const m = mid(p, next);
+    path.arcTo(p.x, p.y, m.x, m.y, Math.min(r, limit));
+  }
+  path.closePath();
+}
+
+/** Seen from above, a tilted leaf looks shorter. */
+function seenDepth(part: FurniturePart): number {
+  return part.shape === 'leaf' ? part.depth * Math.cos(((part.tilt ?? 0) * Math.PI) / 180) : part.depth;
+}
+
+/** A part's outline seen from above, in its own (turned) frame. */
+function partPath(part: FurniturePart): Path2D {
   const tilt = ((part.tilt ?? 0) * Math.PI) / 180;
   const w = part.width;
-  // Seen from above, a tilted leaf looks shorter.
-  const d = part.shape === 'leaf' ? part.depth * Math.cos(tilt) : part.depth;
+  const d = seenDepth(part);
   const path = new Path2D();
   switch (part.shape) {
     case 'rounded':
@@ -164,11 +222,9 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
       path.ellipse(0, 0, w / 2, d / 2, 0, 0, Math.PI * 2);
       break;
     case 'prism': {
-      const outline = part.outline ?? [];
       // Seen from above, a part leaning back shows its outline shortened front to back.
       const k = Math.cos(tilt);
-      outline.forEach((q, i) => (i ? path.lineTo(q.x, q.y * k) : path.moveTo(q.x, q.y * k)));
-      path.closePath();
+      roundedPolygon(path, (part.outline ?? []).map((q) => ({ x: q.x, y: q.y * k })), part.bevel === 'chamfer' ? 0 : (part.radius ?? 0));
       break;
     }
     case 'leaf':
@@ -179,10 +235,30 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
       path.closePath();
       break;
   }
+  return path;
+}
 
-  // Base colour, then the material's texture multiplied over it at real-world scale.
-  ctx.fillStyle = color;
-  ctx.fill(path);
+/**
+ * The shadow a part casts on the parts below it (back cushions on the seat, arms on the
+ * cushions, pillows on the bedding): its silhouette, softened and shifted down and to the
+ * right by its height above them, drawn only where something is already painted. This is
+ * the creasing that makes upholstery read as soft and layered from above.
+ */
+function castShadow(ctx: CanvasRenderingContext2D, part: FurniturePart, rise: number, pxPerCm: number) {
+  if (rise < 0.5) return;
+  const lift = Math.min(rise, 45);
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.translate(part.x + lift * 0.22, part.y + lift * 0.3);
+  if (part.yaw) ctx.rotate((part.yaw * Math.PI) / 180);
+  const blur = Math.max(1, Math.min(14, lift * 0.28 * pxPerCm));
+  if ('filter' in ctx) ctx.filter = `blur(${blur.toFixed(1)}px)`;
+  ctx.fillStyle = `rgba(40,30,20,${Math.min(0.3, 0.1 + lift * 0.008).toFixed(3)})`;
+  ctx.fill(partPath(part));
+  ctx.restore();
+}
+
+function paintSurface(ctx: CanvasRenderingContext2D, part: FurniturePart, path: Path2D, surface: SurfaceKind, w: number, d: number, color: string, pxPerCm: number) {
   {
     // Grain runs along the longer side, as in 3D.
     const turn = d > w && (surface === 'wood' || surface === 'metal' || surface === 'brass') ? 90 : 0;
@@ -209,14 +285,23 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   ctx.fillStyle = g;
   ctx.fillRect(-w / 2, -d / 2, w, d);
   if (soft && part.shape !== 'leaf') {
-    // Upholstery and pillows: rounded, padded edges.
-    const r = Math.max(w, d) / 2;
-    const puff = ctx.createRadialGradient(-w * 0.12, -d * 0.15, Math.min(w, d) * 0.1, 0, 0, r);
-    puff.addColorStop(0, 'rgba(255,255,255,0.12)');
-    puff.addColorStop(0.7, 'rgba(255,255,255,0)');
-    puff.addColorStop(1, 'rgba(0,0,0,0.1)');
-    ctx.fillStyle = puff;
-    ctx.fillRect(-w / 2, -d / 2, w, d);
+    // Upholstery is domed: its edges roll away from the light. A wide, blurred stroke along
+    // the part's own outline (clipped inside it) darkens them, whatever the shape; a fainter
+    // light stroke along the edges facing the light (upper left) catches the roll there.
+    const roll = Math.min(14, Math.min(w, d) * (part.role === 'pillow' || part.shape === 'ellipsoid' ? 0.45 : 0.3));
+    const blur = Math.max(1, roll * 0.35 * pxPerCm);
+    const blurred = 'filter' in ctx;
+    ctx.save();
+    if (blurred) ctx.filter = `blur(${blur.toFixed(1)}px)`;
+    ctx.strokeStyle = `rgba(60,45,30,${blurred ? 0.12 : 0.06})`;
+    ctx.lineWidth = roll;
+    ctx.stroke(path);
+    ctx.translate(roll * 0.18, roll * 0.22);
+    ctx.strokeStyle = `rgba(255,255,255,${blurred ? 0.12 : 0.06})`;
+    ctx.lineWidth = roll * 0.45;
+    ctx.globalCompositeOperation = 'screen';
+    ctx.stroke(path);
+    ctx.restore();
   }
   ctx.restore();
 
@@ -228,7 +313,6 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   ctx.globalAlpha = part.role === 'leaf' ? 0.55 : 0.6;
   ctx.lineWidth = Math.max(0.6, 0.9 / pxPerCm);
   ctx.stroke(path);
-  ctx.restore();
 }
 
 /** Where a prism's outline box is centred, relative to the part's own centre. */
@@ -250,15 +334,11 @@ function seams(ctx: CanvasRenderingContext2D, part: FurniturePart, path: Path2D,
   ctx.clip(path);
   switch (part.seams) {
     case 'piped': {
-      // A wide, soft stroke clipped inside the edge reads as a seam with a cord along it.
-      ctx.strokeStyle = shade(color, -0.3);
-      ctx.globalAlpha = 0.45;
-      ctx.lineWidth = Math.max(3, 2.2 / pxPerCm + 2.5);
-      ctx.stroke(path);
-      ctx.strokeStyle = shade(color, 0.18);
-      ctx.globalAlpha = 0.5;
-      ctx.lineWidth = Math.max(1.6, 2.5);
-      ctx.stroke(path);
+      // One soft seam line about a centimetre inside the edge.
+      ctx.strokeStyle = shade(color, -0.28);
+      ctx.globalAlpha = 0.32;
+      ctx.lineWidth = line;
+      insetStroke(ctx, part, 1.2);
       break;
     }
     case 'stitched': {
@@ -365,7 +445,8 @@ function detail(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: Sur
     }
     case 'cushion':
     case 'pillow': {
-      // Piping: a seam just inside the edge.
+      // Piping: a seam just inside the edge (built-in designs; components choose their own seams).
+      if (part.seams || part.shape !== 'rounded') break;
       ctx.strokeStyle = shade(color, -0.22);
       ctx.globalAlpha = 0.35;
       ctx.lineWidth = line;

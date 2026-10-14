@@ -20,6 +20,8 @@ interface FeatureShapeProps extends InteractionProps {
   status: ConflictStatus;
   showClearance: boolean;
   palette: CanvasPalette;
+  /** Presentation plan: architectural glazing and brass door leaves instead of technical symbols. */
+  presentation?: boolean;
   onTransformEnd: (node: Konva.Node) => void;
 }
 
@@ -39,7 +41,7 @@ export const FeatureShape = memo(function FeatureShape(props: FeatureShapeProps)
   const showZones = props.showClearance || selected || status !== undefined;
   const zones = showZones ? localZones(feature).filter((zone) => zone.type === 'clearance') : [];
 
-  const symbol = drawSymbol(feature, s, w, d, wallBand, palette, highlight);
+  const symbol = (props.presentation && presentationSymbol(feature, s, w, wallBand, highlight)) || drawSymbol(feature, s, w, d, wallBand, palette, highlight);
 
   return (
     <Group
@@ -92,6 +94,95 @@ function hitBox(x0: number, y0: number, x1: number, y1: number, min = 22): Box {
   const width = Math.max(x1 - x0, min);
   const height = Math.max(y1 - y0, min);
   return { x: (x0 + x1) / 2 - width / 2, y: (y0 + y1) / 2 - height / 2, width, height };
+}
+
+/** Brass door hardware and leaves, as in architectural presentation drawings. */
+const BRASS = { colorStops: [0, '#ead7a4', 0.5, '#c9a45c', 1, '#a9853f'] as (number | string)[] };
+const FRAME = '#f4f2ee';
+const FRAME_LINE = 'rgba(40,40,40,0.55)';
+const GLASS = '#dfe7ea';
+
+/**
+ * Presentation versions of windows and doors (null for anything drawn as in the technical
+ * plan). Exact positions and sizes are unchanged: only the drawing style differs.
+ */
+function presentationSymbol(feature: RoomFeature, s: number, w: number, band: WallBand, highlight: string | null): { shapes: ReactNode; hit: Box } | null {
+  const t = band.height;
+  const y0 = band.top;
+  const stroke = highlight ?? FRAME_LINE;
+  if (feature.kind === 'window') {
+    // The wall opening holds a pale frame with a sill line on each face and a pane of glass
+    // across the middle, drawn with fine lines.
+    const pane = Math.max(1.5, t * 0.18);
+    return {
+      shapes: (
+        <Group listening={false}>
+          <Rect x={-w / 2} y={y0} width={w} height={t} fill={FRAME} />
+          <Rect x={-w / 2} y={y0 + t / 2 - pane / 2} width={w} height={pane} fill={GLASS} />
+          {[y0 + 0.5, y0 + t - 0.5, y0 + t / 2 - pane / 2, y0 + t / 2 + pane / 2].map((y, i) => (
+            <Line key={i} points={[-w / 2, y, w / 2, y]} stroke={stroke} strokeWidth={i < 2 ? 1 : 0.75} />
+          ))}
+          <Line points={[-w / 2 + 0.5, y0, -w / 2 + 0.5, y0 + t]} stroke={stroke} strokeWidth={1} />
+          <Line points={[w / 2 - 0.5, y0, w / 2 - 0.5, y0 + t]} stroke={stroke} strokeWidth={1} />
+        </Group>
+      ),
+      hit: hitBox(-w / 2, y0, w / 2, Math.max(8, y0 + t)),
+    };
+  }
+  if (feature.kind === 'radiator') {
+    // A white panel with fine fins, softly shadowed.
+    const d = Math.max(3, feature.depth * s);
+    const fins = Math.max(2, Math.floor(feature.width / 6));
+    return {
+      shapes: (
+        <Group listening={false}>
+          <Rect x={-w / 2} y={0} width={w} height={d} fill="#f7f6f3" stroke={highlight ?? 'rgba(60,60,60,0.45)'} strokeWidth={highlight ? 1.5 : 0.8} cornerRadius={1.5} shadowColor="rgba(0,0,0,0.25)" shadowBlur={3} shadowOffset={{ x: 1, y: 1.5 }} />
+          {Array.from({ length: fins - 1 }, (_, i) => {
+            const x = -w / 2 + ((i + 1) * w) / fins;
+            return <Line key={i} points={[x, 1, x, d - 1]} stroke="rgba(60,60,60,0.25)" strokeWidth={0.6} />;
+          })}
+        </Group>
+      ),
+      hit: hitBox(-w / 2, 0, w / 2, d),
+    };
+  }
+  if (feature.kind === 'door') {
+    const leafT = Math.max(2.5, 4 * s);
+    if (feature.doorType === 'sliding') {
+      return {
+        shapes: (
+          <Group listening={false}>
+            <Rect x={-w / 2} y={y0 + t * 0.3 - leafT / 2} width={w * 0.56} height={leafT} fillLinearGradientStartPoint={{ x: 0, y: 0 }} fillLinearGradientEndPoint={{ x: w * 0.56, y: 0 }} fillLinearGradientColorStops={BRASS.colorStops} stroke={highlight ?? undefined} strokeWidth={highlight ? 1.5 : 0} />
+            <Rect x={-w * 0.06} y={y0 + t * 0.7 - leafT / 2} width={w * 0.56} height={leafT} fillLinearGradientStartPoint={{ x: 0, y: 0 }} fillLinearGradientEndPoint={{ x: w * 0.56, y: 0 }} fillLinearGradientColorStops={BRASS.colorStops} stroke={highlight ?? undefined} strokeWidth={highlight ? 1.5 : 0} />
+          </Group>
+        ),
+        hit: hitBox(-w / 2, y0, w / 2, Math.max(8, y0 + t)),
+      };
+    }
+    const leaves = doorLeaves(feature);
+    const swingDepth = feature.swing === 'out' ? -w : w;
+    return {
+      shapes: (
+        <Group listening={false}>
+          {leaves.map((leaf, i) => {
+            const r = leaf.radius * s;
+            const hx = leaf.hinge.x * s;
+            const open = leaf.openDeg;
+            const arc = arcPoints(hx, 0, r, leaf.openDeg, leaf.closedDeg, 24);
+            return (
+              <Group key={i}>
+                <Line points={arc.flatMap((p) => [p.x, p.y])} stroke={highlight ?? 'rgba(60,60,60,0.5)'} strokeWidth={highlight ? 1.5 : 0.9} />
+                {/* The leaf, open: a slim brass panel from the hinge. */}
+                <Rect x={hx} y={0} width={r} height={leafT} offsetY={leafT / 2} rotation={open} fillLinearGradientStartPoint={{ x: 0, y: 0 }} fillLinearGradientEndPoint={{ x: 0, y: leafT }} fillLinearGradientColorStops={BRASS.colorStops} shadowColor="rgba(0,0,0,0.35)" shadowBlur={3} shadowOffset={{ x: 1, y: 1.5 }} stroke={highlight ?? undefined} strokeWidth={highlight ? 1.5 : 0} cornerRadius={leafT / 2} />
+              </Group>
+            );
+          })}
+        </Group>
+      ),
+      hit: hitBox(-w / 2, Math.min(band.top, swingDepth * 0.35), w / 2, Math.max(8, band.top + band.height, swingDepth * 0.35)),
+    };
+  }
+  return null;
 }
 
 function drawSymbol(

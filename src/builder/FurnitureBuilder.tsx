@@ -216,6 +216,7 @@ export default function FurnitureBuilder(props: Props) {
     setFuture([committed, ...future]);
     setDraft(previous);
     setCommitted(previous);
+    setSelected((ids) => ids.filter((id) => previous.components.some((c) => c.id === id)));
   }
   function redo() {
     const next = future[0];
@@ -224,6 +225,7 @@ export default function FurnitureBuilder(props: Props) {
     setPast([...past, committed]);
     setDraft(next);
     setCommitted(next);
+    setSelected((ids) => ids.filter((id) => next.components.some((c) => c.id === id)));
   }
 
   const extent = useMemo(() => componentExtent(draft), [draft]);
@@ -598,7 +600,8 @@ export default function FurnitureBuilder(props: Props) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const round = (v: number) => Math.round(v * 100) / 100;
+// `|| 0` turns −0 into 0, so saved data reads back identically.
+const round = (v: number) => Math.round(v * 100) / 100 || 0;
 
 /** Edge and footprint components follow the footprint: they can't be dragged freely. */
 const movable = (c: FurnitureComponent) => c.shape !== 'edge' && c.shape !== 'footprint';

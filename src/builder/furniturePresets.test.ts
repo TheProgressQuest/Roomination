@@ -20,6 +20,12 @@ describe('furniture presets', () => {
       const again = recomputeComponents(piece);
       expect(again.failed).toEqual([]);
       expect(again.components).toEqual(piece.components);
+      // Stored values are tidy, so saving and reloading never changes them.
+      for (const c of piece.components) {
+        expect(c.rotation).toBeGreaterThanOrEqual(0);
+        expect(c.rotation).toBeLessThan(360);
+        for (const v of [c.x, c.y, c.z, c.width, c.depth, c.height]) expect(Math.round(v * 100) / 100).toBe(v);
+      }
       // And they render as parts.
       expect(componentParts(piece.components).length).toBe(placeComponents(piece.components).length);
     });

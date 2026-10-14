@@ -291,6 +291,7 @@ export function FloorPlan(props: FloorPlanProps) {
         status={statusOf(feature.id)}
         showClearance={props.showClearances && editingAids}
         palette={palette}
+        presentation={!!props.presentation}
         draggable={canDrag(feature.id)}
         registerNode={registerNode(feature.id)}
         onSelect={() => latest.current.props.onSelect({ kind: 'object', id: feature.id })}

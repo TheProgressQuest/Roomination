@@ -253,12 +253,13 @@ export function edgeBand(item: Item, attach: EdgeAttachment): Point[] | null {
   const last = unit(line[line.length - 2], line[line.length - 1]);
   const mitreStart = !closed && attach.miterStart && attach.startTrim <= 0;
   const mitreEnd = !closed && attach.miterEnd && attach.endTrim <= 0;
-  // A mitred end reaches past the corner first (then is cut back along the bisector), so
-  // bands meeting at an inward-turning corner still close up.
+  // An end that isn't shortened reaches past the corner, so the footprint trims it flush with
+  // the neighbouring edge (or a mitre cuts it back along the bisector). Only a shortened end
+  // is cut square.
   const reach = hi * 3 + 5;
   const ext = [...line];
-  if (mitreStart) ext[0] = { x: line[0].x - first.x * reach, y: line[0].y - first.y * reach };
-  if (mitreEnd) ext[ext.length - 1] = { x: line[line.length - 1].x + last.x * reach, y: line[line.length - 1].y + last.y * reach };
+  if (attach.startTrim <= 0) ext[0] = { x: line[0].x - first.x * reach, y: line[0].y - first.y * reach };
+  if (attach.endTrim <= 0) ext[ext.length - 1] = { x: line[line.length - 1].x + last.x * reach, y: line[line.length - 1].y + last.y * reach };
   const outer = offsetLine(ext, lo, false);
   const inner = offsetLine(ext, hi, false);
   const raw = tidy([...outer, ...inner.reverse()]);
@@ -284,8 +285,8 @@ export function edgeBand(item: Item, attach: EdgeAttachment): Point[] | null {
       const current = band!;
       band = safely((step) => largest(clip.difference([toRing(current, step)], [toRing(w, step)])), current);
     };
-    cut(line[0], prevDir, first, mitreStart, true);
-    if (band) cut(line[line.length - 1], last, nextDir, mitreEnd, false);
+    if (mitreStart || attach.startTrim > 0) cut(line[0], prevDir, first, mitreStart, true);
+    if (band && (mitreEnd || attach.endTrim > 0)) cut(line[line.length - 1], last, nextDir, mitreEnd, false);
   }
   return band;
 }
@@ -455,4 +456,5 @@ export function recomputeComponents(item: Item & Pick<Furniture, 'components'>):
   return { components: list, failed };
 }
 
-const round = (v: number) => Math.round(v * 100) / 100;
+// `|| 0` turns −0 into 0, so saved data reads back identically.
+const round = (v: number) => Math.round(v * 100) / 100 || 0;

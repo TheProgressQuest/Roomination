@@ -632,7 +632,9 @@ export function App() {
   // Appearance
   // ---------------------------------------------------------------------------
 
-  const board = useMemo(() => boardAppearance(preferences.board, theme), [preferences.board, theme]);
+  // The presentation plan sits on a clean board: its pattern shows only with the Grid option on.
+  const quietBoard = preferences.planStyle === 'presentation' && !preferences.presentation.grid;
+  const board = useMemo(() => boardAppearance(quietBoard ? { ...preferences.board, showGrid: false } : preferences.board, theme), [preferences.board, theme, quietBoard]);
   const palette = useMemo(() => canvasPalette(theme, board.isDark, project.room.floor.color), [theme, board.isDark, project.room.floor.color]);
 
   const editorProps = { project, conflicts, dispatch, onDelete: deleteObject, onSelect: select };

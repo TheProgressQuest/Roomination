@@ -269,11 +269,11 @@ export function upholster(piece: { width: number; depth: number; shape?: Furnitu
           x: round(cx),
           y: round(cy),
           z: o.deckHeight + o.seatThickness - 3,
-          width: size,
+          width: round(size),
           depth: 14,
           // Leaning back raises the top a little: keep it below the backrest.
-          height: Math.max(12, Math.min(size * 0.85, o.backHeight - (o.deckHeight + o.seatThickness - 3) - 6)),
-          rotation: round((Math.atan2(u.y, u.x) * 180) / Math.PI),
+          height: round(Math.max(12, Math.min(size * 0.85, o.backHeight - (o.deckHeight + o.seatThickness - 3) - 6))),
+          rotation: round((((Math.atan2(u.y, u.x) * 180) / Math.PI) % 360 + 360) % 360),
           tilt: 14,
           material: 'linen',
           color: o.accent ?? '#9aa58a',
@@ -290,7 +290,8 @@ const norm = (v: Point) => {
   return { x: v.x / len, y: v.y / len };
 };
 const cross = (a: Point, b: Point) => a.x * b.y - a.y * b.x;
-const round = (v: number) => Math.round(v * 100) / 100;
+// `|| 0` turns −0 into 0, so saved data reads back identically.
+const round = (v: number) => Math.round(v * 100) / 100 || 0;
 
 // ---------------------------------------------------------------------------
 // Templates

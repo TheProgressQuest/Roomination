@@ -152,7 +152,9 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           offsetX={Math.max(0, w - 2 * Math.min(10 * scale, w / 6)) / 2}
           offsetY={Math.max(0, h - 2 * Math.min(10 * scale, h / 6)) / 2}
           stroke={shade(item.color, -0.25)}
-          strokeWidth={Math.max(1.5, 3 * scale)}
+          // The presentation plan keeps rugs soft: a fine, faint border instead of a band.
+          strokeWidth={presentation ? Math.max(0.75, 1.2 * scale) : Math.max(1.5, 3 * scale)}
+          opacity={presentation ? 0.45 : 1}
           cornerRadius={2}
           listening={false}
         />

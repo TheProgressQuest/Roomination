@@ -340,5 +340,6 @@ export function scaleComponents(components: readonly FurnitureComponent[], sx: n
   });
 }
 
-const round = (v: number) => Math.round(v * 100) / 100;
+// `|| 0` turns −0 into 0, so saved data reads back identically.
+const round = (v: number) => Math.round(v * 100) / 100 || 0;
 const normalizeAngle = (deg: number) => round(((deg % 360) + 360) % 360);
