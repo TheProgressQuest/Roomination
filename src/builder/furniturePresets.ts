@@ -28,6 +28,7 @@ export type PresetId =
   | 'loveseat'
   | 'deepLoveseat'
   | 'angledLoveseat'
+  | 'wedgeLoveseat'
   | 'cornerSofa'
   | 'sectional'
   | 'chaise'
@@ -44,6 +45,7 @@ export const PRESETS: { id: PresetId; label: string; hint: string }[] = [
   { id: 'loveseat', label: 'Loveseat', hint: '2 seats' },
   { id: 'deepLoveseat', label: 'Deep-seat loveseat', hint: 'Low, deep, one big cushion' },
   { id: 'angledLoveseat', label: 'Angled-back loveseat', hint: 'Back in two angled sections' },
+  { id: 'wedgeLoveseat', label: 'Corner wedge loveseat', hint: 'Angled back, deep seat, cut front corner' },
   { id: 'cornerSofa', label: 'Corner sofa', hint: 'L-shaped, back on two sides' },
   { id: 'sectional', label: 'Sectional sofa', hint: 'L-shaped with a long side' },
   { id: 'chaise', label: 'Chaise lounge', hint: 'Back at one end' },
@@ -345,7 +347,7 @@ export interface KeepFootprint {
   shape?: FurnitureShape;
 }
 
-const SEATING: PresetId[] = ['sofa', 'loveseat', 'deepLoveseat', 'angledLoveseat', 'cornerSofa', 'sectional', 'chaise', 'armchair'];
+const SEATING: PresetId[] = ['sofa', 'loveseat', 'deepLoveseat', 'angledLoveseat', 'wedgeLoveseat', 'cornerSofa', 'sectional', 'chaise', 'armchair'];
 
 /**
  * A template. With `keep`, it's built onto that footprint and height instead (the person's
@@ -378,6 +380,8 @@ const SEATING_EDGES: Record<string, (n: number) => Partial<UpholsteryOptions>> =
   chaise: () => ({ backEdges: [3], armEdges: [0] }),
   // Two back sections need at least five sides; otherwise one back along edge 1.
   angledLoveseat: (n) => (n >= 5 ? { backEdges: [0, 1], armEdges: [2, n - 1] } : { backEdges: [0], armEdges: [1, 3] }),
+  // Two back sections (an angled one and one along the wall) on a six-sided footprint; no arms.
+  wedgeLoveseat: (n) => (n >= 6 ? { backEdges: [0, 1], armEdges: [] } : { backEdges: [0], armEdges: [] }),
   cornerSofa: (n) => (n >= 6 ? { backEdges: [0, n - 1], armEdges: [1, n - 2] } : { backEdges: [0, 3], armEdges: [1, 2] }),
   sectional: (n) => (n >= 6 ? { backEdges: [0], armEdges: [1, n - 1] } : { backEdges: [0], armEdges: [1, 3] }),
 };
@@ -388,6 +392,7 @@ const PRESET_OPTIONS: Partial<Record<PresetId, Partial<UpholsteryOptions>>> = {
   loveseat: { seatCushions: 2, pillows: 2 },
   deepLoveseat: { deckHeight: 30, seatThickness: 14, backThickness: 24, armThickness: 22, armHeight: 56, backCushionDepth: 0, legHeight: 3, softness: 7, pillows: 1 },
   angledLoveseat: { deckHeight: 32, seatThickness: 14, backThickness: 22, armThickness: 20, armHeight: 58, backCushionDepth: 0, legHeight: 3, softness: 7, pillows: 1 },
+  wedgeLoveseat: { deckHeight: 30, seatThickness: 15, backThickness: 16, backCushionDepth: 20, legHeight: 2, softness: 7, pillows: 0, armHeight: 60 },
   cornerSofa: { seatCushions: 2, splitAlong: 2, pillows: 1 },
   sectional: { seatCushions: 3, splitAlong: 5, pillows: 2 },
   chaise: { backHeight: 80, armHeight: 55, backCushionDepth: 0, seatThickness: 10, deckHeight: 34, backThickness: 18, armThickness: 12 },
@@ -407,6 +412,13 @@ function presetAtTemplateSize(id: PresetId): BuiltPiece {
       // The back is two sections meeting at an angle; arms on the short sides.
       const shape: FurnitureShape = { points: pts([[-88, -12], [0, -48], [88, -12], [80, 48], [-80, 48]]) };
       return seating('Angled-back loveseat', 'sofa', 176, 96, 74, shape, { backEdges: [0, 1], armEdges: [2, 4], deckHeight: 32, seatThickness: 14, backThickness: 22, armThickness: 20, armHeight: 58, backCushionDepth: 0, legHeight: 3, softness: 7, pillows: 1 });
+    }
+    case 'wedgeLoveseat': {
+      // A corner wedge: an angled back section on the left meeting a straight back along the
+      // wall, a deep seat, a cut front-left corner and a short left side. Typical sizes only.
+      const shape: FurnitureShape = { points: pts([[-90, -10], [-35, -60], [90, -60], [90, 60], [-45, 60], [-90, 20]]) };
+      const piece = seating('Corner wedge loveseat', 'sofa', 180, 120, 76, shape, { backEdges: [0, 1], armEdges: [], ...PRESET_OPTIONS.wedgeLoveseat });
+      return { ...piece, color: '#5b3b33', material: 'velvet' };
     }
     case 'cornerSofa': {
       const shape: FurnitureShape = { points: pts([[-125, -110], [125, -110], [125, -15], [-30, -15], [-30, 110], [-125, 110]]) };

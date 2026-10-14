@@ -211,7 +211,8 @@ function velvet(ctx: CanvasRenderingContext2D, size: number) {
     const dark = random() > 0.5;
     wrapped(size, (dx, dy) => {
       const g = ctx.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
-      g.addColorStop(0, dark ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.0)');
+      // Very subtle: on dark fabrics stronger clouds read as stains.
+      g.addColorStop(0, dark ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.0)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.fillRect(x + dx - r, y + dy - r, r * 2, r * 2);
