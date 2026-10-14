@@ -31,7 +31,7 @@ describe('projectStore', () => {
     await saveProject('current', phase1 as never);
     const loaded = await loadProject('current');
     expect(loaded?.name).toBe('Old room');
-    expect(loaded?.schemaVersion).toBe(6);
+    expect(loaded?.schemaVersion).toBe(7);
   });
 
   it('lists unreadable records instead of hiding them', async () => {
