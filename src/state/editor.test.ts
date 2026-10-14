@@ -520,3 +520,20 @@ describe('Phase 3A review regressions', () => {
     expect(run(atWall, { type: 'furniture/update', id, changes: { width: 200 } }).notice?.message).toMatch(/that size would need it to shift/);
   });
 });
+
+describe('Feng Shui settings', () => {
+  it('are remembered without becoming undo steps, and keep only sensible values', () => {
+    const room = createRectangularRoom(400, 300);
+    const door = createFeature('door', { type: 'wall', wallId: room.outline[2].id, offset: 200 }, room);
+    const window = createFeature('window', { type: 'wall', wallId: room.outline[0].id, offset: 200 }, room);
+    const state = createEditorState({ ...createEmptyProject(room), features: [door, window] });
+    const on = run(state, { type: 'fengShui/settings', changes: { enabled: true, northBearing: 450, entranceId: door.id } });
+    expect(on.present.fengShui).toMatchObject({ enabled: true, method: 'entrance', northBearing: 90, entranceId: door.id });
+    expect(canUndo(on)).toBe(false);
+    // A window can't be the entrance.
+    expect(run(on, { type: 'fengShui/settings', changes: { entranceId: window.id } }).present.fengShui?.entranceId).toBeNull();
+    // Custom weights are kept between 0 and 100.
+    const tuned = run(on, { type: 'optimizer/settings', changes: { weights: { functional: 150, aesthetic: -5, fengShui: 20 } } });
+    expect(tuned.present.optimizer.weights).toEqual({ functional: 100, aesthetic: 0, fengShui: 20 });
+  });
+});

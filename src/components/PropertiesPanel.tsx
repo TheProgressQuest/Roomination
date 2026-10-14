@@ -30,7 +30,7 @@ export function PropertiesPanel({ project, selection, conflicts, dispatch, onDel
               🛋️
             </div>
             <h2>Nothing selected</h2>
-            <p className="hint">Click something on the plan, or pick it from “In this room”, to edit it.</p>
+            <p className="hint">Click something on the plan, or pick it from a list in the tools (Build or Furnish), to edit it.</p>
             <ul className="shortcut-list">
               <li><kbd>Drag</kbd> move · doors &amp; windows slide along walls</li>
               <li><kbd>Arrow keys</kbd> nudge 1 cm (Shift: 10 cm)</li>

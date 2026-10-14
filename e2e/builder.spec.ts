@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { exportProject, lightweight3D, openApp, props, saveAndReload, selectInList, tools } from './helpers';
+import { exportProject, lightweight3D, openApp, props, saveAndReload, selectInList, tools, toolsTab } from './helpers';
 
 /**
  * The Shape Builder end to end: basic shapes → exact sizes → cut a hole → save → the hole is
@@ -19,6 +19,7 @@ test.beforeEach(async ({ page }) => lightweight3D(page));
 
 test('build a ring table from a square with a square cut out, then reopen and change it', async ({ page }) => {
   const errors = await openApp(page);
+  await toolsTab(page, 'Furnish');
   await tools(page).getByRole('button', { name: 'Shape Builder' }).click();
   const dialog = builder(page);
   await expect(dialog).toBeVisible();
@@ -79,6 +80,7 @@ test('build a ring table from a square with a square cut out, then reopen and ch
 
 test('group separate parts, merge overlapping ones, and drag and turn with the keyboard', async ({ page }) => {
   const errors = await openApp(page);
+  await toolsTab(page, 'Furnish');
   await tools(page).getByRole('button', { name: 'Shape Builder' }).click();
   const dialog = builder(page);
   await dialog.getByRole('button', { name: 'Circle' }).click();

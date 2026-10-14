@@ -66,15 +66,39 @@ export async function setNum(scope: Locator, label: string, value: number) {
 export const radio = (scope: Locator, group: string, option: string) =>
   scope.getByRole('radiogroup', { name: group }).getByRole('radio', { name: option, exact: true });
 
-/** Furniture, features and stairs listed under "In this room" (the walls list is separate). */
-export const objectRows = (page: Page) => tools(page).locator('.object-list').first().locator('li');
-export const wallRows = (page: Page) => tools(page).locator('.object-list').nth(1).locator('li');
+export type ToolsTabName = 'Build' | 'Furnish' | 'Design' | 'Optimize';
 
-export async function selectInList(page: Page, name: string) {
-  await tools(page).locator('.object-list').getByRole('button', { name: new RegExp(`^${name}`) }).first().click();
+/** Opens a tab of the tools panel (Build, Furnish, Design, Optimize). */
+export async function toolsTab(page: Page, name: ToolsTabName) {
+  // The Furnish tab's name also says how many checks are open ("Furnish 2 to check").
+  const tab = tools(page).getByRole('tab', { name: new RegExp(`^${name}`) });
+  if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
 }
 
+/** Furniture listed in the Furnish tab (open it first). */
+export const furnitureRows = (page: Page) => tools(page).locator('.furniture-list li');
+/** Features and stairs listed in the Build tab (open it first). */
+export const structureRows = (page: Page) => tools(page).locator('.structure-list li');
+/** Walls listed in the Build tab (open it first). */
+export const wallRows = (page: Page) => tools(page).locator('.wall-list li');
+
+/** Selects something by name from the tools lists (furniture first, then features, stairs and walls). */
+export async function selectInList(page: Page, name: string) {
+  for (const tab of ['Furnish', 'Build'] as const) {
+    await toolsTab(page, tab);
+    const button = tools(page).locator('.object-list').getByRole('button', { name: new RegExp(`^${name}`) }).first();
+    if ((await button.count()) > 0) {
+      await button.click();
+      return;
+    }
+  }
+  throw new Error(`Nothing called ${name} in the tools lists`);
+}
+
+/** The room checks summary (in the Furnish tab). */
 export async function checksText(page: Page): Promise<string> {
+  await toolsTab(page, 'Furnish');
   return (await tools(page).locator('.checks, .checks-clear').first().textContent()) ?? '';
 }
 

@@ -5,7 +5,7 @@ import { ROOMS_3D } from '../src/scene3d/testRooms';
 import type { Project } from '../src/model/types';
 import type {} from '../src/scene3d/diagnostics';
 import { serializeProject } from '../src/storage/projectFile';
-import { exportProject, importProject, lightweight3D, openApp, props, selectInList, tools } from './helpers';
+import { exportProject, importProject, lightweight3D, openApp, props, selectInList, tools, toolsTab } from './helpers';
 
 /**
  * The 3D view. Headless Chromium renders WebGL in software (SwiftShader), so these tests
@@ -186,7 +186,7 @@ test.describe('3D view', { tag: '@3d' }, () => {
 
   test('wall colour is saved with the project and can be undone', async ({ page }) => {
     await openApp(page);
-    await tools(page).locator('summary', { hasText: 'Floor & walls' }).click();
+    await toolsTab(page, 'Design');
     await tools(page).getByLabel('Wall colour (3D)').fill('#336699');
     expect((await exportProject(page)).room.wallColor).toBe('#336699');
     await page.getByRole('button', { name: 'Undo' }).click();

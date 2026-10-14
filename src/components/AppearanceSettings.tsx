@@ -69,7 +69,7 @@ export function BoardSettings({ preferences, onPreferences }: Pick<AppearancePro
     <div className="stack">
       <SegmentedControl label="Board style" value={board.style} options={BOARD_STYLES} onChange={(style) => setBoard({ style, color: null })} />
       <div className="color-row">
-        <ColorField label="Board colour" value={board.color ?? '#f5ecdf'} onChange={(color) => setBoard({ color })} />
+        <ColorField label="Board colour" value={board.color ?? '#eef1f6'} onChange={(color) => setBoard({ color })} />
         {board.color && (
           <button type="button" className="link-button" onClick={() => setBoard({ color: null })}>
             Use theme colour

@@ -85,9 +85,9 @@ export function Header(props: HeaderProps) {
 function Logo() {
   return (
     <svg className="logo" viewBox="0 0 40 40" width="36" height="36" aria-hidden="true">
-      <rect x="2" y="2" width="36" height="36" rx="10" fill="#d9643a" />
-      <path d="M10 30V18l10-8 10 8v12" fill="none" stroke="#fffaf2" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-      <rect x="15" y="22" width="10" height="5" rx="2" fill="#f2c879" />
+      <rect x="2" y="2" width="36" height="36" rx="10" fill="#1f2bd6" />
+      <path d="M10 30V18l10-8 10 8v12" fill="none" stroke="#ffffff" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      <rect x="15" y="22" width="10" height="5" rx="2" fill="#dcebff" />
     </svg>
   );
 }

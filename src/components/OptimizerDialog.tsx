@@ -1,7 +1,10 @@
 import { useId, useMemo, useState, type Dispatch } from 'react';
-import { FURNITURE_KIND_LABELS, functionWeightFor } from '../model/furnitureKinds';
+import { FURNITURE_KIND_LABELS, RELATIONSHIP_LABELS, functionWeightFor } from '../model/furnitureKinds';
 import { createId } from '../model/sample';
-import type { OptimizerSettings, Project, SavedLayout } from '../model/types';
+import type { OptimizerMode, OptimizerSettings, OptimizerWeights, Project, RoomPurpose, SavedLayout } from '../model/types';
+import type { ComparisonRow } from '../optimizer/explain';
+import { PURPOSE_LABELS, assumedRelationships, guessPurpose } from '../optimizer/semantics';
+import { FengShuiPanel } from './FengShuiPanel';
 import { cmToInput, inputToCm, inputUnitLabel } from '../model/units';
 import type { Suggestion } from '../optimizer/optimize';
 import type { Scores } from '../optimizer/scoring';
@@ -41,6 +44,11 @@ export function OptimizerDialog(props: OptimizerDialogProps) {
   const movable = candidates.filter((f) => !f.locked && chosen(f));
   const running = run.phase === 'running';
   const weight = functionWeightFor(settings);
+  const fengShui = project.fengShui?.enabled ?? false;
+  const assumed = useMemo(() => {
+    const name = (id: string) => project.furniture.find((f) => f.id === id)?.name ?? 'piece';
+    return assumedRelationships(project).map((r) => RELATIONSHIP_LABELS[r.type](name(r.a), name(r.b)));
+  }, [project]);
 
   return (
     <Dialog open={props.open} title="Optimize layout" onClose={props.onClose} className="optimizer-dialog">
@@ -52,22 +60,14 @@ export function OptimizerDialog(props: OptimizerDialogProps) {
       </section>
 
       <section className="dialog-section optimizer-settings" aria-label="Optimizer settings">
-        <SegmentedControl
-          label="Emphasis"
-          value={settings.mode}
-          options={[
-            { value: 'functional', label: 'Functional' },
-            { value: 'balanced', label: 'Balanced' },
-            { value: 'aesthetic', label: 'Aesthetic' },
-          ]}
-          onChange={(mode) => set({ mode })}
-        />
-        <WeightSlider value={weight} disabled={settings.mode !== 'balanced'} onChange={(functionWeight) => set({ functionWeight })} />
+        <PurposeSelect project={project} value={settings.purpose} onChange={(purpose) => set({ purpose })} />
+        <ModePicker value={settings.mode} fengShui={fengShui} onChange={(mode) => set({ mode })} />
+        {settings.mode === 'balanced' && <WeightSlider value={weight} onChange={(functionWeight) => set({ functionWeight })} />}
+        {settings.mode === 'custom' && <CustomWeights value={settings.weights} fengShui={fengShui} onChange={(weights) => set({ weights })} />}
+        {settings.mode === 'fengShui' && !fengShui && <p className="hint is-warning">Switch on Feng Shui below to use this mode. Until then it behaves like Balanced.</p>}
         <p className="hint">
-          {settings.mode === 'functional' && 'Prioritises clear doorways and walkways, reachable stairs, vents and outlets, and furniture you can actually use.'}
-          {settings.mode === 'aesthetic' && 'Prioritises alignment, balance, tidy spacing and seating that faces a shared focus. Appearance scores are a matter of taste.'}
-          {settings.mode === 'balanced' && 'Blends both. Move the slider to choose how much each counts.'} Hard rules — staying inside the room, no overlaps, clear doorways
-          and stairs — always apply, whatever the emphasis.
+          Hard rules — staying inside the room, no overlaps, clear doorways and stairs — always apply, whatever the mode. Every mode also favours practical
+          layouts: chairs at their desks, seats facing the TV, room to sit and to get into bed.
         </p>
         <div className="field-grid two">
           <NumberField
@@ -91,6 +91,34 @@ export function OptimizerDialog(props: OptimizerDialogProps) {
           onChange={(effort) => set({ effort })}
         />
       </section>
+
+      <section className="dialog-section" aria-label="Furniture that goes together">
+        <label className="toggle">
+          <input type="checkbox" checked={settings.assumePairings} onChange={(e) => set({ assumePairings: e.target.checked })} />
+          <span>Keep the usual pairings together</span>
+        </label>
+        {settings.assumePairings && assumed.length > 0 && (
+          <ul className="assumed-list">
+            {assumed.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        )}
+        <p className="hint">
+          {settings.assumePairings
+            ? assumed.length > 0
+              ? 'Assumed from the furniture (a chair goes with a desk, seats face the TV…). Relationships you set yourself always come first.'
+              : 'Nothing to pair here yet. Relationships you set in a piece’s properties always count.'
+            : 'Only the relationships you set in each piece’s properties are used.'}
+        </p>
+      </section>
+
+      <details className="dialog-section feng-shui-section" open={fengShui}>
+        <summary>
+          <h3>Feng Shui / Harmony {fengShui ? '(on)' : '(off)'}</h3>
+        </summary>
+        <FengShuiPanel project={project} dispatch={dispatch} />
+      </details>
 
       <section className="dialog-section" aria-label="Pieces the optimizer may move">
         <div className="section-head">
@@ -160,18 +188,114 @@ export function OptimizerDialog(props: OptimizerDialogProps) {
   );
 }
 
-function WeightSlider({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (v: number) => void }) {
+const MODES: { value: OptimizerMode; label: string; hint: string }[] = [
+  { value: 'functional', label: 'Functional', hint: 'Clear walkways and doors, reachable stairs and outlets, furniture you can use.' },
+  { value: 'balanced', label: 'Balanced', hint: 'A blend of function and appearance — you choose the mix.' },
+  { value: 'aesthetic', label: 'Aesthetic', hint: 'Alignment, balance, tidy spacing, seating around a focus. A matter of taste.' },
+  { value: 'fengShui', label: 'Feng Shui', hint: 'Function plus Feng Shui principles (interpretive). Needs Feng Shui switched on.' },
+  { value: 'custom', label: 'Custom', hint: 'Set your own percentages.' },
+];
+
+function ModePicker({ value, fengShui, onChange }: { value: OptimizerMode; fengShui: boolean; onChange: (mode: OptimizerMode) => void }) {
+  const name = useId();
+  return (
+    <fieldset className="mode-picker">
+      <legend className="field-label">Mode</legend>
+      {MODES.map((m) => (
+        <label key={m.value} className={`mode-option ${value === m.value ? 'is-active' : ''}`}>
+          <input type="radio" name={name} value={m.value} checked={value === m.value} onChange={() => onChange(m.value)} />
+          <span className="mode-text">
+            <span className="mode-label">{m.label}</span>
+            <span className="mode-hint">{m.value === 'fengShui' && !fengShui ? 'Switch on Feng Shui below first.' : m.hint}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function PurposeSelect({ project, value, onChange }: { project: Project; value: RoomPurpose | null; onChange: (purpose: RoomPurpose | null) => void }) {
+  const id = useId();
+  const guess = guessPurpose(project);
+  return (
+    <div className="field">
+      <label htmlFor={id}>Room is mainly a…</label>
+      <select id={id} value={value ?? ''} onChange={(e) => onChange((e.target.value || null) as RoomPurpose | null)}>
+        <option value="">{PURPOSE_LABELS[guess]} (guessed from the furniture)</option>
+        {(Object.keys(PURPOSE_LABELS) as RoomPurpose[]).map((p) => (
+          <option key={p} value={p}>
+            {PURPOSE_LABELS[p]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function WeightSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const id = useId();
   const percent = Math.round(value * 100);
   return (
     <div className="range-field">
       <div className="range-label">
-        <label htmlFor={id}>Function vs. aesthetics</label>
+        <label htmlFor={id}>Function vs. appearance</label>
         <output htmlFor={id}>
-          Function {percent}% · Aesthetics {100 - percent}%
+          Function {percent}% · Appearance {100 - percent}%
         </output>
       </div>
-      <input id={id} type="range" min={0} max={100} step={5} value={percent} disabled={disabled} onChange={(e) => onChange(Number(e.target.value) / 100)} />
+      <input id={id} type="range" min={0} max={100} step={5} value={percent} onChange={(e) => onChange(Number(e.target.value) / 100)} />
+    </div>
+  );
+}
+
+const WEIGHT_LABELS: Record<keyof OptimizerWeights, string> = { functional: 'Function', aesthetic: 'Appearance', fengShui: 'Feng Shui' };
+
+/**
+ * Custom percentages that always add up to 100: moving one slider shares the difference
+ * among the others, in proportion to what they had.
+ */
+export function rebalance(weights: OptimizerWeights, key: keyof OptimizerWeights, value: number, keys: (keyof OptimizerWeights)[]): OptimizerWeights {
+  const v = Math.max(0, Math.min(100, Math.round(value)));
+  const others = keys.filter((k) => k !== key);
+  const rest = 100 - v;
+  const total = others.reduce((s, k) => s + Math.max(0, weights[k]), 0);
+  const next: OptimizerWeights = { ...weights, [key]: v };
+  let given = 0;
+  others.forEach((k, i) => {
+    const share = i === others.length - 1 ? rest - given : Math.round(total > 0 ? (rest * Math.max(0, weights[k])) / total : rest / others.length);
+    next[k] = share;
+    given += share;
+  });
+  for (const k of ['functional', 'aesthetic', 'fengShui'] as const) if (!keys.includes(k)) next[k] = weights[k];
+  return next;
+}
+
+function CustomWeights({ value, fengShui, onChange }: { value: OptimizerWeights; fengShui: boolean; onChange: (w: OptimizerWeights) => void }) {
+  const keys: (keyof OptimizerWeights)[] = fengShui ? ['functional', 'aesthetic', 'fengShui'] : ['functional', 'aesthetic'];
+  // Shown as they're used: rescaled to 100 over the weights that apply.
+  const sum = keys.reduce((s, k) => s + Math.max(0, value[k]), 0) || 1;
+  const shown = Object.fromEntries(keys.map((k) => [k, Math.round((100 * Math.max(0, value[k])) / sum)])) as Record<keyof OptimizerWeights, number>;
+  const fixed = { ...value, ...shown };
+  return (
+    <fieldset className="custom-weights">
+      <legend className="field-label">Your weights (always add up to 100%)</legend>
+      {keys.map((k) => (
+        <WeightRow key={k} label={WEIGHT_LABELS[k]} value={shown[k]} onChange={(v) => onChange(rebalance(fixed, k, v, keys))} />
+      ))}
+      {!fengShui && <p className="hint">Switch on Feng Shui below to give it a weight too.</p>}
+    </fieldset>
+  );
+}
+
+function WeightRow({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const id = useId();
+  return (
+    <div className="range-field">
+      <div className="range-label">
+        <label htmlFor={id}>{label}</label>
+        <output htmlFor={id}>{value}%</output>
+      </div>
+      <input id={id} type="range" min={0} max={100} step={5} value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </div>
   );
 }
@@ -252,6 +376,7 @@ function SuggestionCard(props: OptimizerDialogProps & { suggestion: Suggestion; 
       <LayoutPreview project={project} movedIds={moved} label={`Preview of ${title}`} />
       <p className="hint">{suggestion.movedCount === 0 ? 'Same as your current layout.' : `Moves ${suggestion.movedCount} piece${suggestion.movedCount === 1 ? '' : 's'} (dashed outlines).`}</p>
       <ScoreSummary scores={suggestion.scores} />
+      <Comparison rows={suggestion.comparison} />
       {suggestion.improvements.length > 0 && <List title="Why it’s suggested" items={suggestion.improvements} kind="improvement" />}
       {suggestion.tradeoffs.length > 0 && <List title="Trade-offs" items={suggestion.tradeoffs} kind="tradeoff" />}
       {suggestion.warnings.length > 0 && <List title="Still to look at" items={suggestion.warnings} kind="warning" />}
@@ -296,6 +421,12 @@ function ScoreSummary({ scores }: { scores: Scores }) {
         <dt title="A matter of taste">Aesthetic*</dt>
         <dd>{pct(scores.aesthetic)}</dd>
       </div>
+      {scores.fengShui !== null && (
+        <div>
+          <dt title="Interpretive preference">Feng Shui*</dt>
+          <dd>{pct(scores.fengShui)}</dd>
+        </div>
+      )}
       {scores.preferences !== null && (
         <div>
           <dt>Your preferences</dt>
@@ -323,7 +454,7 @@ function ScoreBreakdown({ scores }: { scores: Scores }) {
             <tr key={c.id}>
               <th scope="row">
                 {c.label}
-                {c.group === 'aesthetic' && '*'}
+                {(c.group === 'aesthetic' || c.group === 'fengShui') && '*'}
                 <span className="hint">{c.detail}</span>
               </th>
               <td>{Math.round(c.value * 100)}</td>
@@ -333,9 +464,41 @@ function ScoreBreakdown({ scores }: { scores: Scores }) {
         </tbody>
       </table>
       <p className="hint">
-        Functional, aesthetic and preference scores are weighted averages of these measures (0–100). Overall = your function/aesthetics blend
-        {scores.preferences !== null && ', counting 70%, plus your preferences at 30%'}. *Aesthetic measures are a subjective guide, not objective facts.
+        Functional, aesthetic{scores.fengShui !== null && ', Feng Shui'} and preference scores are weighted averages of these measures (0–100). Overall = your
+        mode’s blend{scores.preferences !== null && ' (70%) plus your preferences (30%)'}, then scaled down for impractical layouts (×0.5 to ×1). *Aesthetic and
+        Feng Shui measures are a guide to taste and tradition, not objective facts.
       </p>
+    </details>
+  );
+}
+
+/** The current layout and a suggestion side by side, every figure measured. */
+function Comparison({ rows }: { rows: ComparisonRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <details className="comparison" open>
+      <summary>Compared with now</summary>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Measure</th>
+            <th scope="col">Now</th>
+            <th scope="col">Suggested</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} className={r.better === true ? 'is-better' : r.better === false ? 'is-worse' : ''}>
+              <th scope="row">{r.label}</th>
+              <td>{r.before}</td>
+              <td>
+                {r.after}
+                {r.better !== null && <span className={`change-badge ${r.better ? 'is-better' : 'is-worse'}`}>{r.better ? 'better' : 'worse'}</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </details>
   );
 }

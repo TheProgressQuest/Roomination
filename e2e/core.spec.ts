@@ -7,7 +7,7 @@ import {
   exportProject,
   mapper,
   num,
-  objectRows,
+  furnitureRows,
   openApp,
   props,
   radio,
@@ -17,12 +17,17 @@ import {
   toast,
   tools,
   settle,
+  structureRows,
+  toolsTab,
 } from './helpers';
 
 test.describe('Phase 1 & 2 features still work', () => {
   test('the sample room loads without overlaps or errors', async ({ page }) => {
     const errors = await openApp(page);
-    await expect(objectRows(page)).toHaveCount(15); // 7 items + 8 features
+    await toolsTab(page, 'Furnish');
+    await expect(furnitureRows(page)).toHaveCount(7);
+    await toolsTab(page, 'Build');
+    await expect(structureRows(page)).toHaveCount(8);
     expect(await checksText(page)).toMatch(/No overlaps/);
     expect(errors).toEqual([]);
   });
@@ -33,6 +38,7 @@ test.describe('Phase 1 & 2 features still work', () => {
     const p = props(page);
     await drag(page, m.at(240, 220), { x: m.at(240, 220).x + 2000, y: m.at(240, 220).y });
     expect(await num(p, 'From left')).toBe(425); // 480 − 110/2
+    await toolsTab(page, 'Furnish');
     await page.locator('.object-list button.is-selected').focus();
     await page.keyboard.press('ArrowUp');
     expect(await num(p, 'From top')).toBe(219);
@@ -40,13 +46,13 @@ test.describe('Phase 1 & 2 features still work', () => {
     await page.keyboard.press('r');
     expect(await num(p, 'Angle')).toBe(90);
     expect(await num(p, 'From top')).toBe(80); // pushed inside after rotating at the wall
-    const count = await objectRows(page).count();
+    const count = await furnitureRows(page).count();
     await page.keyboard.press('Delete');
-    await expect(objectRows(page)).toHaveCount(count - 1);
+    await expect(furnitureRows(page)).toHaveCount(count - 1);
     await page.keyboard.press('ControlOrMeta+z');
-    await expect(objectRows(page)).toHaveCount(count);
+    await expect(furnitureRows(page)).toHaveCount(count);
     await page.keyboard.press('ControlOrMeta+Shift+z');
-    await expect(objectRows(page)).toHaveCount(count - 1);
+    await expect(furnitureRows(page)).toHaveCount(count - 1);
   });
 
   test('overlaps prompt once; move back, allow, and per-pair overrides survive reload', async ({ page }) => {
@@ -117,6 +123,7 @@ test.describe('Phase 1 & 2 features still work', () => {
 
   test('rugs sit under furniture without warnings', async ({ page }) => {
     await openApp(page);
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Rug', exact: true }).click();
     await expect(banner(page)).toHaveCount(0);
     expect(await checksText(page)).toMatch(/No overlaps/);
@@ -136,9 +143,8 @@ test.describe('Phase 1 & 2 features still work', () => {
 
   test('tile grout stays aligned to room coordinates at different window sizes', async ({ page }) => {
     await openApp(page);
-    await tools(page).locator('summary', { hasText: 'Floor' }).click();
+    await toolsTab(page, 'Design');
     await radio(tools(page), 'Floor surface', 'Ceramic tile').click();
-    await tools(page).locator('summary', { hasText: 'Board & display' }).click();
     await tools(page).getByLabel('Measurement grid on the floor').uncheck();
     const contrast = async () => {
       const m = await mapper(page);
@@ -238,7 +244,7 @@ test.describe('Phase 1 & 2 features still work', () => {
 
   test('a refused wall deletion keeps the wall selected and explains why', async ({ page }) => {
     await openApp(page);
-    await tools(page).locator('.object-list').nth(1).getByRole('button', { name: /^Wall 4/ }).click();
+    await tools(page).locator('.wall-list').getByRole('button', { name: /^Wall 4/ }).click();
     await page.keyboard.press('Delete');
     await expect(toast(page)).toContainText('Front door');
     await expect(props(page).locator('.editor-title')).toHaveText('Wall 4');

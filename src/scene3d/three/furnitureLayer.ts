@@ -37,7 +37,8 @@ import type { FurnitureMaterials } from './furnitureMaterials';
  *   onto the top, front-facing and side-facing surfaces.
  */
 
-const HIGHLIGHT = new Color('#d9643a');
+/** Selection: the brand's Savage Ultramarine. */
+const HIGHLIGHT = new Color('#1f2bd6');
 const UP = new Vector3(0, 1, 0);
 const m = (cm: number) => cm / CM_PER_SCENE_UNIT;
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mapper, objectRows, openApp, settle, type RoomBox } from './helpers';
+import { mapper, openApp, settle, structureRows, toolsTab, wallRows, type RoomBox } from './helpers';
 
 const WIDTHS = [320, 375, 430, 768, 1024, 1440];
 const DRAWING_VIEW: RoomBox = { minX: 0, minY: 0, maxX: 480, maxY: 380, wall: 96, wallLabels: true };
@@ -88,7 +88,8 @@ for (const width of WIDTHS) {
       await bar.getByRole('button', { name: 'Close room' }).click();
       await expect(bar).toHaveCount(0);
       // The room was redrawn: open the walls list and check its four walls.
-      await expect(page.locator('.tools-panel .object-list').nth(1).locator('li')).toHaveCount(4);
+      await toolsTab(page, 'Build');
+      await expect(wallRows(page)).toHaveCount(4);
     });
 
     test('stairs can be added and edited in the modal', async ({ page }) => {
@@ -102,7 +103,8 @@ for (const width of WIDTHS) {
       await dialog.getByRole('button', { name: 'Add flight' }).click();
       await expect(dialog.locator('.section-list > li')).toHaveCount(5);
       await dialog.getByRole('button', { name: 'Close' }).click();
-      await expect(objectRows(page).filter({ hasText: 'Stairs' })).toHaveCount(1);
+      await toolsTab(page, 'Build');
+      await expect(structureRows(page).filter({ hasText: 'Stairs' })).toHaveCount(1);
     });
   });
 }

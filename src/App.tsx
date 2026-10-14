@@ -624,6 +624,7 @@ export function App() {
                 onAddStairs={addStairs}
                 onStartDrawing={startDrawing}
                 onSelect={select}
+                onOptimize={openOptimizer}
                 onCollapse={isTablet ? () => setToolsCollapsed(true) : undefined}
                 inert={preview !== null}
               />
@@ -894,10 +895,11 @@ function defaultPlacement(kind: FeatureKind, project: Project): Placement | null
 
 /** CSS for the board around the room. Purely decorative — measured in screen pixels. */
 function boardAppearance(board: BoardPreferences, theme: ResolvedTheme): { style: CSSProperties; isDark: boolean } {
-  const fallback = board.style === 'drafting' ? '#20343f' : theme === 'dark' ? '#221e1b' : '#f5ecdf';
+  // The theme's board (used until the person picks a colour): cool neutrals that sit behind the room.
+  const fallback = board.style === 'drafting' ? '#20343f' : theme === 'dark' ? '#10151e' : '#eef1f6';
   const color = board.color ?? fallback;
   const isDark = luminance(color) < 0.2;
-  const ink = isDark ? '255, 255, 255' : '122, 106, 92';
+  const ink = isDark ? '255, 255, 255' : '52, 81, 97';
   const alpha = (strength: number) => `rgba(${ink}, ${(board.opacity * strength).toFixed(3)})`;
   const s = board.spacing;
   const style: CSSProperties = { backgroundColor: color };

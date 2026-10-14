@@ -29,14 +29,19 @@ export interface CanvasPalette {
   clearanceFill: string;
   clearanceStroke: string;
   shadow: string;
+  /** The Bagua overlay: alternating translucent tints, its dashed lines and its labels. */
+  baguaFillA: string;
+  baguaFillB: string;
+  baguaLine: string;
+  baguaInk: string;
 }
 
 const LIGHT: CanvasPalette = {
-  wall: '#3d3631',
-  label: '#7a6a5c',
-  gridMinor: 'rgba(122, 94, 64, 0.14)',
-  gridMajor: 'rgba(122, 94, 64, 0.28)',
-  selection: '#d9643a',
+  wall: '#141a24',
+  label: '#4d5a6b',
+  gridMinor: 'rgba(52, 81, 97, 0.13)',
+  gridMajor: 'rgba(52, 81, 97, 0.26)',
+  selection: '#1f2bd6',
   warning: '#c2410c',
   warningFill: 'rgba(220, 70, 30, 0.22)',
   accepted: '#b7791f',
@@ -47,15 +52,19 @@ const LIGHT: CanvasPalette = {
   ceiling: '#5b6ea8',
   clearanceFill: 'rgba(74, 85, 104, 0.08)',
   clearanceStroke: 'rgba(74, 85, 104, 0.45)',
-  shadow: '#3d3631',
+  shadow: '#141a24',
+  baguaFillA: 'rgba(31, 43, 214, 0.07)',
+  baguaFillB: 'rgba(31, 43, 214, 0.13)',
+  baguaLine: 'rgba(31, 43, 214, 0.45)',
+  baguaInk: '#1a2499',
 };
 
 const DARK: CanvasPalette = {
-  wall: '#d9cfc4',
-  label: '#c8b8a6',
-  gridMinor: 'rgba(122, 94, 64, 0.16)',
-  gridMajor: 'rgba(122, 94, 64, 0.32)',
-  selection: '#ff8a5c',
+  wall: '#d5dbe6',
+  label: '#a9b4c6',
+  gridMinor: 'rgba(52, 81, 97, 0.16)',
+  gridMajor: 'rgba(52, 81, 97, 0.32)',
+  selection: '#8d95ff',
   warning: '#ff6b3d',
   warningFill: 'rgba(255, 107, 61, 0.28)',
   accepted: '#f2b84b',
@@ -67,6 +76,10 @@ const DARK: CanvasPalette = {
   clearanceFill: 'rgba(143, 163, 232, 0.10)',
   clearanceStroke: 'rgba(160, 175, 230, 0.6)',
   shadow: '#000000',
+  baguaFillA: 'rgba(31, 43, 214, 0.07)',
+  baguaFillB: 'rgba(31, 43, 214, 0.13)',
+  baguaLine: 'rgba(31, 43, 214, 0.45)',
+  baguaInk: '#1a2499',
 };
 
 /** Lines drawn on a dark floor (e.g. dark walnut) switch to light ink so they stay visible. */
@@ -77,6 +90,10 @@ const ON_DARK_FLOOR: Partial<CanvasPalette> = {
   clearanceFill: 'rgba(255, 255, 255, 0.10)',
   clearanceStroke: 'rgba(255, 255, 255, 0.6)',
   ceiling: '#b4c2f5',
+  baguaFillA: 'rgba(160, 172, 255, 0.10)',
+  baguaFillB: 'rgba(160, 172, 255, 0.18)',
+  baguaLine: 'rgba(190, 198, 255, 0.6)',
+  baguaInk: '#e3e7ff',
 };
 
 const ON_LIGHT_FLOOR: Partial<CanvasPalette> = {
@@ -86,6 +103,10 @@ const ON_LIGHT_FLOOR: Partial<CanvasPalette> = {
   clearanceFill: LIGHT.clearanceFill,
   clearanceStroke: LIGHT.clearanceStroke,
   ceiling: LIGHT.ceiling,
+  baguaFillA: LIGHT.baguaFillA,
+  baguaFillB: LIGHT.baguaFillB,
+  baguaLine: LIGHT.baguaLine,
+  baguaInk: LIGHT.baguaInk,
 };
 
 export function canvasPalette(theme: ResolvedTheme, boardIsDark: boolean, floorColor: string): CanvasPalette {

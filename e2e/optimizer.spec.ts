@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { serializeProject } from '../src/storage/projectFile';
 import { lShapedStudio, overcrowded } from '../src/optimizer/testRooms';
-import { exportProject, importProject, objectRows, openApp, props, saveAndReload, selectInList, tools } from './helpers';
+import { exportProject, furnitureRows, importProject, openApp, props, saveAndReload, selectInList, tools, toolsTab } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Optimize layout' });
 
@@ -166,7 +166,8 @@ test.describe('Optimize Layout', () => {
       // Nothing's centre sits deep inside the missing corner (x > 340, y > 280).
       expect(f.x > 340 + halfDiagonal && f.y > 280 + halfDiagonal).toBe(false);
     }
-    await expect(objectRows(page)).not.toHaveCount(0);
+    await toolsTab(page, 'Furnish');
+    await expect(furnitureRows(page)).not.toHaveCount(0);
   });
 });
 

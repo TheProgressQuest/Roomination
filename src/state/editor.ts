@@ -5,11 +5,12 @@ import {
   convertPlacement,
   findOverlappingOpening,
 } from '../model/features';
+import { DEFAULT_FENG_SHUI } from '../model/furnitureKinds';
 import { MIN_FURNITURE_SIZE, MIN_ROOM_SIZE, normalizeRotation, roundLength } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { normaliseShape, pieceToRoom, scaleShape, shapeProblem } from '../model/shape';
 import { applyRoomChange } from '../model/roomChange';
-import type { FloorStyle, Furniture, OptimizerSettings, Partition, Placement, Point, Project, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
+import type { FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, Placement, Point, Project, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
   MAX_ROOM_SPAN,
   deleteWall,
@@ -100,6 +101,8 @@ export type EditorAction =
   | { type: 'relationship/remove'; id: string }
   /** Optimizer settings are remembered with the project but aren't undo steps. */
   | { type: 'optimizer/settings'; changes: Partial<OptimizerSettings> }
+  /** Feng Shui settings: also remembered with the project, and not undo steps. */
+  | { type: 'fengShui/settings'; changes: Partial<FengShuiSettings> }
   /** Moves pieces to new positions/rotations in one undoable step (e.g. an optimizer suggestion). */
   | { type: 'layout/apply'; positions: SavedLayout['positions'] }
   | { type: 'layouts/save'; layout: SavedLayout }
@@ -124,7 +127,7 @@ export type EditorAction =
 
 type EditAction = Exclude<
   EditorAction,
-  { type: 'history/undo' | 'history/redo' | 'project/replace' | 'conflict/dismiss' | 'conflict/revert' | 'notice/show' | 'optimizer/settings' }
+  { type: 'history/undo' | 'history/redo' | 'project/replace' | 'conflict/dismiss' | 'conflict/revert' | 'notice/show' | 'optimizer/settings' | 'fengShui/settings' }
 >;
 
 export function createEditorState(project: Project): EditorState {
@@ -172,7 +175,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       optimizer.functionWeight = clampNumber(optimizer.functionWeight, 0, 1);
       optimizer.walkwayWidth = clampNumber(optimizer.walkwayWidth, 40, 200);
       optimizer.seed = Math.max(0, Math.floor(clampNumber(optimizer.seed, 0, 2 ** 31 - 1)));
+      const w = optimizer.weights;
+      optimizer.weights = { functional: clampNumber(w.functional, 0, 100), aesthetic: clampNumber(w.aesthetic, 0, 100), fengShui: clampNumber(w.fengShui, 0, 100) };
       return { ...state, present: { ...state.present, optimizer } };
+    }
+    case 'fengShui/settings': {
+      const fengShui = { ...DEFAULT_FENG_SHUI, ...state.present.fengShui, ...action.changes };
+      if (fengShui.northBearing !== null) fengShui.northBearing = ((clampNumber(fengShui.northBearing, -720, 720) % 360) + 360) % 360;
+      if (fengShui.entranceId && !state.present.features.some((f) => f.id === fengShui.entranceId && f.kind === 'door')) fengShui.entranceId = null;
+      return { ...state, present: { ...state.present, fengShui } };
     }
     case 'notice/show':
       return { ...state, notice: { id: (state.notice?.id ?? 0) + 1, message: action.message } };

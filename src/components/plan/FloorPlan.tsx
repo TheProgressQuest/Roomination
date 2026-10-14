@@ -11,6 +11,8 @@ import { formatLength } from '../../model/units';
 import { asRectangle, findSegment, moveNode, outlinePolygon, wallSegments } from '../../model/walls';
 import type { CanvasPalette } from '../../render/palette';
 import type { Selection, ToolMode } from '../../state/selection';
+import { baguaMap } from '../../model/bagua';
+import { BaguaOverlay } from './BaguaOverlay';
 import { DrawOverlay } from './DrawOverlay';
 import { FeatureShape } from './FeatureShape';
 import { FurnitureShape } from './FurnitureShape';
@@ -67,6 +69,8 @@ export function FloorPlan(props: FloorPlanProps) {
     return typeof room === 'string' ? project : { ...project, room };
   }, [project, cornerDrag]);
   const { room, furniture, features, stairs } = shown;
+  // The Bagua overlay (Feng Shui), only when switched on and shown.
+  const bagua = useMemo(() => (shown.fengShui?.enabled && shown.fengShui.showBagua ? baguaMap(shown) : null), [shown]);
 
   // The view fits the room. While drawing it adds a generous margin so you can draw beyond
   // the old walls without the view re-zooming under your finger; it only grows if a typed
@@ -379,6 +383,7 @@ export function FloorPlan(props: FloorPlanProps) {
       >
         <Layer listening={false} opacity={mode === 'drawRoom' ? 0.45 : 1}>
           <RoomFloor project={shown} viewport={viewport} palette={palette} showGrid={props.showMeasurementGrid} bounds={roomBox} />
+          {bagua && typeof bagua !== 'string' && <BaguaOverlay map={bagua} viewport={viewport} palette={palette} />}
           <DimensionLabels project={shown} viewport={viewport} palette={palette} bounds={roomBox} clearance={labelRoom} />
         </Layer>
         <Layer listening={interactive} opacity={mode === 'drawRoom' ? 0.45 : 1}>

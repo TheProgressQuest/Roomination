@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import type {} from '../src/scene3d/diagnostics';
-import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, setNum, tools } from './helpers';
+import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, selectInList, setNum, tools, toolsTab } from './helpers';
 import { loveseatPhoto } from './png';
 
 /**
@@ -40,6 +40,7 @@ test.describe('Draw custom furniture', () => {
   test('draw an irregular loveseat with exact dimensions, curve an edge, save to the library and place it', async ({ page }) => {
     const errors = await openApp(page);
     const requests = recordRequests(page);
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
     const dialog = studio(page);
     await expect(dialog).toBeVisible();
@@ -111,6 +112,7 @@ test.describe('Draw custom furniture', () => {
 
   test('draws a new outline corner by corner, and refuses one that crosses itself', async ({ page }) => {
     await openApp(page);
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
     const dialog = studio(page);
     for (const [x, y] of [
@@ -142,7 +144,7 @@ test.describe('Draw custom furniture', () => {
 
   test('a refused change keeps the studio open with everything drawn; a look-only change keeps a standard piece standard', async ({ page }) => {
     await openApp(page);
-    await page.locator('.tools-panel .object-list').first().getByText('Sofa').click();
+    await selectInList(page, 'Sofa');
     await props(page).getByRole('button', { name: 'Edit shape & look' }).click();
     const dialog = studio(page, 'Edit Sofa');
     // Far too wide for the 4.8 m room: refused, and the studio stays open with the drawing.
@@ -164,6 +166,7 @@ test.describe('Draw custom furniture', () => {
 
   test('custom pieces appear in 3D with the same footprint and can be selected there', { tag: '@3d' }, async ({ page }) => {
     await openApp(page);
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
     const dialog = studio(page);
     await dialog.getByLabel('Start from a shape').selectOption('lDesk');
@@ -190,6 +193,7 @@ test.describe('Create furniture from photos', () => {
     const photo = info.outputPath('loveseat-top.png');
     writeFileSync(photo, loveseatPhoto());
 
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Create from photos' }).click();
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await expect(workshop).toContainText('front, the side and above');
@@ -251,7 +255,7 @@ test.describe('Create furniture from photos', () => {
 
     // And after a reload.
     await saveAndReload(page);
-    await page.locator('.tools-panel .object-list').first().getByText('Photo loveseat').click();
+    await selectInList(page, 'Photo loveseat');
     await expect(props(page).locator('.origin-badge')).toHaveText('Photo-assisted');
     expectOnlyThisSite(requests, page);
     expect(errors).toEqual([]);
@@ -268,6 +272,7 @@ test.describe('Create furniture from photos', () => {
     await openApp(page);
     const photo = info.outputPath('photo.png');
     writeFileSync(photo, loveseatPhoto());
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Create from photos' }).click();
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await workshop.locator('#photo-front').setInputFiles(photo);
@@ -280,6 +285,7 @@ test.describe('Create furniture from photos', () => {
     await openApp(page);
     const fake = info.outputPath('not-a-photo.png');
     writeFileSync(fake, '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>');
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Create from photos' }).click();
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await workshop.locator('#photo-front').setInputFiles(fake);
@@ -292,6 +298,7 @@ test.describe('Create furniture from photos', () => {
     const requests = recordRequests(page);
     const photo = info.outputPath('photo.png');
     writeFileSync(photo, loveseatPhoto());
+    await toolsTab(page, 'Furnish');
     await tools(page).getByRole('button', { name: 'Create from photos' }).click();
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await workshop.locator('#photo-front').setInputFiles(photo);
@@ -355,7 +362,8 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
         await page.getByRole('button', { name: 'Add', exact: true }).click();
         await page.getByRole('dialog', { name: 'Add to the room' }).getByRole('button', { name: 'Draw custom furniture' }).click();
       } else {
-        await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+        await toolsTab(page, 'Furnish');
+    await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
       }
       const dialog = studio(page);
       await dialog.getByLabel('Start from a shape').selectOption('curvedSofa');

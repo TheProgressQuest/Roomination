@@ -1,4 +1,4 @@
-import type { FurnitureKind, OptimizerSettings, OptimizerWeights, PlacementPreference, RelationshipType } from './types';
+import type { FengShuiSettings, FurnitureKind, OptimizerSettings, OptimizerWeights, PlacementPreference, RelationshipType } from './types';
 
 export const FURNITURE_KIND_LABELS: Record<FurnitureKind, string> = {
   desk: 'Desk',
@@ -91,6 +91,15 @@ export const DEFAULT_OPTIMIZER: OptimizerSettings = {
   weights: { functional: 50, aesthetic: 25, fengShui: 25 },
   purpose: null,
   assumePairings: true,
+};
+
+/** Feng Shui is off until the person switches it on. */
+export const DEFAULT_FENG_SHUI: FengShuiSettings = {
+  enabled: false,
+  method: 'entrance',
+  showBagua: false,
+  northBearing: null,
+  entranceId: null,
 };
 
 /**

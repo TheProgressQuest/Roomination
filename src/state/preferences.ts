@@ -137,7 +137,11 @@ export function useResolvedTheme(preference: ThemePreference): ResolvedTheme {
   const theme: ResolvedTheme = preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#1c1916' : '#fbf4ea');
+    // The page's chosen theme wins over the system one for the browser's toolbar colour.
+    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+      meta.setAttribute('content', theme === 'dark' ? '#0a0e14' : '#f5f6f9');
+      meta.removeAttribute('media');
+    });
   }, [theme]);
   return theme;
 }

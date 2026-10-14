@@ -8,7 +8,7 @@ import type { CanvasPalette } from '../../render/palette';
 import { PX_PER_CM, floorTexture } from '../../render/textures';
 import { flatPx, flatScreen, type Viewport } from './viewport';
 
-export const FONT_FAMILY = 'ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif';
+export const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 interface ShellProps {
   project: Project;

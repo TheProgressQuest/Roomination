@@ -1,11 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
-import { banner, exportProject, num, objectRows, openApp, props, radio, saveAndReload, selectInList, setNum, tools } from './helpers';
+import { banner, exportProject, num, openApp, props, radio, saveAndReload, selectInList, setNum, structureRows, tools, toolsTab } from './helpers';
 
 const badge = (page: Page) => props(page).locator('.kind-badge');
 const sections = (page: Page) => props(page).locator('.section-list > li');
 
 async function addStairs(page: Page, label: string) {
-  await tools(page).getByRole('button', { name: label }).click();
+  await toolsTab(page, 'Build');
+  const button = tools(page).getByRole('button', { name: label });
+  if (!(await button.isVisible())) await tools(page).locator('summary', { hasText: 'Stairs' }).first().click();
+  await button.click();
 }
 
 test.describe('Add Stairs', () => {
@@ -84,13 +87,14 @@ test.describe('Add Stairs', () => {
     await expect(banner(page)).toContainText('Plant blocks Stairs');
     await banner(page).getByRole('button', { name: 'Allow overlap' }).click();
     await saveAndReload(page);
-    await expect(objectRows(page).filter({ hasText: 'Stairs' })).toHaveCount(1);
+    await toolsTab(page, 'Build');
+    await expect(structureRows(page).filter({ hasText: 'Stairs' })).toHaveCount(1);
     await selectInList(page, 'Stairs');
     await expect(props(page).locator('.conflict-list')).toContainText('Overlap allowed by you');
     await expect(props(page).locator('.conflict-list')).toContainText('doesn’t check building codes');
     await props(page).getByRole('button', { name: 'Delete Stairs' }).click();
-    await expect(objectRows(page).filter({ hasText: 'Stairs' })).toHaveCount(0);
+    await expect(structureRows(page).filter({ hasText: 'Stairs' })).toHaveCount(0);
     await page.keyboard.press('ControlOrMeta+z');
-    await expect(objectRows(page).filter({ hasText: 'Stairs' })).toHaveCount(1);
+    await expect(structureRows(page).filter({ hasText: 'Stairs' })).toHaveCount(1);
   });
 });
