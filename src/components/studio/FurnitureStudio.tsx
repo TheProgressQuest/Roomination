@@ -76,6 +76,8 @@ const MATERIALS: { value: MaterialKind | 'none'; label: string }[] = [
   { value: 'wood', label: 'Wood' },
   { value: 'metal', label: 'Metal' },
   { value: 'glass', label: 'Glass' },
+  { value: 'stone', label: 'Stone' },
+  { value: 'ceramic', label: 'Ceramic' },
   { value: 'plastic', label: 'Plastic' },
   { value: 'custom', label: 'Custom' },
 ];

@@ -4,7 +4,7 @@ import { formatLength } from '../../model/units';
 import type {} from '../../scene3d/diagnostics';
 import { buildFurniture, buildRoomModel } from '../../scene3d/model';
 import { RoomViewer } from '../../scene3d/three/RoomViewer';
-import type { CameraPreset, ResolvedTheme, View3DPreferences, WallMode } from '../../state/preferences';
+import { resolveQuality, type CameraPreset, type QualityPreference, type ResolvedTheme, type View3DPreferences, type WallMode } from '../../state/preferences';
 import { Icon } from '../Icon';
 
 /**
@@ -36,6 +36,8 @@ const WALL_OPTIONS: { value: WallMode; label: string }[] = [
 
 type Status = 'ready' | 'unsupported' | 'lost';
 
+const QUALITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High' } as const;
+
 
 export default function View3D(props: View3DProps) {
   const { project, selectedId, theme, preferences, touch, onPreferences, onSelect, onExit } = props;
@@ -63,6 +65,7 @@ export default function View3D(props: View3DProps) {
     try {
       viewer = new RoomViewer(container, {
         shadows: preferences.shadows,
+        quality: resolveQuality(preferences.quality, touch),
         reducedMotion,
         touch,
         initialPreset: preferences.camera,
@@ -95,6 +98,7 @@ export default function View3D(props: View3DProps) {
   useEffect(() => viewerRef.current?.setSelection(selectedId), [selectedId, furnitureModel, attempt]);
   useEffect(() => viewerRef.current?.setWallMode(preferences.wallMode), [preferences.wallMode, attempt]);
   useEffect(() => viewerRef.current?.setShadows(preferences.shadows), [preferences.shadows, attempt]);
+  useEffect(() => viewerRef.current?.setQuality(resolveQuality(preferences.quality, touch)), [preferences.quality, touch, attempt]);
   useEffect(() => {
     // Read the colour a frame later: the app applies a theme change after this component's effects run.
     const frame = requestAnimationFrame(() => {
@@ -147,6 +151,15 @@ export default function View3D(props: View3DProps) {
         <label className="chip-toggle">
           <input type="checkbox" checked={preferences.shadows} onChange={(e) => onPreferences({ shadows: e.target.checked })} disabled={status !== 'ready'} />
           <span>Shadows</span>
+        </label>
+        <label className="view3d-select">
+          <span>Quality</span>
+          <select value={preferences.quality} onChange={(e) => onPreferences({ quality: e.target.value as QualityPreference })} disabled={status !== 'ready'}>
+            <option value="auto">Auto ({QUALITY_LABELS[resolveQuality('auto', touch)]})</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
         </label>
       </div>
 

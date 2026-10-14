@@ -3,6 +3,7 @@ import { FeatureButtons, FurnitureButtons, StairButtons, StructureButtons, type 
 import { DrawingBar } from './components/DrawingBar';
 import { ConflictBanner } from './components/ConflictBanner';
 import { Dialog } from './components/Dialog';
+import { ExportImageDialog } from './components/ExportImageDialog';
 import { Header, type SaveStatus } from './components/Header';
 import { Icon } from './components/Icon';
 import { FloorPlan } from './components/plan/FloorPlan';
@@ -91,6 +92,7 @@ export function App() {
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [studio, setStudio] = useState<StudioSession | null>(null);
@@ -640,6 +642,7 @@ export function App() {
             )}
 
             <div className="canvas-column">
+              <div className="canvas-head">
               <div className="segmented view-switch" role="radiogroup" aria-label="View">
                 {(['2d', '3d'] as const).map((value) => (
                   <button
@@ -657,6 +660,37 @@ export function App() {
                     {value === '2d' ? '2D Plan' : '3D View'}
                   </button>
                 ))}
+              </div>
+              {view === '2d' && (
+                <div className="segmented plan-style" role="radiogroup" aria-label="Plan style">
+                  {(['technical', 'presentation'] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={preferences.planStyle === value}
+                      className={preferences.planStyle === value ? 'is-active' : ''}
+                      onClick={() => updatePreferences({ planStyle: value })}
+                    >
+                      {value === 'technical' ? 'Technical' : 'Presentation'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {view === '2d' && preferences.planStyle === 'presentation' && (
+                <label className="chip-toggle" title="Show selection outlines, handles and overlap warnings">
+                  <input
+                    type="checkbox"
+                    checked={preferences.presentation.editing}
+                    onChange={(e) => updatePreferences({ presentation: { ...preferences.presentation, editing: e.target.checked } })}
+                  />
+                  <span>Editing aids</span>
+                </label>
+              )}
+              <button type="button" className="secondary small export-button" onClick={() => setExportOpen(true)} title="Export an image of this design" aria-label="Export image">
+                <Icon name="download" size={16} />
+                <span className="export-label">Export image</span>
+              </button>
               </div>
               {preview && (
                 <PreviewBar
@@ -718,6 +752,7 @@ export function App() {
                     selection={selection}
                     palette={palette}
                     showMeasurementGrid={preferences.showMeasurementGrid}
+                    presentation={preferences.planStyle === 'presentation' ? preferences.presentation : null}
                     showClearances={preferences.showClearances}
                     mode={mode}
                     draft={draft}
@@ -759,6 +794,16 @@ export function App() {
         <Dialog open={editorOpen && selection !== null} title={selectedName ? `Edit ${selectedName}` : 'Edit'} onClose={() => setEditorOpen(false)} className="editor-dialog">
           {selection && <SelectionEditor {...editorProps} selection={selection} />}
         </Dialog>
+
+        <ExportImageDialog
+          open={exportOpen}
+          onClose={() => setExportOpen(false)}
+          project={project}
+          preferences={preferences}
+          palette={palette}
+          touch={isTouch}
+          boardColor={(board.style.backgroundColor as string | undefined) ?? '#ffffff'}
+        />
 
         <Dialog open={addOpen} title="Add to the room" onClose={() => setAddOpen(false)}>
           <section className="dialog-section">

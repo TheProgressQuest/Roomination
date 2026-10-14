@@ -208,6 +208,48 @@ h3 {
 
 /* ---------- 3D view ---------- */
 /* The 2D / 3D switch: always the first thing above the canvas, never hidden. */
+/* The row above the plan: 2D/3D switch, plan style, and presentation toggles. */
+.canvas-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+}
+
+.option-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.option-list:disabled {
+  opacity: 0.55;
+}
+
+.export-button {
+  margin-left: auto;
+}
+
+@media (max-width: 600px) {
+  .export-label {
+    display: none;
+  }
+}
+
+.plan-style {
+  flex: none;
+  border: 1px solid var(--border);
+}
+
+.plan-style button {
+  min-height: 36px;
+}
+
 .view-switch {
   flex: none;
   flex-wrap: nowrap;

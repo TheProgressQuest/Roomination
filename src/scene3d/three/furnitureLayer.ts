@@ -1,5 +1,5 @@
 import {
-  BoxGeometry,
+  BatchedMesh,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -11,6 +11,8 @@ import {
   LineSegments,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
   Quaternion,
   SRGBColorSpace,
   ShapeUtils,
@@ -21,26 +23,34 @@ import {
   type Object3D,
 } from 'three';
 import { boundingBox, signedArea2, type Polygon } from '../../model/polygon';
-import type { MaterialKind } from '../../model/types';
+import type { SurfaceFinish } from '../../model/types';
 import type { Ring } from '../../model/shape';
+import type { SurfaceKind } from '../../render/materials';
 import { loadAssetImage } from '../../storage/assets';
-import { CM_PER_SCENE_UNIT, toScene, type Block, type SceneFurniture } from '../model';
+import { CM_PER_SCENE_UNIT, type SceneFurniture } from '../model';
 import type { FurnitureMaterials } from './furnitureMaterials';
+import { partGeometry, partMatrix, type PartDetail } from './partGeometry';
 
 /**
  * All furniture in the 3D view.
  *
- * - Standard pieces are boxes arranged per type, drawn as one instanced mesh per material
- *   (a handful of draw calls however many pieces there are).
+ * - Every piece is built from its parts (render/furnitureParts): rounded cushions, legs,
+ *   pillows, shelves and books, leaves… Parts are drawn as one BatchedMesh per surface
+ *   material, so a room full of furniture is a handful of draw calls; part geometry is
+ *   cached and shared between identical pieces.
  * - Drawn shapes and photo-textured pieces are extruded from their real footprint — the
- *   same outline the plan and collision checks use — into one mesh each. Photos are mapped
- *   onto the top, front-facing and side-facing surfaces.
+ *   same outline the plan and collision checks use. Photos go on the top, front-facing and
+ *   side-facing surfaces.
+ * - A soft contact shadow sits under each piece, so furniture rests on the floor even
+ *   without shadow maps.
  */
 
 /** Selection: the brand's Savage Ultramarine. */
 const HIGHLIGHT = new Color('#1f2bd6');
 const UP = new Vector3(0, 1, 0);
 const m = (cm: number) => cm / CM_PER_SCENE_UNIT;
+/** Contact shadows float just above rugs (which are at most 1.5 cm thick). */
+const CONTACT_HEIGHT = m(1.6);
 
 /** Material slots of an extruded piece's geometry groups. */
 const enum Surface {
@@ -50,15 +60,15 @@ const enum Surface {
   Side = 3,
 }
 
-interface InstancedPiece {
-  mesh: InstancedMesh;
-  start: number;
+interface BatchedPiece {
+  mesh: BatchedMesh;
+  ids: number[];
   colors: Color[];
 }
 
 interface PieceRecord {
   footprint: SceneFurniture;
-  instanced: InstancedPiece[];
+  batched: BatchedPiece[];
   extruded: Mesh | null;
   /** Materials owned by this piece (extruded pieces), disposed with it. Their textures are cached separately. */
   owned: MeshStandardMaterial[];
@@ -70,48 +80,83 @@ interface Cached<T> {
   generation: number;
 }
 
+interface PlacedPart {
+  owner: string;
+  geometry: string;
+  matrix: Matrix4;
+  color: Color;
+}
+
 export class FurnitureLayer {
   readonly group = new Group();
   /** How many shapes are drawn (used to limit shadows on touch devices). */
   partCount = 0;
+  /** Draw calls used by furniture (for diagnostics). */
+  batches = 0;
+  /** Photo textures still loading (an image export waits for them). */
+  pendingPhotos = 0;
   private readonly pieces = new Map<string, PieceRecord>();
-  private readonly instanceOwners = new Map<InstancedMesh, string[]>();
+  private readonly batchOwners = new Map<BatchedMesh, string[]>();
+  private contactShadows: InstancedMesh | null = null;
+  private readonly contactMaterial: MeshBasicMaterial;
+  private readonly contactPlane = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private outline: LineSegments | null = null;
   private selectedId: string | null = null;
+  private detail: PartDetail = 'medium';
   /** Bumped on every rebuild, so photos that finish loading late don't land on stale meshes. */
   private generation = 0;
   /**
-   * Extruded shapes and photo textures survive rebuilds: moving one piece doesn't re-make
-   * every other piece's mesh or re-upload its photos. Anything a rebuild didn't use is freed.
+   * Part and extruded geometry and photo textures survive rebuilds: moving one piece doesn't
+   * re-make every other piece's geometry or re-upload its photos. Anything a rebuild didn't
+   * use is freed.
    */
   private readonly geometries = new Map<string, Cached<BufferGeometry>>();
   private readonly photos = new Map<string, Cached<CanvasTexture>>();
 
   constructor(
-    private readonly unitBox: BoxGeometry,
     private readonly materials: FurnitureMaterials,
     /** Called when a photo texture finishes loading, so the view can redraw. */
     private readonly onChange: () => void,
-  ) {}
+  ) {
+    this.contactMaterial = new MeshBasicMaterial({ map: contactShadowTexture(), color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false });
+  }
+
+  /** Geometry detail (rounded-edge and curve segments). Takes effect on the next build. */
+  setDetail(detail: PartDetail) {
+    if (detail === this.detail) return;
+    this.detail = detail;
+    for (const entry of this.geometries.values()) entry.value.dispose();
+    this.geometries.clear();
+  }
+
+  setContactShadows(on: boolean) {
+    if (this.contactShadows) this.contactShadows.visible = on;
+    this.contactMaterial.visible = on;
+  }
 
   build(furniture: SceneFurniture[]) {
     this.clear();
     const generation = this.generation;
-    // Group the boxes of standard pieces by material: one instanced mesh each.
-    const byMaterial = new Map<string, { kind: MaterialKind | null; finish: SceneFurniture['finish']; pieces: SceneFurniture[] }>();
+    const bySurface = new Map<string, { surface: SurfaceKind; finish: SurfaceFinish; parts: PlacedPart[] }>();
+    let parts = 0;
     for (const piece of furniture) {
-      this.pieces.set(piece.id, { footprint: piece, instanced: [], extruded: null, owned: [] });
-      if (piece.extruded) {
-        this.addExtruded(piece, generation);
-        continue;
+      this.pieces.set(piece.id, { footprint: piece, batched: [], extruded: null, owned: [] });
+      if (piece.extruded) this.addExtruded(piece, generation);
+      const placement = new Matrix4().compose(new Vector3(m(piece.x), 0, m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
+      for (const part of piece.parts) {
+        const geometry = partGeometry(part, this.detail);
+        this.cached(this.geometries, geometry.key, generation, geometry.make);
+        const key = `${part.surface}|${piece.finish}`;
+        const group = bySurface.get(key) ?? { surface: part.surface, finish: piece.finish, parts: [] };
+        group.parts.push({ owner: piece.id, geometry: geometry.key, matrix: placement.clone().multiply(partMatrix(part, geometry.scale)), color: new Color(part.color) });
+        bySurface.set(key, group);
+        parts++;
       }
-      const key = `${piece.material ?? 'default'}|${piece.finish}`;
-      const group = byMaterial.get(key) ?? { kind: piece.material, finish: piece.finish, pieces: [] };
-      group.pieces.push(piece);
-      byMaterial.set(key, group);
     }
-    for (const { kind, finish, pieces } of byMaterial.values()) this.addInstanced(kind, finish, pieces);
-    this.partCount = furniture.reduce((sum, f) => sum + Math.max(1, f.parts.length), 0);
+    for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.parts);
+    this.addContactShadows(furniture);
+    this.partCount = parts + furniture.filter((f) => f.extruded).length;
+    this.batches = bySurface.size + furniture.filter((f) => f.extruded).length;
     this.applySelection();
     // Free shapes and photos that nothing in this rebuild used. (Photos still loading are
     // claimed when they arrive, so they're kept until the following rebuild.)
@@ -132,12 +177,12 @@ export class FurnitureLayer {
 
   /** Meshes a click can land on. */
   hitTargets(): Object3D[] {
-    return this.group.children.filter((c) => c instanceof Mesh);
+    return this.group.children.filter((c) => (c instanceof Mesh || c instanceof BatchedMesh) && c !== this.contactShadows);
   }
 
   /** The furniture id a ray hit belongs to, or null. */
   ownerOf(hit: Intersection): string | null {
-    if (hit.object instanceof InstancedMesh && hit.instanceId !== undefined) return this.instanceOwners.get(hit.object)?.[hit.instanceId] ?? null;
+    if (hit.object instanceof BatchedMesh && hit.batchId !== undefined) return this.batchOwners.get(hit.object)?.[hit.batchId] ?? null;
     return (hit.object.userData.furnitureId as string | undefined) ?? null;
   }
 
@@ -145,17 +190,20 @@ export class FurnitureLayer {
     return this.pieces.get(id)?.footprint;
   }
 
-  /** Removes every mesh. Cached shapes and photos stay for the next rebuild. */
+  /** Removes every mesh. Cached geometry and photos stay for the next rebuild. */
   clear() {
     this.generation++;
     this.removeOutline();
     // Owned materials' textures are shared (material details) or cached (photos): not freed here.
     for (const record of this.pieces.values()) for (const material of record.owned) material.dispose();
-    for (const mesh of this.instanceOwners.keys()) mesh.dispose();
+    for (const mesh of this.batchOwners.keys()) mesh.dispose();
+    this.contactShadows?.dispose();
+    this.contactShadows = null;
     this.group.clear();
     this.pieces.clear();
-    this.instanceOwners.clear();
+    this.batchOwners.clear();
     this.partCount = 0;
+    this.batches = 0;
   }
 
   dispose() {
@@ -164,43 +212,76 @@ export class FurnitureLayer {
       for (const entry of cache.values()) entry.value.dispose();
       cache.clear();
     }
+    this.contactMaterial.map?.dispose();
+    this.contactMaterial.dispose();
+    this.contactPlane.dispose();
   }
 
   // ---------------------------------------------------------------------------
 
-  private addInstanced(kind: MaterialKind | null, finish: SceneFurniture['finish'], pieces: SceneFurniture[]) {
-    const count = pieces.reduce((sum, p) => sum + p.parts.length, 0);
-    if (count === 0) return;
-    const mesh = new InstancedMesh(this.unitBox, this.materials.get(kind, finish), count);
-    const owners: string[] = [];
-    let index = 0;
-    for (const piece of pieces) {
-      const colors: Color[] = [];
-      for (const part of piece.parts) {
-        mesh.setMatrixAt(index + colors.length, blockMatrix(part));
-        const color = new Color(part.color);
-        mesh.setColorAt(index + colors.length, color);
-        colors.push(color);
-        owners.push(piece.id);
-      }
-      this.pieces.get(piece.id)!.instanced.push({ mesh, start: index, colors });
-      index += colors.length;
+  private addBatch(surface: SurfaceKind, finish: SurfaceFinish, parts: PlacedPart[]) {
+    if (parts.length === 0) return;
+    const unique = [...new Set(parts.map((p) => p.geometry))];
+    let vertices = 0;
+    let indices = 0;
+    for (const key of unique) {
+      const g = this.geometries.get(key)!.value;
+      vertices += g.getAttribute('position').count;
+      indices += g.index!.count;
     }
-    mesh.castShadow = true;
+    const mesh = new BatchedMesh(parts.length, vertices, indices, this.materials.get(surface, finish));
+    const ids = new Map(unique.map((key) => [key, mesh.addGeometry(this.geometries.get(key)!.value)]));
+    const owners: string[] = [];
+    for (const part of parts) {
+      const id = mesh.addInstance(ids.get(part.geometry)!);
+      mesh.setMatrixAt(id, part.matrix);
+      mesh.setColorAt(id, part.color);
+      owners[id] = part.owner;
+      const record = this.pieces.get(part.owner)!;
+      let entry = record.batched.find((b) => b.mesh === mesh);
+      if (!entry) {
+        entry = { mesh, ids: [], colors: [] };
+        record.batched.push(entry);
+      }
+      entry.ids.push(id);
+      entry.colors.push(part.color);
+    }
+    // Glass and leaves are thin: they'd cast hard, heavy shadows for their size.
+    mesh.castShadow = surface !== 'glass';
     mesh.receiveShadow = true;
-    mesh.computeBoundingSphere();
-    mesh.name = `furniture:${kind ?? 'default'}`;
-    this.instanceOwners.set(mesh, owners);
+    mesh.name = `furniture:${surface}`;
+    this.batchOwners.set(mesh, owners);
+    this.group.add(mesh);
+  }
+
+  /** A soft, blurred shadow under every solid piece, the size of its footprint. */
+  private addContactShadows(furniture: SceneFurniture[]) {
+    const solid = furniture.filter((f) => f.height > 2);
+    if (solid.length === 0) return;
+    const mesh = new InstancedMesh(this.contactPlane, this.contactMaterial, solid.length);
+    solid.forEach((f, i) => {
+      // A little wider than the piece; bigger pieces get a slightly wider spread.
+      const spread = 6 + Math.min(14, Math.max(f.width, f.depth) * 0.06);
+      const matrix = new Matrix4().compose(
+        new Vector3(m(f.x), CONTACT_HEIGHT, m(f.y)),
+        new Quaternion().setFromAxisAngle(UP, (-f.rotation * Math.PI) / 180),
+        new Vector3(m(f.width + spread * 2), 1, m(f.depth + spread * 2)),
+      );
+      mesh.setMatrixAt(i, matrix);
+    });
+    mesh.renderOrder = -1;
+    mesh.name = 'furniture:contact-shadows';
+    mesh.visible = this.contactMaterial.visible;
+    this.contactShadows = mesh;
     this.group.add(mesh);
   }
 
   private addExtruded(piece: SceneFurniture, generation: number) {
-    const { rings, height, color } = piece.extruded!;
+    const { rings, bottom, height, color } = piece.extruded!;
     const textures = piece.textures;
-    const repeats = this.materials.repeatsFor(piece.material, 1);
     const outlineKey = rings.map((r) => [r.outer, ...r.holes].map((poly) => poly.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(';')).join('|')).join('/');
-    const key = `${outlineKey}|${height}|${repeats}|${Object.keys(textures).sort().join(',')}`;
-    const geometry = this.cached(this.geometries, key, generation, () => extrudedGeometry(rings, height, textures, repeats));
+    const key = `extruded|${outlineKey}|${bottom}|${height}|${Object.keys(textures).sort().join(',')}`;
+    const geometry = this.cached(this.geometries, key, generation, () => extrudedGeometry(rings, height, textures, 1, bottom));
     const body = this.materials.create(piece.material, piece.finish, color);
     const surfaces: MeshStandardMaterial[] = [body, body, body, body];
     const owned = [body];
@@ -211,7 +292,7 @@ export class FurnitureLayer {
     ] as const) {
       if (!id) continue;
       // Starts as the plain body colour; the photo replaces it once loaded.
-      const material = this.materials.create(piece.material === 'glass' ? null : piece.material, piece.finish, color);
+      const material = this.materials.create(piece.material === 'glass' ? 'custom' : piece.material, piece.finish, color);
       material.map = null;
       surfaces[slot] = material;
       owned.push(material);
@@ -227,11 +308,14 @@ export class FurnitureLayer {
         show(ready.value);
         continue;
       }
-      loadAssetImage(id).then((image) => {
-        if (!image || generation !== this.generation) return;
-        show(this.cached(this.photos, photoKey, generation, () => photoTexture(image, color)));
-        this.onChange();
-      });
+      this.pendingPhotos++;
+      loadAssetImage(id)
+        .then((image) => {
+          if (!image || generation !== this.generation) return;
+          show(this.cached(this.photos, photoKey, generation, () => photoTexture(image, color)));
+          this.onChange();
+        })
+        .finally(() => this.pendingPhotos--);
     }
     const mesh = new Mesh(geometry, surfaces);
     mesh.position.copy(new Vector3(m(piece.x), 0, m(piece.y)));
@@ -261,10 +345,7 @@ export class FurnitureLayer {
   private applySelection() {
     for (const [id, record] of this.pieces) {
       const selected = id === this.selectedId;
-      for (const { mesh, start, colors } of record.instanced) {
-        colors.forEach((color, i) => mesh.setColorAt(start + i, selected ? color.clone().lerp(HIGHLIGHT, 0.35) : color));
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      }
+      for (const { mesh, ids, colors } of record.batched) ids.forEach((instance, i) => mesh.setColorAt(instance, selected ? colors[i].clone().lerp(HIGHLIGHT, 0.35) : colors[i]));
       for (const material of record.owned) material.emissive.copy(selected ? HIGHLIGHT : new Color(0)).multiplyScalar(selected ? 0.25 : 0);
     }
     this.removeOutline();
@@ -293,16 +374,27 @@ export class FurnitureLayer {
   }
 }
 
+/** A soft rounded-rectangle shadow, darkest in the middle and fading to nothing at the edges. */
+function contactShadowTexture(): CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.filter = 'blur(14px)';
+  ctx.fillStyle = '#ffffff';
+  const inset = 26;
+  ctx.beginPath();
+  ctx.roundRect(inset, inset, size - inset * 2, size - inset * 2, 14);
+  ctx.fill();
+  const texture = new CanvasTexture(canvas);
+  // The shape is white on transparent; the material colours it black and the alpha shapes it.
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
-
-/** Position, turn and size the unit box to fill a block. */
-export function blockMatrix(b: Block): Matrix4 {
-  const centre = toScene(b, b.z + b.height / 2);
-  const turn = new Quaternion().setFromAxisAngle(UP, (-b.rotation * Math.PI) / 180);
-  return new Matrix4().compose(new Vector3(centre.x, centre.y, centre.z), turn, new Vector3(m(b.width), m(Math.max(b.height, 0.01)), m(b.depth)));
-}
 
 function rectangle(width: number, depth: number): Polygon {
   return [
@@ -328,7 +420,7 @@ function inflate(poly: Polygon, cm: number): Polygon {
  * faces; texture coordinates span each photo across the whole piece (photo surfaces) or
  * repeat in metres (material detail elsewhere).
  */
-export function extrudedGeometry(rings: Ring[], height: number, textures: SceneFurniture['textures'], repeatsPerMetre: number): BufferGeometry {
+export function extrudedGeometry(rings: Ring[], height: number, textures: SceneFurniture['textures'], repeatsPerMetre: number, bottom = 0): BufferGeometry {
   const cw = (poly: Polygon) => (signedArea2(poly) >= 0 ? poly : [...poly].reverse());
   const box = boundingBox(rings.flatMap((r) => r.outer));
   const w = Math.max(box.maxX - box.minX, 1e-6);
@@ -372,9 +464,9 @@ export function extrudedGeometry(rings: Ring[], height: number, textures: SceneF
       } else {
         [ua, ub] = [m(along) * repeatsPerMetre, m(along + len) * repeatsPerMetre];
       }
-      const top = surface === Surface.Body ? m(height) * repeatsPerMetre : 1;
-      const a0 = { p: at(a.x, a.y, 0), uv: [ua, 0] as [number, number] };
-      const b0 = { p: at(b.x, b.y, 0), uv: [ub, 0] as [number, number] };
+      const top = surface === Surface.Body ? m(height - bottom) * repeatsPerMetre : 1;
+      const a0 = { p: at(a.x, a.y, bottom), uv: [ua, 0] as [number, number] };
+      const b0 = { p: at(b.x, b.y, bottom), uv: [ub, 0] as [number, number] };
       const b1 = { p: at(b.x, b.y, height), uv: [ub, top] as [number, number] };
       const a1 = { p: at(a.x, a.y, height), uv: [ua, top] as [number, number] };
       add(surface, [a0, b1, b0, a0, a1, b1]);
@@ -403,7 +495,7 @@ export function extrudedGeometry(rings: Ring[], height: number, textures: SceneF
           uv: textures.top ? [(p.x - box.minX) / w, 1 - (p.y - box.minY) / d] : [m(p.x) * repeatsPerMetre, m(p.y) * repeatsPerMetre],
         })),
       );
-      add(Surface.Body, down.map((p) => ({ p: at(p.x, p.y, 0), uv: [0, 0] })));
+      add(Surface.Body, down.map((p) => ({ p: at(p.x, p.y, bottom), uv: [0, 0] })));
     }
     walls(outer, true);
     for (const hole of holes) walls(hole, false);

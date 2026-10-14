@@ -34,6 +34,8 @@ export interface CanvasPalette {
   baguaFillB: string;
   baguaLine: string;
   baguaInk: string;
+  /** Room name and size written on the floor (presentation plan). Follows the floor's brightness. */
+  roomLabel: string;
 }
 
 const LIGHT: CanvasPalette = {
@@ -57,6 +59,7 @@ const LIGHT: CanvasPalette = {
   baguaFillB: 'rgba(31, 43, 214, 0.13)',
   baguaLine: 'rgba(31, 43, 214, 0.45)',
   baguaInk: '#1a2499',
+  roomLabel: 'rgba(43,36,28,0.78)',
 };
 
 const DARK: CanvasPalette = {
@@ -80,6 +83,7 @@ const DARK: CanvasPalette = {
   baguaFillB: 'rgba(31, 43, 214, 0.13)',
   baguaLine: 'rgba(31, 43, 214, 0.45)',
   baguaInk: '#1a2499',
+  roomLabel: 'rgba(43,36,28,0.78)',
 };
 
 /** Lines drawn on a dark floor (e.g. dark walnut) switch to light ink so they stay visible. */
@@ -94,6 +98,7 @@ const ON_DARK_FLOOR: Partial<CanvasPalette> = {
   baguaFillB: 'rgba(160, 172, 255, 0.18)',
   baguaLine: 'rgba(190, 198, 255, 0.6)',
   baguaInk: '#e3e7ff',
+  roomLabel: 'rgba(255,250,240,0.85)',
 };
 
 const ON_LIGHT_FLOOR: Partial<CanvasPalette> = {
@@ -107,6 +112,7 @@ const ON_LIGHT_FLOOR: Partial<CanvasPalette> = {
   baguaFillB: LIGHT.baguaFillB,
   baguaLine: LIGHT.baguaLine,
   baguaInk: LIGHT.baguaInk,
+  roomLabel: LIGHT.roomLabel,
 };
 
 export function canvasPalette(theme: ResolvedTheme, boardIsDark: boolean, floorColor: string): CanvasPalette {

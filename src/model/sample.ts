@@ -7,14 +7,14 @@ import { rectangleOutline } from './walls';
 
 /** Warm, distinguishable furniture colours. Names are read out by screen readers. */
 export const FURNITURE_COLORS = [
-  { name: 'Terracotta', value: '#e9a178' },
-  { name: 'Sage', value: '#8fb996' },
-  { name: 'Honey', value: '#f2c879' },
-  { name: 'Sky', value: '#9bb7d4' },
-  { name: 'Lavender', value: '#c9a7d8' },
-  { name: 'Rose', value: '#d98f8f' },
-  { name: 'Linen', value: '#e8dcc6' },
-  { name: 'Slate', value: '#7d8a99' },
+  { name: 'Oatmeal', value: '#e2d9c8' },
+  { name: 'Linen', value: '#ece6da' },
+  { name: 'Sage', value: '#a3b094' },
+  { name: 'Oak', value: '#c9a77c' },
+  { name: 'Walnut', value: '#7a5a43' },
+  { name: 'Terracotta', value: '#c98a6b' },
+  { name: 'Mist blue', value: '#a7b7c4' },
+  { name: 'Charcoal', value: '#4b4d52' },
 ];
 
 export function createId(): string {
@@ -99,9 +99,9 @@ export function createSampleProject(): Project {
   const free = (x: number, y: number, rotation = 0): Placement => ({ type: 'free', x, y, rotation });
 
   // Fronts face the way the piece is used: the sofa (rotated 180°) faces up towards the TV.
-  const sofa = createFurniture({ name: 'Sofa', kind: 'sofa', x: 240, y: 330, width: 220, depth: 90, height: 85, rotation: 180, color: '#e9a178' });
-  const coffeeTable = createFurniture({ name: 'Coffee table', kind: 'coffeeTable', x: 240, y: 220, width: 110, depth: 60, height: 45, color: '#f2c879' });
-  const tv = createFurniture({ name: 'TV console', kind: 'television', x: 240, y: 25, width: 160, depth: 40, height: 55, color: '#9bb7d4' });
+  const sofa = createFurniture({ name: 'Sofa', kind: 'sofa', x: 240, y: 330, width: 220, depth: 90, height: 85, rotation: 180, color: '#e2d9c8' });
+  const coffeeTable = createFurniture({ name: 'Coffee table', kind: 'coffeeTable', x: 240, y: 220, width: 110, depth: 60, height: 45, color: '#c9a77c' });
+  const tv = createFurniture({ name: 'TV console', kind: 'television', x: 240, y: 25, width: 160, depth: 40, height: 55, color: '#7a5a43' });
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -109,13 +109,13 @@ export function createSampleProject(): Project {
     units: 'metric',
     room,
     furniture: [
-      createFurniture({ name: 'Rug', category: 'floorCovering', x: 240, y: 220, width: 200, depth: 140, height: 1, color: '#c9a7d8', texture: 'bordered' }),
+      createFurniture({ name: 'Rug', category: 'floorCovering', x: 240, y: 220, width: 200, depth: 140, height: 1, color: '#d9cdb8', texture: 'bordered' }),
       sofa,
       coffeeTable,
       tv,
-      createFurniture({ name: 'Armchair', kind: 'armchair', x: 70, y: 200, width: 80, depth: 80, height: 90, rotation: 270, color: '#8fb996' }),
-      createFurniture({ name: 'Bookshelf', kind: 'bookshelf', x: 455, y: 150, width: 100, depth: 35, height: 180, rotation: 90, color: '#c9a7d8', preferences: ['againstWall'] }),
-      createFurniture({ name: 'Plant', kind: 'decor', category: 'decoration', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#8fb996' }),
+      createFurniture({ name: 'Armchair', kind: 'armchair', x: 70, y: 200, width: 80, depth: 80, height: 90, rotation: 270, color: '#a3b094' }),
+      createFurniture({ name: 'Bookshelf', kind: 'bookshelf', x: 455, y: 150, width: 100, depth: 35, height: 180, rotation: 90, color: '#c9a77c', preferences: ['againstWall'] }),
+      createFurniture({ name: 'Plant', kind: 'decor', category: 'decoration', x: 445, y: 330, width: 45, depth: 45, height: 120, color: '#7f9c6a' }),
     ],
     relationships: [
       { id: createId(), type: 'inFrontOf', a: sofa.id, b: coffeeTable.id },

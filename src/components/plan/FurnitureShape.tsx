@@ -1,12 +1,13 @@
 import { memo, useMemo, useState } from 'react';
-import { Circle, Group, Line, Path, Rect, Text } from 'react-konva';
-import type Konva from 'konva';
+import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from 'react-konva';
 import { polygonArea } from '../../model/polygon';
 import { localFootprint, type Ring } from '../../model/shape';
 import type { Furniture, Point } from '../../model/types';
 import { useAssetImage } from '../useAssetImage';
 import { readableText, shade, type CanvasPalette } from '../../render/palette';
-import { PX_PER_CM, rugTexture } from '../../render/textures';
+import Konva from 'konva';
+import { patternScale as tileScale, rugTexture } from '../../render/textures';
+import { illustrationOf } from '../../render/planIllustration';
 import { FONT_FAMILY } from './RoomShell';
 import { interactionEvents, sameDataProps, type ConflictStatus, type InteractionProps } from './shared';
 
@@ -21,18 +22,20 @@ interface FurnitureShapeProps extends InteractionProps {
   selected: boolean;
   status: ConflictStatus;
   palette: CanvasPalette;
+  /** Presentation plan: illustrated furniture; null for the technical plan. */
+  presentation: { labels: boolean; shadows: boolean; editing: boolean } | null;
   onTransformEnd: (node: Konva.Node) => void;
 }
 
 export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShapeProps) {
-  const { item, scale, x, y, selected, status, palette } = props;
+  const { item, scale, x, y, selected, status, palette, presentation } = props;
   const [hovered, setHovered] = useState(false);
   const w = item.width * scale;
   const h = item.depth * scale;
   const isRug = item.category === 'floorCovering';
   const lifted = selected || hovered;
   const texture = isRug ? rugTexture(item.texture, item.color) : null;
-  const patternScale = scale / PX_PER_CM;
+  const patternScale = texture ? tileScale(texture, scale) : 1;
 
   const stroke =
     status === 'warning' ? palette.warning : status === 'accepted' ? palette.accepted : selected ? palette.selection : shade(item.color, -0.45);
@@ -58,6 +61,18 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
         }
       : null;
   const labelAt = outline ? { x: outline.label.x * scale, y: outline.label.y * scale } : { x: 0, y: 0 };
+  // Presentation: the illustrated piece over an invisible footprint (which still takes clicks
+  // and drags, so editing works exactly as in the technical plan). Photos are shown as they are.
+  const illustrated = presentation !== null && !isRug && !photo;
+  const art = useMemo(
+    // Konva's pixel ratio: the screen's, or higher while exporting a high-resolution image.
+    () => (illustrated ? illustrationOf(item, scale, Math.min(4, Konva.pixelRatio || 1)) : null),
+    [illustrated, item, scale],
+  );
+  const aids = presentation === null || presentation.editing;
+  const showOutline = !illustrated || (aids && (selected || status !== undefined));
+  const footprintFill = illustrated ? 'rgba(0,0,0,0)' : item.color;
+  const labelVisible = showLabel && (presentation === null || presentation.labels);
 
   return (
     <Group ref={props.registerNode} name="object" x={x} y={y} rotation={item.rotation} {...interactionEvents(props, setHovered)} onTransformEnd={(e) => props.onTransformEnd(e.currentTarget)}>
@@ -67,12 +82,13 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           <Path
             data={ringsPath(outline.rings, scale)}
             fillRule="evenodd"
-            fill={item.color}
-            {...photoFill(true)}
-            stroke={stroke}
+            fill={footprintFill}
+            {...(illustrated ? null : photoFill(true))}
+            stroke={showOutline ? stroke : undefined}
             strokeWidth={strokeWidth}
             dash={status === 'accepted' ? [6, 4] : undefined}
             lineJoin="round"
+            shadowEnabled={!illustrated}
             shadowColor={palette.shadow}
             shadowOpacity={lifted ? 0.28 : 0.14}
             shadowBlur={lifted ? 12 : 4}
@@ -80,7 +96,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
             shadowForStrokeEnabled={false}
             perfectDrawEnabled={false}
           />
-          {outline.front.map(([a, b], i) => (
+          {!illustrated && outline.front.map(([a, b], i) => (
             // Edges facing the front are drawn darker, to show which way the piece faces.
             <Line key={i} points={[a.x * scale, a.y * scale, b.x * scale, b.y * scale]} stroke={shade(item.color, -0.4)} strokeWidth={2.5} lineCap="round" listening={false} />
           ))}
@@ -91,16 +107,16 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
         height={h}
         offsetX={w / 2}
         offsetY={h / 2}
-        fill={item.color}
+        fill={isRug ? item.color : footprintFill}
         fillPriority={texture ? 'pattern' : 'color'}
         fillPatternImage={texture?.image as unknown as HTMLImageElement | undefined}
         fillPatternScale={{ x: patternScale, y: patternScale }}
-        stroke={stroke}
+        stroke={showOutline && !(presentation && isRug && !aids) ? stroke : undefined}
         strokeWidth={strokeWidth}
         dash={status === 'accepted' ? [6, 4] : undefined}
         cornerRadius={isRug ? Math.min(3, w / 8, h / 8) : Math.min(6, w / 4, h / 4)}
         opacity={isRug ? 0.92 : 1}
-        shadowEnabled={!isRug}
+        shadowEnabled={!isRug && !illustrated}
         shadowColor={palette.shadow}
         shadowOpacity={lifted ? 0.28 : 0.14}
         shadowBlur={lifted ? 12 : 4}
@@ -110,6 +126,24 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
         perfectDrawEnabled={false}
         {...photoFill(false)}
       />
+      )}
+      {art && (
+        <KonvaImage
+          image={art.canvas}
+          x={-art.originX}
+          y={-art.originY}
+          width={art.width}
+          height={art.height}
+          listening={false}
+          // Canvas shadows ignore rotation, so the shadow always falls down and to the right,
+          // like the 3D view's light from the upper left.
+          shadowEnabled={presentation?.shadows ?? false}
+          shadowColor="#1b1408"
+          shadowOpacity={lifted ? 0.34 : 0.26}
+          shadowBlur={Math.max(6, Math.min(18, scale * 8))}
+          shadowOffsetX={Math.max(2, Math.min(8, scale * 3))}
+          shadowOffsetY={Math.max(3, Math.min(10, scale * 4))}
+        />
       )}
       {isRug && item.texture === 'bordered' && (
         <Rect
@@ -123,7 +157,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           listening={false}
         />
       )}
-      {!isRug && !outline && (
+      {!isRug && !outline && !illustrated && (
         // A line along the front edge shows which way the piece faces.
         <Line
           points={[-w / 2 + 4, h / 2 - 3, w / 2 - 4, h / 2 - 3]}
@@ -133,7 +167,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           listening={false}
         />
       )}
-      {showLabel && (
+      {labelVisible && (
         <Text
           text={item.name}
           x={labelAt.x}
@@ -146,21 +180,25 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
           fontSize={fontSize}
           fontFamily={FONT_FAMILY}
           fontStyle="600"
-          fill={readableText(item.color)}
+          fill={illustrated ? '#2b2620' : readableText(item.color)}
+          shadowEnabled={illustrated}
+          shadowColor="#ffffff"
+          shadowBlur={4}
+          shadowOpacity={0.9}
           opacity={isRug ? 0.75 : 1}
           wrap="none"
           ellipsis
           listening={false}
         />
       )}
-      {item.locked && (
+      {item.locked && aids && (
         // Lock badge in the top-left corner, kept upright.
         <Group x={-w / 2} y={-h / 2} rotation={-item.rotation} listening={false}>
           <Circle radius={9} fill={palette.featureInk} stroke="#ffffff" strokeWidth={1.5} />
           <Path data={LOCK_PATH} stroke="#ffffff" strokeWidth={2} lineCap="round" lineJoin="round" scaleX={0.5} scaleY={0.5} offsetX={12} offsetY={13} />
         </Group>
       )}
-      {status === 'warning' && (
+      {status === 'warning' && aids && (
         <Group x={w / 2} y={-h / 2} rotation={-item.rotation} listening={false}>
           <Circle radius={8} fill={palette.warning} stroke="#ffffff" strokeWidth={1.5} />
           <Text text="!" fontSize={12} fontStyle="800" fontFamily={FONT_FAMILY} fill="#ffffff" width={16} offsetX={8} offsetY={6} align="center" />

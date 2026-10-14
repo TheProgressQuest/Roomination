@@ -13,6 +13,19 @@ import { shade } from './palette';
 
 export const PX_PER_CM = 2;
 
+/** The resolution new tiles are drawn at: PX_PER_CM normally, higher while exporting images. */
+let resolution = PX_PER_CM;
+
+/** Sets the tile resolution (pixels per cm). Exports raise it so floors stay crisp at 4K. */
+export function setTextureResolution(pxPerCm: number) {
+  resolution = pxPerCm;
+}
+
+/** How much to scale a tile's pattern to draw it at `screenPxPerCm`. */
+export function patternScale(tile: TextureTile, screenPxPerCm: number): number {
+  return (screenPxPerCm * tile.widthCm) / tile.image.width;
+}
+
 export interface TextureTile {
   image: HTMLCanvasElement;
   /** Tile size in cm. */
@@ -44,7 +57,8 @@ export const FLOOR_PRESET_LABELS: Record<FloorPreset, string> = {
 const cache = new Map<string, TextureTile>();
 const CACHE_LIMIT = 40;
 
-function cached(key: string, make: () => TextureTile): TextureTile {
+function cached(baseKey: string, make: () => TextureTile): TextureTile {
+  const key = `${baseKey}@${resolution}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const tile = make();
@@ -116,8 +130,8 @@ export function rugTexture(texture: FurnitureTexture, color: string): TextureTil
 
 function draw(widthCm: number, heightCm: number, paint: (ctx: CanvasRenderingContext2D) => void): TextureTile {
   const image = document.createElement('canvas');
-  image.width = Math.max(1, Math.round(widthCm * PX_PER_CM));
-  image.height = Math.max(1, Math.round(heightCm * PX_PER_CM));
+  image.width = Math.max(1, Math.round(widthCm * resolution));
+  image.height = Math.max(1, Math.round(heightCm * resolution));
   const ctx = image.getContext('2d')!;
   ctx.scale(image.width / widthCm, image.height / heightCm);
   paint(ctx);
@@ -132,11 +146,14 @@ function wrapped(w: number, h: number, paint: (dx: number, dy: number) => void) 
   for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) paint(dx, dy);
 }
 
-/** Parallel planks of varying length and tone, with subtle grain. */
+/**
+ * Parallel engineered-wood planks: long, wide boards with gentle tonal variation, fine
+ * grain, a soft sheen along each board and faint seams (like a well-laid oak floor).
+ */
 function planks(color: string, scale: number, intensity: number, seed: number): TextureTile {
-  const plankWidth = 15 * scale;
+  const plankWidth = 18 * scale;
   const rows = 8;
-  const length = 240 * scale;
+  const length = 360 * scale;
   const height = plankWidth * rows;
   const random = seededRandom(seed);
   return draw(length, height, (ctx) => {
@@ -144,37 +161,51 @@ function planks(color: string, scale: number, intensity: number, seed: number): 
     ctx.fillRect(0, 0, length, height);
     for (let row = 0; row < rows; row++) {
       const y = row * plankWidth;
-      // Board lengths of 60–150 cm (scaled), starting at a random point so seams stagger.
+      // Board lengths of 90–200 cm (scaled), starting at a random point so seams stagger.
       let x = random() * length;
       const end = x + length;
       while (x < end) {
-        const boardLength = Math.min((60 + random() * 90) * scale, end - x);
-        const tone = shade(color, (random() - 0.5) * 0.16 * (0.5 + intensity));
+        const boardLength = Math.min((90 + random() * 110) * scale, end - x);
+        const tone = shade(color, (random() - 0.5) * 0.11 * (0.5 + intensity));
+        const grainRandom = seededRandom(Math.floor(x * 1000) + row * 7919 + seed);
+        const grains = Array.from({ length: 7 }, () => ({ at: 0.1 + grainRandom() * 0.8, wobble: (grainRandom() - 0.5) * 1.6, dark: grainRandom() > 0.35 }));
+        const sheenAt = 0.25 + grainRandom() * 0.5;
         wrapped(length, height, (dx, dy) => {
+          const x0 = x + dx;
+          const y0 = y + dy;
           ctx.fillStyle = tone;
-          ctx.fillRect(x + dx, y + dy, boardLength, plankWidth);
-          // Grain: a few long, faint strokes along the board.
-          ctx.strokeStyle = shade(color, -0.25);
-          ctx.globalAlpha = 0.12 + 0.35 * intensity;
-          ctx.lineWidth = 0.25 * scale;
-          const grainRandom = seededRandom(Math.floor(x * 1000) + row);
-          for (let g = 0; g < 3; g++) {
-            const gy = y + dy + plankWidth * (0.2 + grainRandom() * 0.6);
+          ctx.fillRect(x0, y0, boardLength, plankWidth);
+          // A soft lighter streak along the board (figure in the wood).
+          const sheen = ctx.createLinearGradient(0, y0, 0, y0 + plankWidth);
+          sheen.addColorStop(0, 'rgba(255,255,255,0)');
+          sheen.addColorStop(sheenAt, `rgba(255,255,255,${0.05 + 0.06 * intensity})`);
+          sheen.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = sheen;
+          ctx.fillRect(x0, y0, boardLength, plankWidth);
+          // Fine grain: long, faint strokes along the board.
+          ctx.lineWidth = 0.18 * scale;
+          for (const g of grains) {
+            ctx.strokeStyle = g.dark ? shade(color, -0.22) : shade(color, 0.12);
+            ctx.globalAlpha = (g.dark ? 0.1 : 0.08) + 0.22 * intensity;
+            const gy = y0 + plankWidth * g.at;
             ctx.beginPath();
-            ctx.moveTo(x + dx + 2, gy);
-            ctx.bezierCurveTo(x + dx + boardLength * 0.3, gy + (grainRandom() - 0.5) * 2, x + dx + boardLength * 0.7, gy + (grainRandom() - 0.5) * 2, x + dx + boardLength - 2, gy);
+            ctx.moveTo(x0 + 1, gy);
+            ctx.bezierCurveTo(x0 + boardLength * 0.33, gy + g.wobble, x0 + boardLength * 0.66, gy - g.wobble, x0 + boardLength - 1, gy + g.wobble * 0.3);
             ctx.stroke();
           }
+          ctx.globalAlpha = 0.55;
+          // A faint seam at the end of each board.
+          ctx.fillStyle = shade(color, -0.2);
+          ctx.fillRect(x0 + boardLength - 0.25 * scale, y0, 0.25 * scale, plankWidth);
           ctx.globalAlpha = 1;
-          // Seam at the end of each board.
-          ctx.fillStyle = shade(color, -0.35);
-          ctx.fillRect(x + dx + boardLength - 0.3 * scale, y + dy, 0.3 * scale, plankWidth);
         });
         x += boardLength;
       }
-      // Long joint between rows.
-      ctx.fillStyle = shade(color, -0.3);
-      ctx.fillRect(0, y, length, 0.3 * scale);
+      // Long joint between rows: thin and only slightly darker.
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = shade(color, -0.18);
+      ctx.fillRect(0, y, length, 0.25 * scale);
+      ctx.globalAlpha = 1;
     }
   });
 }
@@ -189,6 +220,22 @@ function tiles(color: string, scale: number, intensity: number): TextureTile {
       for (let j = 0; j < 2; j++) {
         ctx.fillStyle = shade(color, (random() - 0.5) * 0.06 * (0.5 + intensity));
         ctx.fillRect(i * size, j * size, size, size);
+        // Faint glaze variation inside each tile, and a soft highlight from the upper left.
+        for (let k = 0; k < 3; k++) {
+          const cx = i * size + random() * size;
+          const cy = j * size + random() * size;
+          const r = size * (0.2 + random() * 0.3);
+          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+          g.addColorStop(0, `rgba(255,255,255,${0.04 + 0.05 * intensity})`);
+          g.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = g;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(i * size, j * size, size, size);
+          ctx.clip();
+          ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+          ctx.restore();
+        }
       }
     }
     ctx.fillStyle = shade(color, -0.15 - 0.25 * intensity);

@@ -10,13 +10,14 @@ import type { Furniture, Placement, Point, Project, RoomFeature, Staircase } fro
 import { formatLength } from '../../model/units';
 import { asRectangle, findSegment, moveNode, outlinePolygon, wallSegments } from '../../model/walls';
 import type { CanvasPalette } from '../../render/palette';
+import type { PresentationPreferences } from '../../state/preferences';
 import type { Selection, ToolMode } from '../../state/selection';
 import { baguaMap } from '../../model/bagua';
 import { BaguaOverlay } from './BaguaOverlay';
 import { DrawOverlay } from './DrawOverlay';
 import { FeatureShape } from './FeatureShape';
 import { FurnitureShape } from './FurnitureShape';
-import { DimensionLabels, RoomFloor, WallLengthLabels, Walls } from './RoomShell';
+import { DimensionLabels, RoomFloor, RoomLabel, WallLengthLabels, Walls } from './RoomShell';
 import type { ConflictStatus } from './shared';
 import { StairShape } from './StairShape';
 import { fitViewport, toRoomPoint, toScreen, type Viewport } from './viewport';
@@ -28,6 +29,8 @@ interface FloorPlanProps {
   palette: CanvasPalette;
   showMeasurementGrid: boolean;
   showClearances: boolean;
+  /** Presentation plan settings, or null for the technical plan. */
+  presentation: PresentationPreferences | null;
   mode: ToolMode;
   /** Points placed so far while drawing walls. */
   draft: Point[];
@@ -48,6 +51,8 @@ interface FloorPlanProps {
 
 /** Features drawn underneath furniture (they sit on the floor). */
 const FLOOR_FEATURES = new Set(['column', 'radiator']);
+/** Service details the presentation plan leaves out (unless editing aids are on). */
+const PRESENTATION_HIDDEN = new Set(['outlet', 'switch', 'vent', 'light']);
 /** Extra screen space (px) taken by per-wall length labels outside the walls. */
 const WALL_LABEL_SPACE = 18;
 /** How close (in screen px) the pointer must come to something to snap to it. */
@@ -84,7 +89,10 @@ export function FloorPlan(props: FloorPlanProps) {
     const drawn = boundingBox(draft);
     return { minX: Math.min(view.minX, drawn.minX), minY: Math.min(view.minY, drawn.minY), maxX: Math.max(view.maxX, drawn.maxX), maxY: Math.max(view.maxY, drawn.maxY) };
   }, [project.room, draft, drawing]);
-  const showCorners = interactive && (selection?.kind === 'wall' || selection?.kind === 'corner');
+  const presentation = props.presentation;
+  /** Selection outlines, handles and warnings: always in the technical plan, on request in presentation. */
+  const editingAids = presentation === null || presentation.editing;
+  const showCorners = interactive && editingAids && (selection?.kind === 'wall' || selection?.kind === 'corner');
   // Per-wall lengths: while editing walls, and for irregular rooms where width × length isn't enough.
   const showWallLengths = drawing || showCorners || asRectangle(room) === null;
   const labelRoom = showWallLengths ? WALL_LABEL_SPACE : 0;
@@ -158,9 +166,9 @@ export function FloorPlan(props: FloorPlanProps) {
     const transformer = transformerRef.current;
     if (!transformer) return;
     const node = rotatable && selectedObjectId ? nodeRefs.current.get(selectedObjectId) : undefined;
-    transformer.nodes(node && interactive ? [node] : []);
+    transformer.nodes(node && interactive && editingAids ? [node] : []);
     transformer.getLayer()?.batchDraw();
-  }, [selectedObjectId, rotatable, project, interactive]);
+  }, [selectedObjectId, rotatable, project, interactive, editingAids]);
 
   /** Where the piece being dragged last fitted, so it slides along walls instead of jumping. */
   const lastGood = useRef<Point | null>(null);
@@ -206,9 +214,11 @@ export function FloorPlan(props: FloorPlanProps) {
   const screenFrame = (frame: Frame): Frame => screenFrameOf(frame, viewport);
   const lockedIds = new Set(furniture.filter((f) => f.locked).map((f) => f.id));
   const canDrag = (id: string) => interactive && !lockedIds.has(id) && (!props.touch || id === selectedObjectId);
-  const ceilingFeatures = features.filter((f) => f.kind === 'light' || (f.kind === 'vent' && f.ventMount === 'ceiling'));
-  const floorFeatures = features.filter((f) => FLOOR_FEATURES.has(f.kind) || (f.kind === 'vent' && f.ventMount === 'floor'));
-  const wallFeatures = features.filter((f) => !ceilingFeatures.includes(f) && !floorFeatures.includes(f));
+  // Presentation hides service details (outlets, switches, vents, ceiling lights) unless editing.
+  const visibleFeatures = editingAids ? features : features.filter((f) => !PRESENTATION_HIDDEN.has(f.kind));
+  const ceilingFeatures = visibleFeatures.filter((f) => f.kind === 'light' || (f.kind === 'vent' && f.ventMount === 'ceiling'));
+  const floorFeatures = visibleFeatures.filter((f) => FLOOR_FEATURES.has(f.kind) || (f.kind === 'vent' && f.ventMount === 'floor'));
+  const wallFeatures = visibleFeatures.filter((f) => !ceilingFeatures.includes(f) && !floorFeatures.includes(f));
 
   const renderFurniture = (item: Furniture) => (
     <FurnitureShape
@@ -219,6 +229,7 @@ export function FloorPlan(props: FloorPlanProps) {
       selected={item.id === selectedObjectId}
       status={statusOf(item.id)}
       palette={palette}
+      presentation={presentation ? { labels: presentation.labels, shadows: presentation.shadows, editing: presentation.editing } : null}
       draggable={canDrag(item.id)}
       registerNode={registerNode(item.id)}
       onSelect={() => latest.current.props.onSelect({ kind: 'object', id: item.id })}
@@ -278,7 +289,7 @@ export function FloorPlan(props: FloorPlanProps) {
         wallBand={wallBand}
         selected={feature.id === selectedObjectId}
         status={statusOf(feature.id)}
-        showClearance={props.showClearances}
+        showClearance={props.showClearances && editingAids}
         palette={palette}
         draggable={canDrag(feature.id)}
         registerNode={registerNode(feature.id)}
@@ -382,9 +393,10 @@ export function FloorPlan(props: FloorPlanProps) {
         onPointerClick={(e) => drawing && e.evt.button === 0 && pressWhileDrawing(e.target.getStage())}
       >
         <Layer listening={false} opacity={mode === 'drawRoom' ? 0.45 : 1}>
-          <RoomFloor project={shown} viewport={viewport} palette={palette} showGrid={props.showMeasurementGrid} bounds={roomBox} />
+          <RoomFloor project={shown} viewport={viewport} palette={palette} showGrid={presentation ? presentation.grid : props.showMeasurementGrid} bounds={roomBox} />
+          {presentation?.roomLabel && <RoomLabel project={shown} viewport={viewport} palette={palette} />}
           {bagua && typeof bagua !== 'string' && <BaguaOverlay map={bagua} viewport={viewport} palette={palette} />}
-          <DimensionLabels project={shown} viewport={viewport} palette={palette} bounds={roomBox} clearance={labelRoom} />
+          {(!presentation || presentation.dimensions) && <DimensionLabels project={shown} viewport={viewport} palette={palette} bounds={roomBox} clearance={labelRoom} />}
         </Layer>
         <Layer listening={interactive} opacity={mode === 'drawRoom' ? 0.45 : 1}>
           {/* Bottom to top: rugs, floor features, stairs, furniture, walls & wall features, ceiling. */}

@@ -31,7 +31,30 @@ export interface Preferences {
   /** How points snap while drawing walls and dragging corners. */
   snap: SnapSettings;
   view3d: View3DPreferences;
+  /** How the 2D plan is drawn: precise and editable, or as an illustrated floor plan. */
+  planStyle: PlanStyle;
+  presentation: PresentationPreferences;
 }
+
+export type PlanStyle = 'technical' | 'presentation';
+
+/** What the presentation plan shows on top of the illustrated room. */
+export interface PresentationPreferences {
+  /** Furniture names on the pieces. */
+  labels: boolean;
+  /** The room's overall dimensions along its edges. */
+  dimensions: boolean;
+  /** The room name and size, written on the floor. */
+  roomLabel: boolean;
+  /** The measurement grid on the floor. */
+  grid: boolean;
+  /** Soft shadows under furniture. */
+  shadows: boolean;
+  /** Temporarily show selection outlines, handles and overlap warnings. */
+  editing: boolean;
+}
+
+export type QualityPreference = 'auto' | 'low' | 'medium' | 'high';
 
 export type WallMode = 'all' | 'dollhouse';
 export type CameraPreset = 'isometric' | 'top' | 'eye';
@@ -45,6 +68,21 @@ export interface View3DPreferences {
   shadows: boolean;
   /** The "drag to orbit" hint has been dismissed. */
   hintSeen: boolean;
+  /** Rendering quality; 'auto' picks one for this device. */
+  quality: QualityPreference;
+}
+
+/**
+ * What 'auto' quality means on this device: high on capable desktops, medium on most
+ * devices, low on phones and tablets with little memory.
+ */
+export function resolveQuality(preference: QualityPreference, touch: boolean): 'low' | 'medium' | 'high' {
+  if (preference !== 'auto') return preference;
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const memory = nav.deviceMemory ?? 8;
+  const cores = nav.hardwareConcurrency ?? 4;
+  if (touch) return memory >= 6 && cores >= 6 ? 'medium' : 'low';
+  return memory >= 8 && cores >= 8 ? 'high' : 'medium';
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -53,7 +91,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showMeasurementGrid: true,
   showClearances: true,
   snap: DEFAULT_SNAP,
-  view3d: { wallMode: 'dollhouse', camera: 'isometric', shadows: true, hintSeen: false },
+  view3d: { wallMode: 'dollhouse', camera: 'isometric', shadows: true, hintSeen: false, quality: 'auto' },
+  planStyle: 'technical',
+  presentation: { labels: false, dimensions: true, roomLabel: true, grid: false, shadows: true, editing: false },
 };
 
 const STORAGE_KEY = 'roomination.preferences';
@@ -78,10 +118,20 @@ function readPreferences(): Preferences {
       showClearances: typeof raw.showClearances === 'boolean' ? raw.showClearances : d.showClearances,
       snap: readSnap(raw.snap),
       view3d: readView3D(raw.view3d),
+      planStyle: raw.planStyle === 'presentation' ? 'presentation' : 'technical',
+      presentation: readPresentation(raw.presentation),
     };
   } catch {
     return { ...DEFAULT_PREFERENCES, view3d: readView3D(null) };
   }
+}
+
+function readPresentation(raw: unknown): PresentationPreferences {
+  const d = DEFAULT_PREFERENCES.presentation;
+  if (typeof raw !== 'object' || raw === null) return d;
+  const r = raw as Record<string, unknown>;
+  const flag = (key: keyof PresentationPreferences) => (typeof r[key] === 'boolean' ? (r[key] as boolean) : d[key]);
+  return { labels: flag('labels'), dimensions: flag('dimensions'), roomLabel: flag('roomLabel'), grid: flag('grid'), shadows: flag('shadows'), editing: flag('editing') };
 }
 
 function readSnap(raw: unknown): SnapSettings {
@@ -108,6 +158,7 @@ function readView3D(raw: unknown): View3DPreferences {
     wallMode: r.wallMode === 'all' || r.wallMode === 'dollhouse' ? r.wallMode : d.wallMode,
     camera: r.camera === 'isometric' || r.camera === 'top' || r.camera === 'eye' ? r.camera : d.camera,
     shadows: typeof r.shadows === 'boolean' ? r.shadows : d.shadows,
+    quality: r.quality === 'low' || r.quality === 'medium' || r.quality === 'high' || r.quality === 'auto' ? r.quality : d.quality,
     hintSeen: typeof r.hintSeen === 'boolean' ? r.hintSeen : d.hintSeen,
   };
 }

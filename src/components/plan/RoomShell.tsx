@@ -1,12 +1,12 @@
 import { Group, Line, Text } from 'react-konva';
-import type { Box } from '../../model/polygon';
+import { boundingBox, pointInPolygon, type Box } from '../../model/polygon';
 import type { Project } from '../../model/types';
 import { formatLength, gridSpacing } from '../../model/units';
 import { wallBodies } from '../../model/wallGeometry';
-import { outlinePolygon, wallSegments } from '../../model/walls';
+import { asRectangle, outlinePolygon, roomArea, wallSegments } from '../../model/walls';
 import type { CanvasPalette } from '../../render/palette';
-import { PX_PER_CM, floorTexture } from '../../render/textures';
-import { flatPx, flatScreen, type Viewport } from './viewport';
+import { floorTexture, patternScale } from '../../render/textures';
+import { flatPx, flatScreen, toScreen, type Viewport } from './viewport';
 
 export const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
@@ -20,7 +20,7 @@ interface ShellProps {
 export function RoomFloor({ project, viewport, palette, showGrid, bounds }: ShellProps & { showGrid: boolean; bounds: Box }) {
   const { room } = project;
   const texture = floorTexture(room.floor);
-  const ratio = viewport.scale / PX_PER_CM;
+  const ratio = texture ? patternScale(texture, viewport.scale) : 1;
   const outline = outlinePolygon(room);
 
   return (
@@ -211,4 +211,48 @@ export function WallLengthLabels({ project, viewport, palette, highlightId }: Sh
       })}
     </Group>
   );
+}
+
+/**
+ * The room's name and size written on the floor, like an architectural drawing. It sits in
+ * the most open part of the floor, so furniture rarely covers it.
+ */
+export function RoomLabel({ project, viewport, palette }: ShellProps) {
+  const outline = outlinePolygon(project.room);
+  const box = boundingBox(outline);
+  const rect = asRectangle(project.room);
+  const size = rect ? `${formatLength(rect.width, project.units)} × ${formatLength(rect.length, project.units)}` : areaText(roomArea(project.room), project.units);
+  const pieces = project.furniture.filter((f) => f.category !== 'floorCovering');
+  // The point inside the room farthest from any piece of furniture (on a coarse grid).
+  let best = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+  let bestClear = -Infinity;
+  for (let i = 1; i < 12; i++) {
+    for (let j = 1; j < 12; j++) {
+      const p = { x: box.minX + ((box.maxX - box.minX) * i) / 12, y: box.minY + ((box.maxY - box.minY) * j) / 12 };
+      if (!pointInPolygon(p, outline)) continue;
+      const clear = Math.min(
+        ...pieces.map((f) => Math.hypot(f.x - p.x, f.y - p.y) - Math.hypot(f.width, f.depth) / 2),
+        // Keep away from the walls too.
+        ...outline.map((c) => Math.hypot(c.x - p.x, c.y - p.y) * 0.5),
+        Infinity,
+      );
+      if (clear > bestClear) {
+        bestClear = clear;
+        best = p;
+      }
+    }
+  }
+  const at = toScreen(viewport, best);
+  const fontSize = Math.max(10, Math.min(15, viewport.scale * 9));
+  const width = 240;
+  return (
+    <Group x={at.x - width / 2} y={at.y - fontSize} listening={false}>
+      <Text text={project.name.toUpperCase()} width={width} align="center" fontSize={fontSize} fontStyle="700" letterSpacing={1.2} fontFamily={FONT_FAMILY} fill={palette.roomLabel} />
+      <Text y={fontSize + 4} text={size} width={width} align="center" fontSize={fontSize * 0.92} fontFamily={FONT_FAMILY} fill={palette.roomLabel} />
+    </Group>
+  );
+}
+
+function areaText(cm2: number, units: Project['units']): string {
+  return units === 'metric' ? `${(cm2 / 10_000).toFixed(1)} m²` : `${Math.round((cm2 / 10_000) * 10.7639)} sq ft`;
 }

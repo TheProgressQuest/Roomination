@@ -1,13 +1,14 @@
 import { isSolid } from '../model/conflicts';
 import { doorLeaves, featureFrame, toRoom, type Frame } from '../model/features';
-import { boundingBox, pointInPolygon, signedArea2, type Box, type Polygon } from '../model/polygon';
+import { boundingBox, pointInPolygon, polygonArea, signedArea2, type Box, type Polygon } from '../model/polygon';
 import { layoutStair, stairToRoom, totalSteps } from '../model/stairs';
 import { localFootprint, type Ring } from '../model/shape';
 import type { FloorStyle, Furniture, MaterialKind, Point, Project, RoomFeature, Staircase, SurfaceFinish } from '../model/types';
 import { wallBodies, wallDirection, wallOutward } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
 import { shade } from '../render/palette';
-import { furnitureParts } from './furnitureParts';
+import { bodySurface, furnitureParts, visualOf, type FurniturePart } from '../render/furnitureParts';
+import type { SurfaceKind } from '../render/materials';
 
 /**
  * The 3D view's description of a project: plain data in room centimetres, derived only
@@ -89,6 +90,12 @@ export interface SceneWall {
   fixtures: Block[];
 }
 
+/** A furniture part with its colour and surface worked out. */
+export interface ScenePart extends FurniturePart {
+  color: string;
+  surface: SurfaceKind;
+}
+
 export interface SceneFurniture {
   id: string;
   name: string;
@@ -99,14 +106,18 @@ export interface SceneFurniture {
   depth: number;
   height: number;
   rotation: number;
-  /** Boxes for standard pieces (empty when `extruded` is set). */
-  parts: Block[];
+  /**
+   * The piece's parts in its own frame (see render/furnitureParts), colours and surfaces
+   * resolved. Drawn and photo-textured pieces have only supporting parts (a table's pedestal).
+   */
+  parts: ScenePart[];
   /**
    * Drawn outlines and photo-textured pieces: the footprint (local cm, the same outline the
-   * plan and collision checks use), extruded to the piece's height.
+   * plan and collision checks use), extruded from `bottom` to `height`.
    */
-  extruded?: { rings: Ring[]; height: number; color: string };
-  material: MaterialKind | null;
+  extruded?: { rings: Ring[]; bottom: number; height: number; color: string };
+  /** What the piece's own surfaces are made of: the person's choice, or its kind's default. */
+  material: MaterialKind;
   finish: SurfaceFinish;
   /** Photo textures by surface (asset ids). */
   textures: { top?: string; front?: string; side?: string };
@@ -363,22 +374,15 @@ function freeFixtures(features: RoomFeature[], ceilingHeight: number): SceneMode
 // ---------------------------------------------------------------------------
 
 function furnitureBlocks(item: Furniture): SceneFurniture {
-  const frame: Frame = { x: item.x, y: item.y, angle: item.rotation };
-  const parts = furnitureParts(item).map((part) => ({
-    ...toRoom(frame, part),
-    z: part.z,
-    width: part.width,
-    depth: part.depth,
-    height: part.height,
-    rotation: item.rotation,
+  const surface = bodySurface(item);
+  const resolve = (part: FurniturePart): ScenePart => ({
+    ...part,
     color: part.color ?? (part.shade ? shade(item.color, part.shade) : item.color),
-  }));
+    surface: part.surface === 'body' ? surface : part.surface,
+  });
   const height = isSolid(item) ? item.height : Math.min(item.height, 1.5);
   const textures = item.appearance?.textures ?? {};
-  // Drawn shapes keep their true outline; photo textures need real surfaces to sit on, so a
-  // textured rectangle is extruded too (its outline is simply the rectangle).
-  const extrude = item.shape !== undefined || Object.keys(textures).length > 0;
-  return {
+  const base = {
     id: item.id,
     name: item.name,
     x: item.x,
@@ -387,12 +391,45 @@ function furnitureBlocks(item: Furniture): SceneFurniture {
     depth: item.depth,
     height,
     rotation: item.rotation,
-    parts: extrude ? [] : parts,
-    ...(extrude ? { extruded: { rings: localFootprint(item).rings, height, color: item.color } } : {}),
-    material: item.appearance?.material ?? null,
+    material: surface,
     finish: item.appearance?.finish ?? 'satin',
     textures,
   };
+  // Drawn shapes keep their true outline; photo textures need real surfaces to sit on, so a
+  // textured rectangle is extruded too (its outline is simply the rectangle).
+  const extrude = item.shape !== undefined || Object.keys(textures).length > 0;
+  if (!extrude) return { ...base, parts: furnitureParts(item).map(resolve) };
+  const { rings, parts: convex } = localFootprint(item);
+  const visual = visualOf(item);
+  if (Object.keys(textures).length === 0 && ['table', 'coffeeTable', 'diningTable', 'desk'].includes(visual) && height > 20) {
+    // A drawn table: its real outline as the top, on a pedestal set well inside the shape.
+    const top = Math.min(5, Math.max(2.5, height * 0.055));
+    const biggest = convex.reduce((best, p) => (polygonArea(p) > polygonArea(best) ? p : best), convex[0]);
+    const centre = { x: biggest.reduce((sum, p) => sum + p.x, 0) / biggest.length, y: biggest.reduce((sum, p) => sum + p.y, 0) / biggest.length };
+    const room = rings.reduce((min, r) => Math.min(min, distanceToEdges(centre, r.outer), ...r.holes.map((h) => distanceToEdges(centre, h))), Infinity);
+    const stem = Math.max(2, Math.min(7, room * 0.25));
+    const foot = Math.max(stem * 1.5, Math.min(room * 0.8, 30));
+    const cyl = (r: number, z0: number, z1: number, role: FurniturePart['role']): FurniturePart => ({ x: centre.x, y: centre.y, z: z0, width: r * 2, depth: r * 2, height: z1 - z0, shape: 'cylinder', role, surface: 'body', shade: -0.12 });
+    return {
+      ...base,
+      parts: [cyl(foot, 0, 2.5, 'base'), cyl(stem, 2.5, height - top, 'leg')].map(resolve),
+      extruded: { rings, bottom: height - top, height, color: item.color },
+    };
+  }
+  return { ...base, parts: [], extruded: { rings, bottom: 0, height, color: item.color } };
+}
+
+/** Shortest distance from a point to an outline's edges. */
+function distanceToEdges(p: Point, poly: Polygon): number {
+  let best = Infinity;
+  poly.forEach((a, i) => {
+    const b = poly[(i + 1) % poly.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+    best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy));
+  });
+  return best;
 }
 
 // ---------------------------------------------------------------------------

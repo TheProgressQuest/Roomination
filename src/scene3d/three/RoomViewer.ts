@@ -14,8 +14,10 @@ import {
   Matrix4,
   Mesh,
   MeshStandardMaterial,
+  NeutralToneMapping,
   Object3D,
   PCFShadowMap,
+  VSMShadowMap,
   PerspectiveCamera,
   Quaternion,
   Raycaster,
@@ -49,8 +51,16 @@ import { FurnitureMaterials } from './furnitureMaterials';
  * idle 3D view costs nothing. Call `dispose()` to free every GPU resource.
  */
 
+/**
+ * Rendering quality. Low: no shadow maps (soft contact shadows only), plain materials,
+ * simpler shapes. Medium: soft shadows and material textures. High: sharper, larger shadow
+ * maps, finer rounding and curves, more detailed textures at a higher resolution.
+ */
+export type RenderQuality = 'low' | 'medium' | 'high';
+
 export interface ViewerOptions {
   shadows: boolean;
+  quality: RenderQuality;
   reducedMotion: boolean;
   /** Touch devices get smaller shadow maps. */
   touch: boolean;
@@ -61,9 +71,9 @@ export interface ViewerOptions {
 }
 
 
-/** Drawing-buffer budget: keeps memory sensible on large, high-density screens. */
-const MAX_BUFFER_PIXELS = 4_000_000;
-const MAX_PIXEL_RATIO = 2;
+/** Drawing-buffer budget per quality: keeps memory sensible on large, high-density screens. */
+const MAX_BUFFER_PIXELS: Record<RenderQuality, number> = { low: 2_000_000, medium: 4_000_000, high: 6_000_000 };
+const MAX_PIXEL_RATIO: Record<RenderQuality, number> = { low: 1.25, medium: 2, high: 2 };
 const TRANSITION_MS = 450;
 /** Scenes with more parts than this skip shadows on touch devices. */
 const TOUCH_SHADOW_PART_LIMIT = 400;
@@ -75,9 +85,12 @@ export class RoomViewer {
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(45, 1, 0.05, 400);
   private readonly controls: OrbitControls;
-  private readonly sun = new DirectionalLight(0xffffff, 1.7);
-  private readonly hemisphere = new HemisphereLight(0xffffff, 0xd8cbb8, 1.4);
-  private readonly ambient = new AmbientLight(0xffffff, 0.35);
+  // Soft architectural daylight: a warm-white sky dome, a gentle bounce from the floor, and a
+  // key light from the upper left (the same direction as the 2D presentation's shadows).
+  private readonly sun = new DirectionalLight(0xfff6ea, 1.9);
+  private readonly fill = new DirectionalLight(0xe8eefc, 0.35);
+  private readonly hemisphere = new HemisphereLight(0xfbf8f2, 0xcbbfae, 1.55);
+  private readonly ambient = new AmbientLight(0xffffff, 0.3);
   private readonly unitBox = new BoxGeometry(1, 1, 1);
   private readonly unitCylinder = new CylinderGeometry(0.5, 0.5, 1, 24);
   private readonly resizeObserver: ResizeObserver;
@@ -88,8 +101,10 @@ export class RoomViewer {
   private roomContent = new Group();
   private roomMaterials: MaterialSet | null = null;
   private readonly furnitureMaterials = new FurnitureMaterials();
-  /** Every piece of furniture: instanced boxes, plus extruded drawn and photo-textured pieces. */
-  private readonly furniture = new FurnitureLayer(this.unitBox, this.furnitureMaterials, () => this.requestRender());
+  /** Every piece of furniture: batched parts, plus extruded drawn and photo-textured pieces. */
+  private readonly furniture = new FurnitureLayer(this.furnitureMaterials, () => this.requestRender());
+  private lastFurniture: SceneFurniture[] = [];
+  private quality: RenderQuality;
   private wallGroups: { group: Group; outer: boolean; outward: Point; centre: Point }[] = [];
   private room: RoomModel | null = null;
   /** Whether shadows are currently drawn (null until the first room arrives). */
@@ -110,9 +125,15 @@ export class RoomViewer {
   constructor(container: HTMLElement, options: ViewerOptions) {
     this.options = options;
     this.shadows = options.shadows;
+    this.quality = options.quality;
+    this.furnitureMaterials.setQuality(options.quality);
+    this.furniture.setDetail(options.quality);
     // Throws if WebGL isn't available; the caller shows a fallback message.
-    this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'default' });
+    this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'default', alpha: true });
     this.renderer.outputColorSpace = SRGBColorSpace;
+    // Neutral tone mapping keeps the person's chosen colours true while softening highlights.
+    this.renderer.toneMapping = NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.type = PCFShadowMap;
     const canvas = this.renderer.domElement;
     canvas.className = 'room-3d-canvas';
@@ -131,7 +152,7 @@ export class RoomViewer {
     this.controls.addEventListener('start', this.cancelTransition);
 
     this.sun.castShadow = true;
-    this.scene.add(this.hemisphere, this.ambient, this.sun, this.sun.target, this.roomContent, this.furniture.group);
+    this.scene.add(this.hemisphere, this.ambient, this.sun, this.sun.target, this.fill, this.fill.target, this.roomContent, this.furniture.group);
 
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointerup', this.onPointerUp);
@@ -163,6 +184,7 @@ export class RoomViewer {
   /** Replaces the furniture only (moving or recolouring a piece leaves the room untouched). */
   setFurniture(furniture: SceneFurniture[]) {
     const started = performance.now();
+    this.lastFurniture = furniture;
     this.furniture.build(furniture);
     this.updateShadows();
     this.furnitureBuildMs = performance.now() - started;
@@ -184,6 +206,24 @@ export class RoomViewer {
     this.shadows = on;
     this.updateShadows();
     this.requestRender();
+  }
+
+  /** Changes rendering quality: materials, shape detail, shadow maps and resolution. */
+  setQuality(quality: RenderQuality) {
+    if (quality === this.quality) return;
+    this.quality = quality;
+    this.furnitureMaterials.setQuality(quality);
+    this.furniture.setDetail(quality);
+    if (this.room) {
+      // Room materials use the same quality-dependent floor and wall detail.
+      this.clearRoom();
+      this.buildRoom(this.room);
+      this.updateWallVisibility();
+    }
+    this.furniture.build(this.lastFurniture);
+    this.shadowsOn = null;
+    this.updateShadows();
+    this.resize();
   }
 
   setBackground(color: string) {
@@ -213,6 +253,65 @@ export class RoomViewer {
     const length = Math.min(this.controls.maxDistance, Math.max(this.controls.minDistance, offset.length()));
     this.camera.position.copy(this.controls.target).add(offset.setLength(length));
     this.controls.update();
+  }
+
+  /** Resolves once photo textures have finished loading (or after `timeoutMs`). */
+  async whenReady(timeoutMs = 4000): Promise<void> {
+    const started = performance.now();
+    while (this.furniture.pendingPhotos > 0 && performance.now() - started < timeoutMs) await new Promise((r) => setTimeout(r, 50));
+  }
+
+  /** The largest image (width, height) this device's graphics can render in one pass. */
+  maxImageSize(): number {
+    const gl = this.renderer.getContext();
+    const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
+    return Math.min(this.renderer.capabilities.maxTextureSize, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number, viewport[0], viewport[1]);
+  }
+
+  /**
+   * Renders the room at `width` × `height` from a preset camera into a new 2D canvas, then
+   * puts the live view back exactly as it was. Throws if the size is beyond the device.
+   */
+  renderImage(width: number, height: number, options: { preset: CameraPreset; transparent: boolean; background: string }): HTMLCanvasElement {
+    if (!this.room) throw new Error('Nothing to render yet.');
+    const max = this.maxImageSize();
+    if (width > max || height > max) throw new Error(`This device can render images up to ${max} pixels wide.`);
+    const size = this.renderer.getSize(new Vector2());
+    const ratio = this.renderer.getPixelRatio();
+    const saved = { position: this.camera.position.clone(), target: this.controls.target.clone(), aspect: this.camera.aspect, background: this.scene.background };
+    try {
+      this.cancelTransition();
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(width, height, false);
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+      const pose = this.presetPose(options.preset, this.room);
+      this.camera.position.copy(pose.position);
+      this.controls.target.copy(pose.target);
+      this.camera.lookAt(pose.target);
+      this.updateWallVisibility();
+      this.scene.background = options.transparent ? null : new Color(options.background);
+      this.renderer.setClearColor(0x000000, options.transparent ? 0 : 1);
+      this.renderer.render(this.scene, this.camera);
+      // Copy straight away, in the same task: the WebGL buffer isn't kept after the frame.
+      const out = document.createElement('canvas');
+      out.width = width;
+      out.height = height;
+      out.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0, width, height);
+      return out;
+    } finally {
+      this.renderer.setPixelRatio(ratio);
+      this.renderer.setSize(size.x, size.y, false);
+      this.camera.aspect = saved.aspect;
+      this.camera.updateProjectionMatrix();
+      this.camera.position.copy(saved.position);
+      this.controls.target.copy(saved.target);
+      this.controls.update();
+      this.scene.background = saved.background;
+      this.renderer.setClearColor(0x000000, 0);
+      this.updateWallVisibility();
+      this.requestRender();
+    }
   }
 
   stats(): ViewerStats {
@@ -352,13 +451,19 @@ export class RoomViewer {
   private updateShadows() {
     const room = this.room;
     if (!room) return;
-    const enabled = this.shadows && !(this.options.touch && this.furniture.partCount > TOUCH_SHADOW_PART_LIMIT);
+    const enabled = this.shadows && this.quality !== 'low' && !(this.options.touch && this.furniture.partCount > TOUCH_SHADOW_PART_LIMIT);
+    // Soft contact shadows cost almost nothing: on whenever shadows are, at every quality.
+    this.furniture.setContactShadows(this.shadows);
     const { minX, minY, maxX, maxY } = room.bounds;
     const centre = toScene({ x: (minX + maxX) / 2, y: (minY + maxY) / 2 });
     const radius = m(Math.hypot(maxX - minX, maxY - minY) / 2) + 0.5;
-    // Light from above and slightly in front-left, like a window on a bright day.
-    this.sun.position.set(centre.x - radius * 0.6, radius * 2 + m(room.ceilingHeight), centre.z + radius * 0.9);
+    // Light from high up and to the upper left of the plan, like the reference drawings: shadows
+    // fall softly down and to the right. A weak, shadowless fill from the opposite side lifts
+    // the dark sides of furniture.
+    this.sun.position.set(centre.x - radius * 0.55, radius * 2.2 + m(room.ceilingHeight), centre.z - radius * 0.75);
     this.sun.target.position.set(centre.x, 0, centre.z);
+    this.fill.position.set(centre.x + radius, radius * 1.2, centre.z + radius);
+    this.fill.target.position.set(centre.x, 0, centre.z);
     const shadowCamera = this.sun.shadow.camera;
     shadowCamera.left = -radius;
     shadowCamera.right = radius;
@@ -367,15 +472,21 @@ export class RoomViewer {
     shadowCamera.near = 0.1;
     shadowCamera.far = radius * 6 + m(room.ceilingHeight) + 10;
     shadowCamera.updateProjectionMatrix();
-    const size = this.options.touch ? 1024 : 2048;
+    const size = this.quality === 'high' ? (this.options.touch ? 2048 : 4096) : this.options.touch ? 1024 : 2048;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
       this.sun.shadow.mapSize.set(size, size);
     }
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.02;
-    this.sun.shadow.radius = 3;
+    // Soft, light architectural shadows: blurred edges (variance shadow maps on high quality)
+    // and only partly dark, so the floor and furniture never turn black.
+    this.renderer.shadowMap.type = this.quality === 'high' ? VSMShadowMap : PCFShadowMap;
+    this.sun.shadow.bias = this.quality === 'high' ? -0.0004 : -0.0003;
+    // Offsetting along the surface normal prevents "shadow acne" stripes on faces turned away from the light.
+    this.sun.shadow.normalBias = 0.035;
+    this.sun.shadow.radius = this.quality === 'high' ? 9 : 4;
+    this.sun.shadow.blurSamples = this.quality === 'high' ? 20 : 8;
+    this.sun.shadow.intensity = 0.6;
     if (enabled !== this.shadowsOn) {
       this.shadowsOn = enabled;
       this.renderer.shadowMap.enabled = enabled;
@@ -481,7 +592,7 @@ export class RoomViewer {
     if (!parent) return;
     const width = Math.max(1, parent.clientWidth);
     const height = Math.max(1, parent.clientHeight);
-    const ratio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO, Math.sqrt(MAX_BUFFER_PIXELS / (width * height)));
+    const ratio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO[this.quality], Math.sqrt(MAX_BUFFER_PIXELS[this.quality] / (width * height)));
     this.renderer.setPixelRatio(Math.max(1, ratio));
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;

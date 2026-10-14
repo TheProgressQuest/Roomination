@@ -219,6 +219,9 @@ export function ToolsPanel(props: ToolsPanelProps) {
 
         {tab === 'design' && (
           <>
+            <Collapsible title="Presentation plan" defaultOpen>
+              <PresentationSettings preferences={props.preferences} onPreferences={props.onPreferences} />
+            </Collapsible>
             <Collapsible title="Floor & walls" defaultOpen>
               <FloorSettings project={project} dispatch={dispatch} />
             </Collapsible>
@@ -262,6 +265,46 @@ export function ToolsPanel(props: ToolsPanelProps) {
 }
 
 const isSelected = (selection: Selection, kind: 'object' | 'wall', id: string) => selection?.kind === kind && selection.id === id;
+
+const PRESENTATION_OPTIONS: { key: keyof Preferences['presentation']; label: string }[] = [
+  { key: 'labels', label: 'Furniture labels' },
+  { key: 'dimensions', label: 'Room dimensions' },
+  { key: 'roomLabel', label: 'Room name and size' },
+  { key: 'grid', label: 'Measurement grid' },
+  { key: 'shadows', label: 'Soft shadows' },
+  { key: 'editing', label: 'Editing aids (selection, handles, warnings)' },
+];
+
+/** The illustrated plan: on or off, and what it shows. */
+function PresentationSettings({ preferences, onPreferences }: { preferences: Preferences; onPreferences: (changes: Partial<Preferences>) => void }) {
+  const p = preferences.presentation;
+  return (
+    <>
+      <SegmentedControl
+        label="Plan style"
+        value={preferences.planStyle}
+        options={[
+          { value: 'technical', label: 'Technical' },
+          { value: 'presentation', label: 'Presentation' },
+        ]}
+        onChange={(planStyle) => onPreferences({ planStyle })}
+      />
+      <p className="hint">
+        Presentation draws illustrated furniture, materials and soft shadows from the same geometry as the 3D view. Sizes and positions are exactly the same, and
+        everything can still be selected and moved.
+      </p>
+      <fieldset className="option-list" disabled={preferences.planStyle !== 'presentation'}>
+        <legend className="visually-hidden">Presentation plan shows</legend>
+        {PRESENTATION_OPTIONS.map((o) => (
+          <label key={o.key} className="toggle">
+            <input type="checkbox" checked={p[o.key]} onChange={(e) => onPreferences({ presentation: { ...p, [o.key]: e.target.checked } })} />
+            <span>{o.label}</span>
+          </label>
+        ))}
+      </fieldset>
+    </>
+  );
+}
 
 /** Walls, room features and stairs, for selecting from a list (keyboard and screen readers). */
 function StructureList(props: { project: Project; selection: Selection; warningIds: Set<string>; onSelect: (selection: Selection) => void }) {

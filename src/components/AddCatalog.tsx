@@ -19,29 +19,29 @@ export const PRESET_GROUPS: { title: string; presets: FurniturePreset[] }[] = [
   {
     title: 'Furniture',
     presets: [
-      preset('Rectangle', 80, 50, 75, '#e9a178'),
-      preset('Sofa', 200, 90, 85, '#e9a178'),
-      preset('Armchair', 80, 80, 90, '#8fb996'),
-      preset('Bed', 160, 200, 50, '#9bb7d4'),
-      preset('Table', 120, 80, 75, '#f2c879'),
-      preset('Desk', 120, 60, 75, '#c9a7d8'),
-      preset('Chair', 50, 50, 90, '#8fb996'),
-      preset('Bookshelf', 100, 35, 180, '#c9a7d8'),
-      preset('Wardrobe', 120, 60, 200, '#7d8a99'),
-      preset('TV console', 160, 40, 55, '#9bb7d4'),
+      preset('Rectangle', 80, 50, 75, '#c9a77c'),
+      preset('Sofa', 200, 90, 85, '#e2d9c8'),
+      preset('Armchair', 80, 80, 90, '#a3b094'),
+      preset('Bed', 160, 200, 50, '#d8cfc0'),
+      preset('Table', 120, 80, 75, '#c9a77c'),
+      preset('Desk', 120, 60, 75, '#b38b62'),
+      preset('Chair', 50, 50, 90, '#9a7a5a'),
+      preset('Bookshelf', 100, 35, 180, '#c9a77c'),
+      preset('Wardrobe', 120, 60, 200, '#ece6da'),
+      preset('TV console', 160, 40, 55, '#7a5a43'),
     ],
   },
   {
     title: 'Rugs & mats',
     presets: [
-      preset('Rug', 200, 140, 1, '#c9a7d8', 'floorCovering', 'bordered'),
-      preset('Runner', 240, 80, 1, '#d98f8f', 'floorCovering', 'striped'),
+      preset('Rug', 200, 140, 1, '#d9cdb8', 'floorCovering', 'bordered'),
+      preset('Runner', 240, 80, 1, '#c98a6b', 'floorCovering', 'striped'),
       preset('Mat', 90, 60, 1, '#e8dcc6', 'floorCovering', 'woven'),
     ],
   },
   {
     title: 'Décor',
-    presets: [preset('Plant', 45, 45, 120, '#8fb996', 'decoration'), preset('Floor lamp', 40, 40, 160, '#f2c879', 'decoration')],
+    presets: [preset('Plant', 45, 45, 120, '#7f9c6a', 'decoration'), preset('Floor lamp', 40, 40, 160, '#f3ead8', 'decoration')],
   },
 ];
 

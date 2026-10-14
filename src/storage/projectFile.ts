@@ -468,7 +468,7 @@ export function parseBuilderNodes(raw: unknown): BuilderNode[] | undefined {
   }
 }
 
-const MATERIALS: MaterialKind[] = ['fabric', 'leather', 'wood', 'metal', 'glass', 'plastic', 'custom'];
+const MATERIALS: MaterialKind[] = ['fabric', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'custom'];
 const FINISHES: SurfaceFinish[] = ['matte', 'satin', 'gloss'];
 /** Photos are referenced by the SHA-256 of their bytes. */
 const ASSET_ID = /^[0-9a-f]{64}$/;
