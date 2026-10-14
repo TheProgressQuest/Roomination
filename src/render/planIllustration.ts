@@ -203,7 +203,7 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   }
   ctx.restore();
 
-  detail(ctx, part, w, d, color, pxPerCm);
+  detail(ctx, part, surface, w, d, color, pxPerCm);
 
   // A fine, soft outline gives each part definition (darker than its own colour, never black).
   ctx.strokeStyle = surface === 'lampshade' ? 'rgba(160,120,60,0.45)' : shade(color, -0.35);
@@ -218,7 +218,7 @@ function isSoft(part: FurniturePart, surface: SurfaceKind): boolean {
 }
 
 /** Role-specific details: duvet folds, seams, leaf midribs, lamp glow, a screen's sheen. */
-function detail(ctx: CanvasRenderingContext2D, part: FurniturePart, w: number, d: number, color: string, pxPerCm: number) {
+function detail(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: SurfaceKind, w: number, d: number, color: string, pxPerCm: number) {
   const line = Math.max(0.5, 0.8 / pxPerCm);
   ctx.save();
   switch (part.role) {
@@ -286,8 +286,20 @@ function detail(ctx: CanvasRenderingContext2D, part: FurniturePart, w: number, d
       ctx.fillRect(-w / 2, -d / 2, w, Math.min(d, 1));
       break;
     }
+    case 'frame':
     case 'top': {
-      // Tabletops: a slightly brighter bevel along the upper-left edges.
+      // Hard-surfaced tops (tables, cabinets, shelves); upholstered frames get no edge.
+      if (part.role === 'frame' && surface !== 'wood' && surface !== 'stone' && surface !== 'metal') break;
+      // An inset edge line (like a bevel or edge banding) gives tops depth from above.
+      const inset = Math.min(2, w * 0.06, d * 0.06);
+      if (inset > 0.6) {
+        ctx.strokeStyle = shade(color, -0.25);
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = line;
+        ctx.strokeRect(-w / 2 + inset, -d / 2 + inset, w - inset * 2, d - inset * 2);
+        ctx.globalAlpha = 1;
+      }
+      // A slightly brighter bevel along the upper-left edges, where the light comes from.
       ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.lineWidth = line * 1.5;
       ctx.beginPath();

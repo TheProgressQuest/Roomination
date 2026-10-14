@@ -42,7 +42,7 @@ plan and collision checks say. Pieces smaller than 15 cm fall back to a single r
 Both views use these parts:
 - **3D** (`scene3d/three/furnitureLayer.ts`):
   - parts become geometry (`partGeometry.ts`), drawn as one `BatchedMesh` per surface material
-    (about 10–15 draw calls for any amount of furniture);
+    (the draw-call count depends on how many materials are in use, not on how many pieces: the 150-piece stress room measured 42 draw calls in total on Low and 119 on High, walls and shadow pass included);
   - geometry is cached and shared by size;
   - rounded boxes are built at exact size so their corners stay round.
 - **2D presentation** (`render/planIllustration.ts`):

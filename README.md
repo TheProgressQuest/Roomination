@@ -8,6 +8,70 @@ anywhere. There are no accounts, no analytics, no ads and no servers.
 
 ## Features
 
+### Visual rendering (Phase 5)
+Rooms look like an interior designer's drawing, in 2D and 3D, without losing a centimetre of
+accuracy.
+
+- **One furniture model for both views.** Each piece is built from real components, sized from
+  its own width, depth and height:
+  - **Seating:** sofas and armchairs (arms, back, separate seat and back cushions, accent
+    pillows, legs), dining chairs (seat pad, backrest, legs) and office chairs (five-star base).
+  - **Beds:** headboard, mattress, duvet with folds, a throw, and pillows.
+  - **Tables:** tables and desks (top, legs, a coffee-table shelf, a desk drawer pedestal).
+  - **Storage:** bookshelves (shelves and books), cabinets and wardrobes (doors, drawers,
+    handles), TV units and screens.
+  - **Décor:** plants (pot, soil, tilted leaves), floor lamps (with a lit shade), vases, rugs.
+
+  Every component stays inside the piece's real size, so nothing looks bigger than the plan
+  says and collisions are unchanged.
+- **Materials:**
+  - Wood, fabric, linen, leather, metal, brass, glass, stone and ceramic, with subtle textures
+    generated on your device at real-world scale. No downloads.
+  - Your chosen colour is always kept. **Stone** and **ceramic** are new choices in the studio.
+- **2D: Technical or Presentation** (above the plan, and in **Design → Presentation plan**):
+  - **Technical** is the precise planner you know.
+  - **Presentation** draws illustrated furniture with soft shadows, a subtle oak floor, and the
+    room's name and size written on the floor. It hides service symbols and clearance zones.
+  - Everything can still be selected and moved; **Editing aids** brings back selection
+    outlines, the rotate handle and warnings.
+  - Choose whether to show labels, room dimensions, the room name, the measurement grid and
+    shadows.
+- **3D:** rounded upholstery, wooden legs, real shelves and doors, soft daylight from the upper
+  left (matching the 2D shadows), soft contact shadows under every piece, and neutral colour
+  handling so your colours look as chosen.
+- **Quality** (3D toolbar): **Auto**, **Low**, **Medium** or **High**.
+  - Low has no shadow maps, plain materials and simpler shapes.
+  - High has softer, larger shadows and finer curves.
+  - Auto picks High on capable computers, Medium on most devices, and Low on low-memory phones
+    and on computers without graphics acceleration.
+- **Drawn shapes** keep their exact outline. They get a refined material finish rather than
+  invented cushions or legs; drawn tables stand on a pedestal inside their outline. Photo
+  furniture keeps your photos.
+- **Export image** (download icon above the view):
+  - **Views:** a PNG of the 2D plan (Technical or Presentation) or a 3D top-down, isometric or
+    eye-level view.
+  - **Sizes:** 1080p, 1440p or 4K; sizes your device can't handle are disabled.
+  - **Options:** a transparent background, and the room's name and size.
+  - Images are drawn fresh at that resolution, never enlarged, and never include the
+    interface. Everything happens on your device; nothing is uploaded.
+- **Natural palette:** new furniture and the sample room use calm, natural colours (oatmeal,
+  linen, sage, oak, walnut…). Existing projects keep their colours.
+
+Design and trade-offs: [ADR-0006](docs/adr/0006-visual-rendering.md).
+
+Measured on a stress project (40 walls, 150 pieces), production build:
+
+| | Apple M3 Pro (GPU, Chrome) | Software rendering (as on CI) |
+| --- | --- | --- |
+| Open 3D, first frame | 0.44–0.46 s (code download included) | 1.9 s (Auto → Low) |
+| Frame rate while orbiting | ~100–110 fps at every quality | Low 26 fps · Medium 12 fps |
+| Draw calls / triangles | Low 42 / 38k · Medium 103 / 143k · High 119 / 384k | same |
+| 2D: switch to Presentation | 0.22 s | — |
+| 2D: dragging a piece | Technical 115 fps · Presentation 89 fps | — |
+| Export | 2D 1440p ≈ 0.7 s · 3D 1080p ≈ 3 s · 3D 4K ≈ 3 s | — |
+| Main download (gzip) | 268.5 kB (Phase 4: 258.6 kB) | — |
+| First load to plan | 162 ms (Phase 4: 160 ms), local | — |
+
 ### Design and navigation (Phase 4)
 - **The Progress Quest look:** clean neutral surfaces in light mode and blue-black in dark mode,
   with **Savage Ultramarine** (`#1F2BD6`) marking what matters: the active tab, the 2D/3D switch,
@@ -233,9 +297,8 @@ stays in 2D. In 3D you can look around and select furniture.
 - **Stairs:** straight, L-shaped, U-shaped and custom stairs are built step by step from their
   rise, with landings. Stairs going down cut through the floor. There is no second floor, and
   nothing here is a building-code check.
-- **Furniture:** simple shapes per type, such as a table with legs, a sofa with back and arms, a
-  bed with mattress and pillows, or a bookshelf with shelves. Each stays inside the piece's real
-  width, depth and height, keeping its colour and rotation.
+- **Furniture:** detailed models per type (see *Visual rendering*). Each stays inside the
+  piece's real width, depth and height, keeping its colour and rotation.
 - **Camera:**
   - Drag to orbit, scroll or pinch to zoom, and right-drag or two-finger drag to pan.
   - Buttons zoom and fit the room, and three angles are offered: **Isometric**, **Top-down** and
@@ -254,13 +317,15 @@ stays in 2D. In 3D you can look around and select furniture.
     first time you open 3D.
   - It draws only when something changes, and frees all graphics memory when you go back to 2D.
   - Soft shadows can be switched off. They start off on touch devices.
+  - Quality presets (see *Visual rendering*) trade detail for speed.
 - **If WebGL is unavailable** (or the device reclaims graphics memory), the 3D view explains
   this and offers a way back. The 2D plan always keeps working.
 
 Design and trade-offs: [ADR-0003](docs/adr/0003-3d-view.md).
 
-Measured with a stress project (40 walls, 150 pieces, 4 doors, 5 windows and 3 staircases), on
-the production build:
+Measured at Phase 3B, with the simpler furniture of the time, on a stress project (40 walls, 150
+pieces, 4 doors, 5 windows and 3 staircases), production build (current figures: *Visual
+rendering*):
 
 | | Apple M3 Pro (GPU) | Software rendering (CI) |
 | --- | --- | --- |
@@ -407,7 +472,8 @@ configuration. GitHub Pages is free for public repositories.
 | `src/photo/` | Photo tools (lazy-loaded): image operations (pure, unit-tested), the photo workers, on-device "Smart remove", and outline tracing. |
 | `src/components/studio/` | The furniture studio: drawing and editing custom outlines (lazy-loaded). |
 | `src/scene3d/` | The 3D view. `model.ts` turns a project into plain shapes (pure, unit-tested, in cm, using the same wall and stair geometry as the plan); `furnitureParts.ts` gives each furniture type its shape; `three/RoomViewer.ts` draws them with Three.js. |
-| `src/render/` | Canvas colours per theme and the locally generated floor/rug textures. |
+| `src/render/` | Canvas colours per theme; locally generated floor and rug textures; the shared furniture parts model (`furnitureParts.ts`) and surface materials (`materials.ts`) used by both views; the presentation plan's illustrations (`planIllustration.ts`). |
+| `src/export/` | Local PNG export of the 2D plan and 3D views. |
 | `src/components/` | The interface. `plan/` holds the floor plan canvas (React Konva). |
 | `e2e/` | Browser tests (Playwright). |
 | `docs/adr/` | Architecture decisions, e.g. [how rooms, walls and stairs are modelled](docs/adr/0001-polygon-rooms-walls-stairs.md). |
@@ -455,6 +521,19 @@ polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only 
 
 ## Known limitations
 
+- **Presentation plan and 3D models:**
+  - furniture is generated per type, so a piece looks like a typical sofa or bookshelf of its
+    size, not your exact model (use photos for that);
+  - drawn custom shapes get a material finish, not components (cushions or legs can't be placed
+    reliably on arbitrary outlines);
+  - from above you only see tops, so a desk's drawers or a wardrobe's doors appear only in 3D;
+  - names refine some designs ("desk chair" gets an office chair, "lamp" a floor lamp), so an
+    oddly named piece may get a plainer design.
+- **Image export:** very large images depend on the device's graphics and memory limits; 4K is
+  disabled where the browser can't allocate it. 3D export uses a preset camera, not the exact
+  orbit position on screen.
+- **Ambient occlusion** isn't used; contact shadows and soft key-light shadows stand in for it.
+
 - **Optimizer — what it changes:** it moves and turns furniture, but never adds, removes or
   resizes it.
 - **Optimizer — rotations:** it considers rotations square to the room's walls. Pieces at other
@@ -466,8 +545,9 @@ polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only 
 - **Optimizer — large plans:** very large plans (30+ movable pieces) take proportionally longer.
 - **3D — editing:** the 3D view is for looking and selecting; moving, resizing and editing
   happen in the 2D plan.
-- **3D — looks:** furniture is made of simple boxes per type. There are no ceilings, per-wall
-  colours, wall-height variations or upper floors. Stairs going down show their stairwell, but
+- **3D — looks:** furniture is procedural (generated from each piece's type and size), not
+  modelled from real products. There are no ceilings, per-wall colours, wall-height variations or
+  upper floors. Stairs going down show their stairwell, but
   not the room below.
 - **3D — window views:** glass is see-through but nothing is shown outside the room.
 - **3D — browsers:** the 3D view needs WebGL. Very old devices, some locked-down workplace
