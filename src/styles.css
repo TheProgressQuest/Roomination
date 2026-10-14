@@ -3596,6 +3596,8 @@ select {
   .mode-option,
   .builder-row button,
   .builder-check,
+  .fb-row,
+  .fb-template,
   .studio-select select,
   .file-button {
     min-height: 44px;

@@ -8,6 +8,44 @@ anywhere. There are no accounts, no analytics, no ads and no servers.
 
 ## Features
 
+### Advanced Furniture Builder (Phase 6)
+Build your own furniture from parts, so an unusual piece looks like itself in 2D and 3D
+instead of a block.
+
+- **Open it from** Furnish → *Build from components*, or a selected piece's *Build from
+  components* / *Edit components* button.
+- **Components:** base, seat, backrest, armrest, cushion, pillow, headrest, leg, foot,
+  tabletop, shelf, drawer, cabinet door, support, decorative detail, or custom.
+  - Each has a position, width, depth, height, height above the floor, turn and lean.
+  - Its edges can be rounded, bevelled or square, and it has its own material, colour,
+    finish, roughness, texture size, fabric pattern and seams.
+  - Add, move, resize, turn, duplicate, delete, group, reorder, lock or hide components.
+    Attach one to another so it moves and turns with it.
+- **Shapes:** box, cylinder or ellipse, soft round (pillows), your own polygon, a curved
+  panel, a band that **follows edges of the footprint** (a backrest along an angled side,
+  mitred where two sections meet), or **the footprint itself** minus other components (a seat
+  cushion that fills an irregular sofa, optionally split into several cushions).
+- **Templates:** standard sofa, loveseat, deep-seat loveseat, angled-back loveseat, corner
+  sofa, sectional, chaise lounge, armchair, ottoman, circular ottoman, round table, oval
+  table, L-shaped desk and an irregular cabinet.
+  - Used on a piece already in your room, a template is built onto **your** footprint and
+    height. Edges and seats follow your outline, so entering your real measurements reshapes
+    them.
+- **Views:** a top view (drag to move, round handle to turn, numbered footprint edges), a
+  front view (drag up and down to set heights) and an optional live 3D preview. Arrow keys
+  nudge, R turns, Ctrl/⌘ Z undoes.
+- **Accurate:**
+  - The footprint (width × depth, or your drawn outline) is still what collisions and the
+    optimizer use.
+  - Components that reach outside it, or below the floor, are listed. You choose whether to
+    move them or grow the footprint; nothing changes on its own.
+  - The piece's height is taken from its tallest component.
+- **Materials:** cotton, linen and velvet join fabric, leather, wood, metal, stone, ceramic,
+  glass and plastic, with woven stripes, check, herringbone or bouclé. All textures are drawn
+  on your device.
+- Saved with the project, in exported files and in the furniture library; one Save is one
+  undo step.
+
 ### Visual rendering (Phase 5)
 Rooms look like an interior designer's drawing, in 2D and 3D, without losing a centimetre of
 accuracy.
@@ -467,7 +505,7 @@ configuration. GitHub Pages is free for public repositories.
 | `src/model/` | Pure logic, all in **centimetres**. Main modules: data shapes (`types.ts`); polygon maths (`polygon.ts`); custom furniture outlines, holes and separate parts, and their convex decomposition (`shape.ts`, `shapeEdit.ts`); the Bagua map (`bagua.ts`); walls and their editing (`walls.ts`, `wallGeometry.ts`); keeping things inside the room (`placement.ts`); re-checking everything after a wall change (`roomChange.ts`); features, stairs, snapping, overlaps (`conflicts.ts`); units; and the sample room. |
 | `src/state/` | `editor.ts`, the single reducer every change goes through (validation, overlap prompts, undo history), plus selection, display preferences and the optimizer run state. |
 | `src/optimizer/` | The layout optimizer. Main modules: walking-space grid and walking distances (`circulation.ts`); practical checks (`practical.ts`); assumed pairings and room purpose (`semantics.ts`); Feng Shui scoring (`fengShui.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations and before/after tables (`explain.ts`); realistic test rooms (`scenarios.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
-| `src/builder/` | The Shape Builder (lazy-loaded): the recipe maths (`recipe.ts`, pure and unit-tested, using polygon-clipping) and its interface. |
+| `src/builder/` | Lazy-loaded builders: the Shape Builder (recipe maths in `recipe.ts`) and the Advanced Furniture Builder (`FurnitureBuilder.tsx`; edge bands, insets and cut seats in `componentGeometry.ts`; templates in `furniturePresets.ts`), using polygon-clipping. `model/components.ts` holds the lightweight part every view needs (nesting, overflow checks, editing helpers). |
 | `src/storage/` | IndexedDB persistence (Dexie: projects, photos, furniture library), import/export validation and migration (schema v1–v7), and ZIP packaging for projects with photos. |
 | `src/photo/` | Photo tools (lazy-loaded): image operations (pure, unit-tested), the photo workers, on-device "Smart remove", and outline tracing. |
 | `src/components/studio/` | The furniture studio: drawing and editing custom outlines (lazy-loaded). |
@@ -524,8 +562,11 @@ polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only 
 - **Presentation plan and 3D models:**
   - furniture is generated per type, so a piece looks like a typical sofa or bookshelf of its
     size, not your exact model (use photos for that);
-  - drawn custom shapes get a material finish, not components (cushions or legs can't be placed
-    reliably on arbitrary outlines);
+  - drawn custom shapes get a material finish unless you build them from components (Advanced
+    Furniture Builder);
+  - components are rigid shapes: upholstery doesn't sag or wrinkle, and photos stay with the
+    whole piece rather than individual components;
+  - kitchens, bathrooms and appliances (sinks, hobs, WCs) aren't modelled;
   - from above you only see tops, so a desk's drawers or a wardrobe's doors appear only in 3D;
   - names refine some designs ("desk chair" gets an office chair, "lamp" a floor lamp), so an
     oddly named piece may get a plainer design.

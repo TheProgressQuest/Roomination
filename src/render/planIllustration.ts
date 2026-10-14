@@ -178,6 +178,22 @@ function paintPart(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: 
   ctx.restore();
 }
 
+/** Whether this browser applies canvas blur filters (checked once; older Safari ignores them). */
+let blurSupport: boolean | null = null;
+function canBlur(ctx: CanvasRenderingContext2D): boolean {
+  if (blurSupport === null) {
+    const before = ctx.filter;
+    try {
+      ctx.filter = 'blur(1px)';
+      blurSupport = ctx.filter === 'blur(1px)';
+    } catch {
+      blurSupport = false;
+    }
+    ctx.filter = before ?? 'none';
+  }
+  return blurSupport;
+}
+
 /** A closed outline with its corners rounded by up to `r` (never more than half the shorter neighbouring edge). */
 function roundedPolygon(path: Path2D, pts: { x: number; y: number }[], r: number) {
   const n = pts.length;
@@ -252,8 +268,10 @@ function castShadow(ctx: CanvasRenderingContext2D, part: FurniturePart, rise: nu
   ctx.translate(part.x + lift * 0.22, part.y + lift * 0.3);
   if (part.yaw) ctx.rotate((part.yaw * Math.PI) / 180);
   const blur = Math.max(1, Math.min(14, lift * 0.28 * pxPerCm));
-  if ('filter' in ctx) ctx.filter = `blur(${blur.toFixed(1)}px)`;
-  ctx.fillStyle = `rgba(40,30,20,${Math.min(0.3, 0.1 + lift * 0.008).toFixed(3)})`;
+  const soft = canBlur(ctx);
+  if (soft) ctx.filter = `blur(${blur.toFixed(1)}px)`;
+  // Without blur a shadow would have a hard edge, so it's kept faint.
+  ctx.fillStyle = `rgba(40,30,20,${(Math.min(0.3, 0.1 + lift * 0.008) * (soft ? 1 : 0.45)).toFixed(3)})`;
   ctx.fill(partPath(part));
   ctx.restore();
 }
@@ -290,7 +308,7 @@ function paintSurface(ctx: CanvasRenderingContext2D, part: FurniturePart, path: 
     // light stroke along the edges facing the light (upper left) catches the roll there.
     const roll = Math.min(14, Math.min(w, d) * (part.role === 'pillow' || part.shape === 'ellipsoid' ? 0.45 : 0.3));
     const blur = Math.max(1, roll * 0.35 * pxPerCm);
-    const blurred = 'filter' in ctx;
+    const blurred = canBlur(ctx);
     ctx.save();
     if (blurred) ctx.filter = `blur(${blur.toFixed(1)}px)`;
     ctx.strokeStyle = `rgba(60,45,30,${blurred ? 0.12 : 0.06})`;
