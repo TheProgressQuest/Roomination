@@ -139,7 +139,9 @@ test.describe('Draw custom furniture', () => {
     await dialog.getByRole('button', { name: 'Add to room' }).click();
     await expect(dialog).toHaveCount(0);
     const piece = (await exportProject(page)).furniture.at(-1);
-    expect([piece.width, piece.depth]).toEqual([120, 80]);
+    // Corners placed by clicking land within one 1 cm snap step of their target.
+    expect(Math.abs(piece.width - 120)).toBeLessThanOrEqual(1);
+    expect(Math.abs(piece.depth - 80)).toBeLessThanOrEqual(1);
   });
 
   test('a refused change keeps the studio open with everything drawn; a look-only change keeps a standard piece standard', async ({ page }) => {

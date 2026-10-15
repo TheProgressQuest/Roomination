@@ -194,16 +194,17 @@ function fridge(k: Kit, b: Base, sideBySide: boolean) {
   const { width: w, depth: d, height: h } = b;
   // Doors sit back from the front edge, so the handles stay inside the footprint.
   const fy = d / 2 - 4.2;
-  k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, fy - 1, 0, h, { color: b.color, material: 'metal', finish: 'satin', radius: 1.5 });
+  // Appliance bodies are painted steel (satin plastic shading): polished metal reads black without reflections.
+  k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, fy - 1, 0, h, { color: b.color, material: 'plastic', finish: 'satin', radius: 1.5 });
   if (sideBySide) {
-    const left = k.box('door', 'Freezer door', -w / 4, fy, 2, w / 2 - 0.6, 2, h - 4, { color: b.color, material: 'metal', radius: 0.8 });
-    const right = k.box('door', 'Fridge door', w / 4, fy, 2, w / 2 - 0.6, 2, h - 4, { color: b.color, material: 'metal', radius: 0.8 });
+    const left = k.box('door', 'Freezer door', -w / 4, fy, 2, w / 2 - 0.6, 2, h - 4, { color: b.color, material: 'plastic', finish: 'satin', radius: 0.8 });
+    const right = k.box('door', 'Fridge door', w / 4, fy, 2, w / 2 - 0.6, 2, h - 4, { color: b.color, material: 'plastic', finish: 'satin', radius: 0.8 });
     k.box('detail', 'Handle', w / 4 - 3, 1.8, h * 0.3, 2, 2.4, h * 0.4, { parent: left, material: 'metal', color: STEEL, radius: 0.8 });
     k.box('detail', 'Handle', -w / 4 + 3, 1.8, h * 0.3, 2, 2.4, h * 0.4, { parent: right, material: 'metal', color: STEEL, radius: 0.8 });
   } else {
     const split = h * 0.62;
-    const top = k.box('door', 'Fridge door', 0, fy, h - split, w - 1, 2, split - 2, { color: b.color, material: 'metal', radius: 0.8 });
-    const bottom = k.box('door', 'Freezer door', 0, fy, 2, w - 1, 2, h - split - 3, { color: b.color, material: 'metal', radius: 0.8 });
+    const top = k.box('door', 'Fridge door', 0, fy, h - split, w - 1, 2, split - 2, { color: b.color, material: 'plastic', finish: 'satin', radius: 0.8 });
+    const bottom = k.box('door', 'Freezer door', 0, fy, 2, w - 1, 2, h - split - 3, { color: b.color, material: 'plastic', finish: 'satin', radius: 0.8 });
     k.box('detail', 'Handle', w / 2 - 5, 1.8, 6, 2, 2.4, 36, { parent: top, material: 'metal', color: STEEL, radius: 0.8 });
     k.box('detail', 'Handle', w / 2 - 5, 1.8, (h - split) - 30, 2, 2.4, 24, { parent: bottom, material: 'metal', color: STEEL, radius: 0.8 });
   }

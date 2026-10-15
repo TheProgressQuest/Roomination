@@ -8,6 +8,30 @@ anywhere. There are no accounts, no analytics, no ads and no servers.
 
 ## Features
 
+### Furniture catalogue (Phase 7)
+A catalogue of 144 ready-made pieces, so you rarely need to build anything yourself.
+
+- **Rooms:** living room, dining, bedroom, office, kitchen, bathroom, laundry, sauna, outdoor,
+  lighting, décor & plants, and rugs.
+- **Finding pieces:** search by name or everyday words ("wc", "jacuzzi", "nightstand"), or filter
+  by room. Each card shows a picture and the real size.
+- **Adding pieces:** click (or tap) a card to add it near the middle of the room, or drag it onto
+  the plan where you want it. The old quick-add buttons are still under *Quick add*.
+- **Kitchens, bathrooms, laundry and saunas:**
+  - Base cabinets, sinks, gas and induction hobs, ovens, dishwashers, fridges, a pantry and
+    islands.
+  - Toilets, a bidet, vanities, baths, showers and a towel radiator.
+  - Washers, dryers and a utility sink.
+  - Sauna benches, a heater and a bucket.
+  - Hot tubs, outdoor sofas, tables, loungers, a parasol, a fire pit and a barbecue.
+- **Fixtures:** these are marked as fixtures, so *Optimize layout* never moves them. You can still
+  drag them yourself.
+- **Editable:** every piece uses the same drawing system as the rest of the app (2D plan,
+  presentation plan and 3D). Pieces built from components can be opened with *Edit components*
+  and changed.
+- **Private:** everything, pictures included, is drawn on your device; nothing is downloaded. The
+  catalogue loads only when you open it.
+
 ### Advanced Furniture Builder (Phase 6)
 Build your own furniture from parts, so an unusual piece looks like itself in 2D and 3D
 instead of a block.
@@ -566,7 +590,8 @@ polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only 
     Furniture Builder);
   - components are rigid shapes: upholstery doesn't sag or wrinkle, and photos stay with the
     whole piece rather than individual components;
-  - kitchens, bathrooms and appliances (sinks, hobs, WCs) aren't modelled;
+  - wall cabinets, cooker hoods and wall art aren't in the catalogue yet: collisions are checked
+    in plan only, so a cabinet hung above a counter would count as overlapping it;
   - from above you only see tops, so a desk's drawers or a wardrobe's doors appear only in 3D;
   - names refine some designs ("desk chair" gets an office chair, "lamp" a floor lamp), so an
     oddly named piece may get a plainer design.
