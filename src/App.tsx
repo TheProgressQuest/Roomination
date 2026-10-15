@@ -58,6 +58,8 @@ const AUTOSAVE_DELAY_MS = 400;
 const View3D = lazy(() => import('./components/view3d/View3D'));
 /** So do the furniture studio and its photo tools. */
 const FurnitureStudio = lazy(() => import('./components/studio/FurnitureStudio'));
+/** The furniture catalogue. */
+const CatalogueBrowser = lazy(() => import('./catalogue/CatalogueBrowser'));
 /** And the Advanced Furniture Builder (components). */
 const FurnitureBuilder = lazy(() => import('./builder/FurnitureBuilder'));
 
@@ -296,6 +298,16 @@ export function App() {
     dispatch({ type: 'furniture/add', furniture });
     setSelection({ kind: 'object', id: furniture.id });
     setAddOpen(false);
+  }
+
+  /** Places a catalogue item where it was dropped on the plan (kept inside the room). */
+  async function dropCatalogueItem(id: string, point: Point) {
+    const { CATALOGUE } = await import('./catalogue/items');
+    const item = CATALOGUE.find((i) => i.id === id);
+    if (!item) return;
+    const furniture = createFurniture({ ...item.make(), x: point.x, y: point.y });
+    dispatch({ type: 'furniture/add', furniture });
+    setSelection({ kind: 'object', id: furniture.id });
   }
 
   /** Adds a piece made from a template (the studio or the library) near the room's centre. */
@@ -672,6 +684,8 @@ export function App() {
                 onPreferences={updatePreferences}
                 onAddFurniture={addFurniture}
                 onPlaceTemplate={placeTemplate}
+                onAddCatalogueItem={(item) => placeTemplate(item.make())}
+                touch={isTouch}
                 onAddFeature={addFeature}
                 onAddStairs={addStairs}
                 onStartDrawing={startDrawing}
@@ -815,6 +829,7 @@ export function App() {
                     onChangeStair={(id, changes) => dispatch({ type: 'stairs/update', id, changes })}
                     onMoveCorner={(nodeId, to) => dispatch({ type: 'walls/moveNode', nodeId, to })}
                     onDraftPoint={addDraftPoint}
+                    onDropItem={(id, point) => void dropCatalogueItem(id, point)}
                   />
                 </section>
               )}
@@ -878,6 +893,13 @@ export function App() {
             <CustomFurniturePanel units={project.units} onPlace={placeTemplate} />
           </section>
           <section className="dialog-section">
+            <h3>Furniture catalogue</h3>
+            <Suspense fallback={<p className="hint">Loading the catalogue…</p>}>
+              <CatalogueBrowser units={project.units} touch={isTouch} onAdd={(item) => placeTemplate(item.make())} />
+            </Suspense>
+          </section>
+          <section className="dialog-section">
+            <h3>Quick add</h3>
             <FurnitureButtons onAdd={addFurniture} />
           </section>
         </Dialog>

@@ -152,6 +152,8 @@ export function visualOf(item: Pick<Furniture, 'name' | 'kind' | 'category'>): V
       if (/lamp|light/.test(name)) return 'lamp';
       if (/vase|sculpture|urn|pot\b/.test(name)) return 'vase';
       return 'plant';
+    case 'fixture':
+      return 'block';
     case 'custom':
       if (item.category === 'decoration' && /plant|tree|fern|palm|ficus|monstera|flower/.test(name)) return 'plant';
       if (item.category === 'decoration' && /lamp|light/.test(name)) return 'lamp';

@@ -124,6 +124,8 @@ test.describe('Phase 1 & 2 features still work', () => {
   test('rugs sit under furniture without warnings', async ({ page }) => {
     await openApp(page);
     await toolsTab(page, 'Furnish');
+    // The quick-add buttons sit in a collapsed section below the catalogue.
+    await tools(page).getByText('Quick add', { exact: true }).click();
     await tools(page).getByRole('button', { name: 'Rug', exact: true }).click();
     await expect(banner(page)).toHaveCount(0);
     expect(await checksText(page)).toMatch(/No overlaps/);

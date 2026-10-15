@@ -38,7 +38,7 @@ test.describe('Tabs', () => {
     await page.keyboard.press('ArrowRight');
     await expect(tabs.getByRole('tab', { name: /^Furnish/ })).toBeFocused();
     await expect(tabs.getByRole('tab', { name: /^Furnish/ })).toHaveAttribute('aria-selected', 'true');
-    await expect(tools(page).getByRole('tabpanel')).toContainText('Add furniture');
+    await expect(tools(page).getByRole('tabpanel')).toContainText('Furniture catalogue');
     await page.keyboard.press('End');
     await expect(tabs.getByRole('tab', { name: 'Optimize' })).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('ArrowRight');

@@ -129,8 +129,9 @@ export function furnitureTypes(): Project {
     return createFurniture({
       name: FURNITURE_KIND_LABELS[kind],
       kind,
-      x: 120 + (i % 5) * 140,
-      y: 110 + Math.floor(i / 5) * 190,
+      // Six to a row, so every kind fits inside the 8 × 6 m room.
+      x: 110 + (i % 6) * 118,
+      y: 110 + Math.floor(i / 6) * 190,
       width: Math.min(width, 120),
       depth: Math.min(depth, 150),
       height,

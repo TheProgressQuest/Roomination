@@ -47,7 +47,12 @@ interface FloorPlanProps {
   onMoveCorner: (nodeId: string, to: Point) => void;
   /** A drawing point was placed (the app decides whether it closes the room). */
   onDraftPoint: (point: Point) => void;
+  /** A catalogue item was dropped on the plan at this point (room cm). */
+  onDropItem?: (itemId: string, point: Point) => void;
 }
+
+/** Drag data type for catalogue items dragged onto the plan. */
+export const CATALOGUE_DRAG_TYPE = 'application/x-roomination-catalogue';
 
 /** Features drawn underneath furniture (they sit on the floor). */
 const FLOOR_FEATURES = new Set(['column', 'radiator']);
@@ -377,6 +382,19 @@ export function FloorPlan(props: FloorPlanProps) {
       aria-label={`Floor plan of ${project.name}: about ${formatLength(roomBox.maxX - roomBox.minX, project.units)} by ${formatLength(roomBox.maxY - roomBox.minY, project.units)}, with ${room.outline.length} outer walls, ${furniture.length} items, ${features.length} room features and ${stairs.length} staircases.`}
       // On phones, swiping over an unselected plan scrolls the page instead of grabbing things.
       style={{ touchAction: props.touch && (props.readOnly || (!drawing && !selection)) ? 'pan-y' : 'none' }}
+      onDragOver={(e) => {
+        if (props.onDropItem && !props.readOnly && e.dataTransfer.types.includes(CATALOGUE_DRAG_TYPE)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData(CATALOGUE_DRAG_TYPE);
+        if (!id || !props.onDropItem || props.readOnly) return;
+        e.preventDefault();
+        const box = e.currentTarget.getBoundingClientRect();
+        props.onDropItem(id, toRoomPoint(viewport, { x: e.clientX - box.left, y: e.clientY - box.top }));
+      }}
     >
       <Stage
         width={size.width}

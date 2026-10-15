@@ -101,6 +101,8 @@ export type FurnitureKind =
   | 'storage'
   | 'television'
   | 'decor'
+  /** Fitted or plumbed in (kitchen units, sinks, toilets, baths, appliances, sauna benches): the optimizer leaves it in place. */
+  | 'fixture'
   | 'custom';
 
 /**
@@ -323,7 +325,7 @@ export type BuilderNode =
     }
   | { id: string; type: 'union' | 'subtract' | 'intersect' | 'group'; children: BuilderNode[] };
 
-export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'custom';
+export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'water' | 'custom';
 export type SurfaceFinish = 'matte' | 'satin' | 'gloss';
 
 /** How a piece looks. Photos are referenced by asset id (stored on this device). */

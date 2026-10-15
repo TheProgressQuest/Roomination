@@ -40,6 +40,7 @@ export const SURFACES: Record<SurfaceKind, SurfacePreset> = {
   stone: { roughness: 0.28, metalness: 0, tileCm: 90, pattern: marble },
   ceramic: { roughness: 0.35, metalness: 0, tileCm: 30, pattern: glaze },
   plastic: { roughness: 0.42, metalness: 0, tileCm: 100, pattern: null },
+  water: { roughness: 0.05, metalness: 0, tileCm: 60, pattern: ripples, opacity: 0.82 },
   custom: { roughness: 0.8, metalness: 0, tileCm: 100, pattern: null },
   paper: { roughness: 0.85, metalness: 0, tileCm: 20, pattern: null },
   foliage: { roughness: 0.65, metalness: 0, tileCm: 15, pattern: leafVeins },
@@ -184,6 +185,23 @@ function fabric(ctx: CanvasRenderingContext2D, size: number) {
     const len = 4 + random() * 14;
     ctx.fillStyle = `rgba(0,0,0,${0.02 + random() * 0.03})`;
     wrapped(size, (dx, dy) => ctx.fillRect(x + dx, y + dy, len, 1.2));
+  }
+}
+
+/** Water: faint, soft ripples (baths, hot tubs). */
+function ripples(ctx: CanvasRenderingContext2D, size: number) {
+  const random = seededRandom(31);
+  ctx.lineWidth = size / 160;
+  for (let i = 0; i < 26; i++) {
+    const x = random() * size;
+    const y = random() * size;
+    const r = size * (0.04 + random() * 0.12);
+    ctx.strokeStyle = `rgba(255,255,255,${0.1 + random() * 0.12})`;
+    wrapped(size, (dx, dy) => {
+      ctx.beginPath();
+      ctx.ellipse(x + dx, y + dy, r, r * 0.55, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    });
   }
 }
 

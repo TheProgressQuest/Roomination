@@ -3083,6 +3083,107 @@ select {
 /* ---------- Responsive ---------- */
 
 /* Tablet: the plan gets priority; tools can fold to a rail; editing uses the modal. */
+/* ---------- Furniture catalogue ---------- */
+.catalogue {
+  display: grid;
+  gap: 8px;
+}
+
+.catalogue-search input {
+  width: 100%;
+}
+
+.catalogue-categories {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.catalogue-categories button {
+  flex: none;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.catalogue-categories button.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.catalogue-count {
+  margin: 0;
+}
+
+.catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.catalogue-card {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  width: 100%;
+  padding: 6px 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  text-align: center;
+  cursor: pointer;
+}
+
+.catalogue-card:hover,
+.catalogue-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.catalogue-card[draggable='true'] {
+  cursor: grab;
+}
+
+.catalogue-thumb {
+  display: block;
+  width: 112px;
+  height: 84px;
+  border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in srgb, var(--surface-sunk) 70%, #d8bf98 30%);
+}
+
+.catalogue-thumb img {
+  display: block;
+  width: 112px;
+  height: 84px;
+}
+
+.catalogue-name {
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.catalogue-size {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
 /* ---------- Advanced Furniture Builder ---------- */
 .fb-dialog .studio {
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -3598,6 +3699,7 @@ select {
   .builder-check,
   .fb-row,
   .fb-template,
+  .catalogue-categories button,
   .studio-select select,
   .file-button {
     min-height: 44px;

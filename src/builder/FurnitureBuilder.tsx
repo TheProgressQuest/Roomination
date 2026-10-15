@@ -103,6 +103,7 @@ const MATERIALS: { value: MaterialKind | 'piece'; label: string }[] = [
   { value: 'ceramic', label: 'Ceramic' },
   { value: 'glass', label: 'Glass' },
   { value: 'plastic', label: 'Plastic' },
+  { value: 'water', label: 'Water (baths, hot tubs)' },
   { value: 'custom', label: 'Custom (plain)' },
 ];
 const PATTERNS: { value: UpholsteryPattern; label: string }[] = [

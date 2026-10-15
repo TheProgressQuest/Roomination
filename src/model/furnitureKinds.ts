@@ -15,6 +15,7 @@ export const FURNITURE_KIND_LABELS: Record<FurnitureKind, string> = {
   storage: 'Storage',
   television: 'Television / TV unit',
   decor: 'Decorative',
+  fixture: 'Fixture / appliance',
   custom: 'Other',
 };
 
@@ -47,6 +48,7 @@ export const PREFERENCES_FOR_KIND: Record<FurnitureKind, PlacementPreference[]> 
   storage: ['againstWall'],
   television: ['againstWall', 'nearOutlet'],
   decor: ['nearWindow', 'againstWall'],
+  fixture: [],
   custom: ['againstWall', 'nearWindow', 'nearOutlet'],
 };
 

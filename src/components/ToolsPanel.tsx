@@ -1,4 +1,5 @@
-import { useId, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useId, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode } from 'react';
+import type { CatalogueItem } from '../catalogue/items';
 import type { Conflict } from '../model/conflicts';
 import { FEATURE_LABELS } from '../model/features';
 import type { FeatureKind, Project } from '../model/types';
@@ -19,6 +20,9 @@ import { Icon, type IconName } from './Icon';
 import { NumberField } from './NumberField';
 import { SegmentedControl } from './SegmentedControl';
 
+/** The furniture catalogue loads the first time the Furnish tab shows it. */
+const CatalogueBrowser = lazy(() => import('../catalogue/CatalogueBrowser'));
+
 interface ToolsPanelProps {
   project: Project;
   selection: Selection;
@@ -29,6 +33,8 @@ interface ToolsPanelProps {
   onAddFurniture: (preset: FurniturePreset) => void;
   /** Adds a custom or library piece. */
   onPlaceTemplate: (template: FurnitureTemplate) => void;
+  onAddCatalogueItem: (item: CatalogueItem) => void;
+  touch: boolean;
   onAddFeature: (kind: FeatureKind) => void;
   onAddStairs: (shape: 'straight' | 'L' | 'U' | 'custom') => void;
   onStartDrawing: (mode: 'drawRoom' | 'drawWall') => void;
@@ -185,7 +191,13 @@ export function ToolsPanel(props: ToolsPanelProps) {
 
         {tab === 'furnish' && (
           <>
-            <Collapsible title="Add furniture" defaultOpen>
+            <Collapsible title="Furniture catalogue" defaultOpen>
+              <Suspense fallback={<p className="hint">Loading the catalogue…</p>}>
+                <CatalogueBrowser units={units} touch={props.touch} onAdd={props.onAddCatalogueItem} />
+              </Suspense>
+            </Collapsible>
+
+            <Collapsible title="Quick add" defaultOpen={false}>
               <FurnitureButtons onAdd={props.onAddFurniture} />
             </Collapsible>
 

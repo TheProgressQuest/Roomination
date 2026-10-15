@@ -520,6 +520,8 @@ function detail(ctx: CanvasRenderingContext2D, part: FurniturePart, surface: Sur
       if (part.role === 'frame' && surface !== 'wood' && surface !== 'stone' && surface !== 'metal') break;
       // An inset edge line (like a bevel or edge banding) gives tops depth from above.
       const inset = Math.min(2, w * 0.06, d * 0.06);
+      // Only boxes get these rectangle-based edge lines: on round or outlined parts they'd cut across them.
+      if (part.shape !== 'rounded') break;
       if (inset > 0.6) {
         ctx.strokeStyle = shade(color, -0.25);
         ctx.globalAlpha = 0.35;

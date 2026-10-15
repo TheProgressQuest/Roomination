@@ -101,7 +101,7 @@ export type ProgressCallback = (done: number, total: number) => void;
 
 export function optimize(input: OptimizeInput, onProgress: ProgressCallback = () => {}, shouldStop: () => boolean = () => false): OptimizeResult {
   const { project, settings } = input;
-  const movableIds = new Set(input.movableIds.filter((id) => project.furniture.some((f) => f.id === id && !f.locked)));
+  const movableIds = new Set(input.movableIds.filter((id) => project.furniture.some((f) => f.id === id && !f.locked && f.kind !== 'fixture')));
   const context = createContext(project, movableIds, settings);
   const userWeights = weightsFor(settings, context.fengShui);
   const nameOf = (id: string) => project.furniture.find((f) => f.id === id)?.name ?? 'A piece';
