@@ -1,6 +1,6 @@
 # ADR-0007: Component-built furniture, and a more architectural presentation plan
 
-**Status:** Proposed (awaiting screenshot approval)
+**Status:** Accepted
 **Date:** 2026-10-14
 **Deciders:** The Progress Quest
 
