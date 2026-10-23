@@ -547,7 +547,14 @@ npm test          # unit tests: geometry, walls, stairs, overlaps, editor/undo, 
 npm run test:e2e  # browser tests (Playwright) on the dev server AND the production build
 npm run build     # production build into dist/ (static files)
 npm run preview   # serve the production build locally
+npm run check     # quick: TypeScript + production build
+npm run test:smoke  # quick: one short pass through each main workflow (~10 s)
+npm run test:full   # everything, as a release needs (unit, browser on both builds, 3D)
 ```
+
+New features are prototyped on `proto-*` branches with the quick checks, then fully tested before
+release: see [docs/release-checklist.md](docs/release-checklist.md) and
+[docs/prototype-log.md](docs/prototype-log.md).
 
 Before the first `npm run test:e2e`, install a browser once with `npx playwright install chromium`.
 To use an existing Chromium instead, set `PW_CHROMIUM_PATH` to its executable.

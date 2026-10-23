@@ -1,0 +1,33 @@
+# Quick checks for proto-* prototype branches: types, unit tests, a production build and the
+# smoke tests (a few minutes). Never deploys. The full suite in deploy.yml (main and phase-*
+# branches) still gates every release; see docs/release-checklist.md.
+name: Prototype checks
+
+on:
+  push:
+    branches: ['proto-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --grep @smoke --project=dev --project=prod --workers=1
+        env:
+          CI: 'true'

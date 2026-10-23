@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check": "tsc -b && vite build",
+    "test:smoke": "playwright test --grep @smoke --project=dev",
+    "test:full": "vitest run && playwright test --grep-invert @3d && playwright test --grep @3d --workers=1"
   },
   "dependencies": {
     "dexie": "^4.4.6",
