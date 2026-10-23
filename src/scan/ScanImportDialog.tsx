@@ -61,7 +61,7 @@ export default function ScanImportDialog({ open, units, onClose, onCreate }: Pro
   function trySample(index: number) {
     setError(null);
     const sample = SAMPLES[index];
-    setStage({ step: 'review', scan: { ...parseRoomPlan(sampleToRoomPlan(sample), 'Synthetic sample (generated in this browser)', sample.name), name: sample.name.replace(/^Sample /, 'Scanned ').replace(/ \(synthetic\)$/, '') }, skipped: null });
+    setStage({ step: 'review', scan: { ...parseRoomPlan(sampleToRoomPlan(sample), 'Synthetic sample, generated in this browser', sample.name), name: sample.name.replace(/^Sample /, 'Scanned ').replace(/ \(synthetic\)$/, '') }, skipped: null });
   }
 
   const title = stage.step === 'review' ? 'Review the scanned room' : 'Import a room scan';
@@ -71,6 +71,14 @@ export default function ScanImportDialog({ open, units, onClose, onCreate }: Pro
       {stage.step === 'pick' && <PickStep choices={stage.choices} onPick={(scan) => setStage({ step: 'review', scan, skipped: stage.skipped })} onBack={() => setStage({ step: 'choose' })} />}
       {stage.step === 'review' && <ReviewStep key={stage.scan.source + stage.scan.name} scan={stage.scan} skipped={stage.skipped} units={units} onBack={() => setStage({ step: 'choose' })} onCancel={onClose} onCreate={onCreate} />}
     </Dialog>
+  );
+}
+
+export function BetaNotice() {
+  return (
+    <p className="scan-beta">
+      <span className="beta-badge">Beta</span> Validated with synthetic scans; real LiDAR scan testing pending.
+    </p>
   );
 }
 
@@ -84,6 +92,7 @@ function ChooseStep({ busy, error, onFile, onSample }: { busy: boolean; error: s
   return (
     <>
       <section className="dialog-section">
+        <BetaNotice />
         <div
           className={`scan-drop${dragging ? ' is-dragging' : ''}`}
           onDragOver={(e) => {
@@ -271,6 +280,7 @@ function ReviewStep({ scan, skipped, units, onBack, onCancel, onCreate }: { scan
           </p>
         </div>
         <div className="scan-panel" ref={listRef}>
+          <BetaNotice />
           <div className="scan-tabs">
             <SegmentedControl label="Review" hideLabel value={tab} options={tabs} onChange={setTab} />
           </div>
@@ -363,12 +373,15 @@ function RoomTab({ result, review, setReview, units, unit, toInput, fromInput, s
 
       <h3>Walls</h3>
       <p className="hint section-hint">Walls are numbered clockwise. Changing a length moves the corner at the wall’s end.</p>
+      <p className="hint scan-says">
+        <span className="scan-tag is-assumed">Assumed</span> Wall thickness isn’t measured: walls are drawn 12 cm thick outside the room, so inside sizes stay as scanned.
+      </p>
       <ul className="scan-list">
         {result.walls.map((w) => (
           <li key={w.id} data-item={w.id} className={`scan-card${selected === w.id ? ' is-selected' : ''}${w.confidence === 'low' ? ' is-low' : ''}`} onClick={() => onSelect(w.id)}>
             <div className="scan-card-head">
               <strong>{w.label}</strong>
-              {w.added ? <span className="scan-confidence is-added">Added to close a gap</span> : <Confidence value={w.confidence} />}
+              {w.added ? <span className="scan-confidence is-added">Reconstructed: added to close a gap</span> : w.fromFloor ? <span className="scan-confidence is-added">Reconstructed from the floor outline</span> : <Confidence value={w.confidence} />}
             </div>
             {w.outer ? (
               <div className="field-grid two">
@@ -393,7 +406,9 @@ function RoomTab({ result, review, setReview, units, unit, toInput, fromInput, s
                 {Math.abs(w.measured - w.length) >= 0.05 && review.wallLengths[w.id] === undefined ? ` (corners joined: ${exact(w.length, units)})` : ''}
               </Measured>
             ) : (
-              <p className="hint">Not measured: Roomination added it where the scan missed part of the room.</p>
+              <p className="hint">
+                <span className="scan-tag is-assumed">Not measured</span> {w.fromFloor ? 'Taken from the scanned floor outline, because the scanned walls didn’t join up.' : 'Roomination added it where the scan missed part of the room.'}
+              </p>
             )}
           </li>
         ))}
@@ -457,6 +472,11 @@ function OpeningCard({ o, edit, units, unit, toInput, fromInput, selected, onSel
             {o.kind === 'window' && <NumberField label="Sill height" suffix={unit} value={toInput(o.bottom)} min={0} onCommit={(v) => set({ bottom: fromInput(v) })} />}
           </div>
         </>
+      )}
+      {o.include && o.kind === 'door' && (
+        <p className="hint scan-says">
+          <span className="scan-tag is-assumed">Assumed</span> Swing and hinge side aren’t measured: it opens into the room, hinged on the left.
+        </p>
       )}
       {m && (
         <Measured onReset={edited ? () => edit(o.id, { kind: undefined, width: undefined, height: undefined, bottom: undefined }) : undefined}>
@@ -569,7 +589,12 @@ function ObjectCard({ o, edit, setReview, units, unit, toInput, fromInput, selec
         <>
           {!o.added && (
             <p className="hint scan-says">
-              <span className="scan-tag is-guess">Roomination’s guess</span> {o.as === o.suggestion.as ? o.suggestion.reason : 'You chose this.'}
+              <span className="scan-tag is-guess">Roomination’s guess</span> {o.as === o.suggestion.as ? `${o.suggestion.reason} Its look is a guess too: the scanner measures only size.` : 'You chose this.'}
+            </p>
+          )}
+          {o.as === STAIRS && (
+            <p className="hint scan-says">
+              <span className="scan-tag is-assumed">Assumed</span> Which end is the bottom isn’t measured: the stairs go up from their front.
             </p>
           )}
           <div className="field-grid two">

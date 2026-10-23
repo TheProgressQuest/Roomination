@@ -12,6 +12,7 @@ import { libraryChanged } from './library/useLibrary';
 import { useOpenStudio } from './studio/studioContext';
 import { furnitureOrigin, ORIGIN_LABELS, saveToLibrary, toTemplate } from '../storage/library';
 import { NumberField } from './NumberField';
+import { ScanDetails } from './ScanDetails';
 import { SegmentedControl } from './SegmentedControl';
 
 interface ObjectEditorProps {
@@ -100,6 +101,7 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
       {item.category !== 'floorCovering' && <PlanningFields key={item.id} project={project} item={item} dispatch={dispatch} />}
 
       <ConflictList objectId={item.id} project={project} conflicts={conflicts} dispatch={dispatch} />
+      <ScanDetails project={project} id={item.id} />
 
       <Section>
         <button type="button" className="danger" onClick={() => onDelete(item.id)}>
@@ -386,6 +388,7 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
       </Section>
 
       <ConflictList objectId={feature.id} project={project} conflicts={conflicts} dispatch={dispatch} />
+      <ScanDetails project={project} id={feature.id} />
 
       <Section>
         <button type="button" className="danger" onClick={() => onDelete(feature.id)}>

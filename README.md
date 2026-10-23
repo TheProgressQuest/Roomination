@@ -8,7 +8,9 @@ anywhere. There are no accounts, no analytics, no ads and no servers.
 
 ## Features
 
-### Room scan import (Phase 8A)
+### Room scan import (Phase 8A, beta)
+**Beta: validated with synthetic scans; real LiDAR scan testing pending.**
+
 Turn a room scanned with an iPhone or iPad into a plan you can edit. See
 [docs/scan-import.md](docs/scan-import.md) for the details.
 
@@ -35,6 +37,13 @@ Turn a room scanned with an iPhone or iPad into a plan you can edit. See
   - kitchen and bathroom fixtures stay put when you optimise;
   - RoomPlan's open doorways become a new *No door* door style.
 - **Always a new project:** importing never overwrites or changes an existing one.
+- **Scan history kept with the project:**
+  - what the scanner measured;
+  - how its coordinates were turned into the plan's;
+  - what Roomination inferred or assumed;
+  - what you corrected.
+  It survives saving, exporting and re-importing, and shows under *From the room scan* when
+  you select a scanned piece, door or window.
 - **Private:** the scan is read on your device. Photos, meshes, depth data and AR maps in a .zip
   are never opened, and nothing is uploaded.
 

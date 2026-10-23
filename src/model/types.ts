@@ -533,6 +533,55 @@ export interface SavedLayout {
   positions: { id: string; x: number; y: number; rotation: number }[];
 }
 
+/**
+ * How a project made from a room scan came to be (Phase 8A, beta): what the scanner measured,
+ * how its coordinates were turned into the plan's, what Roomination inferred or assumed, and
+ * what the person corrected. Kept with the project as read-only history; editing the plan
+ * afterwards doesn't change it. Measured sizes are in cm, as the scanner reported them.
+ */
+export interface ScanRecord {
+  /** Plain description of the file, e.g. "Apple RoomPlan JSON". */
+  source: string;
+  format: 'roomplan' | 'house-capture' | 'roomination-scan';
+  /** When the project was created from the scan (ms since 1970). */
+  importedAt: number;
+  /**
+   * From the scan's plan coordinates (RoomPlan metres × 100, X → x, Z → y) to the project's:
+   * turned `rotation` degrees clockwise about the origin, then moved by (−offsetX, −offsetY).
+   */
+  transform: { rotation: number; offsetX: number; offsetY: number; straightened: boolean; quarterTurns: number };
+  /** Ceiling height from the scan (the most common wall height) and the person's correction, if any. */
+  ceiling: { measured: number | null; corrected: number | null };
+  items: ScanItemRecord[];
+  /** What Roomination assumed or asked the person to check. */
+  notes: { level: 'check' | 'assumed' | 'info'; text: string }[];
+}
+
+export interface ScanItemRecord {
+  /** The wall, feature, furniture or stair id in this project. */
+  id: string;
+  type: 'wall' | 'opening' | 'object';
+  /**
+   * scanned: measured by the scanner; reconstructed: made by Roomination (a wall closing a gap,
+   * or taken from the scanned floor outline); added: added by the person during review.
+   */
+  origin: 'scanned' | 'reconstructed' | 'added';
+  /** The scanner's category word (wall, door, window, opening, bed, storage, …). */
+  category: string;
+  /** The scanner's own confidence label. */
+  confidence: 'high' | 'medium' | 'low' | 'unknown';
+  /** What the scanner measured (cm); null when it wasn't measured. Walls: width = length. */
+  measured: { width: number; height: number; depth?: number; bottom?: number } | null;
+  /** Roomination's inferred piece for an object (a catalogue id, "box" or "stairs"). */
+  inferred?: string;
+  /** That piece's name, e.g. "Queen bed". */
+  inferredName?: string;
+  /** The person's corrections during review (only what they changed). */
+  corrections: Record<string, string | number | boolean>;
+  /** Left out of the plan (by the person, or because it couldn't be placed). */
+  excluded: boolean;
+}
+
 export const CURRENT_SCHEMA_VERSION = 7;
 
 /** Everything that makes up one saved design. */
@@ -555,4 +604,6 @@ export interface Project {
    * objects and one kind of constraint (see `conflictKey`), never a global switch.
    */
   acceptedOverlaps: string[];
+  /** Present when the project was created from a room scan. */
+  scan?: ScanRecord;
 }

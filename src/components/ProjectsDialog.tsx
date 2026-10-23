@@ -9,6 +9,8 @@ interface ProjectsDialogProps {
   onClose: () => void;
   activeId: string;
   activeName: string;
+  /** "Made from a room scan on …", for projects created from a scan. */
+  activeScan: string | null;
   projects: ProjectSummary[];
   /** Message from the last import attempt (error or success). */
   importMessage: { kind: 'error' | 'success'; text: string } | null;
@@ -60,6 +62,11 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
             <Icon name="download" size={16} /> Export file
           </button>
         </div>
+        {props.activeScan && (
+          <p className="hint">
+            <span className="beta-badge">Beta</span> {props.activeScan}
+          </p>
+        )}
         <p className="hint">Duplicate to try variations (Layout A, B, C…) without losing the original. Projects with photos export as a .zip that includes them.</p>
       </section>
 
@@ -132,7 +139,7 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
             <Icon name="upload" size={16} /> Import file…
           </button>
           <button type="button" className="secondary" onClick={props.onImportScan}>
-            <Icon name="floorPlan" size={16} /> Import room scan…
+            <Icon name="floorPlan" size={16} /> Import room scan… <span className="beta-badge">Beta</span>
           </button>
           <input
             ref={fileInput}

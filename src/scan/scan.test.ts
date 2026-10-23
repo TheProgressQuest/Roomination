@@ -479,3 +479,65 @@ describe('opening scan files', () => {
     expect(crc32(strToU8('123456789'))).toBe(0xcbf43926);
   });
 });
+
+describe('the scan record kept with the project', () => {
+  it('keeps measurements, the transformation and the person’s corrections through save and re-import', () => {
+    const { scan } = build(SAMPLE_STUDIO);
+    const bed = scan.objects.find((o) => o.category === 'bed')!;
+    const door = scan.openings.find((o) => o.kind === 'door')!;
+    const review: Review = {
+      ...initialReview(scan),
+      quarterTurns: 1,
+      ceiling: 250,
+      objects: { [bed.id]: { width: 150, as: 'bed-wood' } },
+      openings: { [door.id]: { kind: 'opening' } },
+    };
+    const built = buildFromScan(scan, review, 1_760_000_000_000).project!;
+    const again = parseProjectFile(serializeProject(built));
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    const record = again.project.scan!;
+    expect(record).toEqual(built.scan);
+    expect(record.importedAt).toBe(1_760_000_000_000);
+    expect(record.source).toBe('test');
+    // How measured coordinates became the plan's.
+    expect(record.transform.straightened).toBe(true);
+    expect(record.transform.quarterTurns).toBe(1);
+    expect(Math.abs(record.transform.rotation)).toBeCloseTo(Math.abs(-wallSkew(scan.walls) + 90), 3);
+    expect(record.ceiling).toEqual({ measured: 255, corrected: 250 });
+    // The bed: measured, inferred and corrected, each kept apart.
+    const b = record.items.find((i) => i.id === bed.id)!;
+    expect(b).toMatchObject({ type: 'object', origin: 'scanned', category: 'bed', measured: { width: 140, depth: 200, height: 50, bottom: 0 }, inferred: 'bed-double', inferredName: 'Double bed', corrections: { width: 150, as: 'bed-wood' }, excluded: false });
+    expect(again.project.furniture.find((f) => f.id === bed.id)!.width).toBe(150);
+    const d = record.items.find((i) => i.id === door.id)!;
+    expect(d).toMatchObject({ category: 'door', measured: { width: 85, height: 206, bottom: 0 }, corrections: { kind: 'opening' } });
+    // Every wall is listed with its measured length.
+    expect(record.items.filter((i) => i.type === 'wall')).toHaveLength(4);
+    expect(record.items.filter((i) => i.type === 'wall').every((w) => w.origin === 'scanned' && w.measured!.width > 0)).toBe(true);
+    expect(record.notes.some((n) => n.level === 'assumed' && /thickness/.test(n.text))).toBe(true);
+  });
+
+  it('labels reconstructed walls and things the person added', () => {
+    const scan = scanOf({ ...SAMPLE_BEDROOM, walls: { ...SAMPLE_BEDROOM.walls, missing: [1] } });
+    const p = buildFromScan(scan, { ...initialReview(scan), addedPieces: [{ id: 'mine', category: 'table', as: 'box', width: 60, depth: 60, height: 70 }] }).project!;
+    const gap = p.scan!.items.filter((i) => i.origin === 'reconstructed');
+    expect(gap).toHaveLength(1);
+    expect(gap[0].measured).toBeNull();
+    expect(p.scan!.items.find((i) => i.id === 'mine')).toMatchObject({ origin: 'added', measured: null });
+  });
+
+  it('doesn’t count a raised object starting unticked as a correction', () => {
+    const p = build(SAMPLE_LIVING).result.project!;
+    const tv = p.scan!.items.find((i) => i.category === 'television')!;
+    expect(tv.excluded).toBe(true);
+    expect(tv.corrections).toEqual({});
+  });
+
+  it('drops a damaged scan record without losing the project', () => {
+    const p = build(SAMPLE_BEDROOM).result.project!;
+    const text = serializeProject({ ...p, scan: { ...p.scan!, transform: { rotation: 'x' } } as never });
+    const again = parseProjectFile(text);
+    expect(again.ok).toBe(true);
+    expect(again.ok && again.project.scan).toBeUndefined();
+  });
+});

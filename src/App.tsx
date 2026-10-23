@@ -10,6 +10,7 @@ import { FloorPlan } from './components/plan/FloorPlan';
 import { OptimizerDialog } from './components/OptimizerDialog';
 import { PreviewBar } from './components/PreviewBar';
 import { ProjectsDialog } from './components/ProjectsDialog';
+import { scanSummary } from './components/ScanDetails';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SelectionBar } from './components/SelectionBar';
 import { SelectionEditor } from './components/StructureEditors';
@@ -972,6 +973,7 @@ export function App() {
             onClose={() => setProjectsOpen(false)}
             activeId={activeId}
             activeName={project.name}
+            activeScan={scanSummary(project)}
             projects={projectList}
             importMessage={importMessage}
             onOpenProject={(id) => void openProject(id)}

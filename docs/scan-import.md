@@ -1,5 +1,7 @@
 # Importing a room scan (LiDAR / RoomPlan)
 
+> **Beta: validated with synthetic scans; real LiDAR scan testing pending.**
+
 Roomination can turn a room scanned with an iPhone or iPad into an editable floor plan. This
 page explains what it reads, how the conversion works, how accurate it is, what it can't do,
 and how a future Roomination iPhone app could fit in.
@@ -89,6 +91,24 @@ measurement.
 
 **Stable ids:** walls, openings and objects keep ids derived from the scanner's identifiers
 (e.g. `scan-wall-3f2a…`), so importing the same scan twice gives the same ids.
+
+## The scan record kept with the project
+
+A project made from a scan carries a read-only `scan` record (`ScanRecord` in
+`src/model/types.ts`). It is saved, exported and re-imported with the project, and checked
+like everything else in the file; a damaged record is dropped without affecting the project.
+The record holds:
+- the source and the date of the import;
+- **the transformation:** degrees turned (clockwise, about the scan's origin), the offset
+  applied, and whether the walls were straightened or turned by quarter turns;
+- **the ceiling:** measured and, if you changed it, corrected;
+- **every wall, opening and object**, with what the scanner measured, its category and
+  confidence, where it came from (*scanned*, *reconstructed* by Roomination, or *added* by
+  you), Roomination's inferred piece, your corrections, and whether it was left out;
+- **notes:** what Roomination assumed or asked you to check.
+
+Selecting a scanned piece, door or window shows this under *From the room scan*. Editing the
+plan afterwards doesn't change the record: it's the history of the import.
 
 ## Accuracy
 

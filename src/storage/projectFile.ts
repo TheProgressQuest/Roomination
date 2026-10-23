@@ -29,6 +29,8 @@ import {
   type Relationship,
   type RelationshipType,
   type SavedLayout,
+  type ScanItemRecord,
+  type ScanRecord,
   type Placement,
   type Project,
   type Room,
@@ -178,6 +180,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
 
   const ids = new Set(furniture.map((f) => f.id));
   const fengShui = parseFengShui(data.fengShui, features);
+  const scan = parseScanRecord(data.scan);
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     name,
@@ -191,6 +194,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     savedLayouts: parseSavedLayouts(data.savedLayouts, ids),
     acceptedOverlaps,
     ...(fengShui ? { fengShui } : {}),
+    ...(scan ? { scan } : {}),
   };
 }
 
@@ -698,6 +702,82 @@ function parseStair(raw: unknown, index: number, uniqueId: (id: unknown) => stri
     direction: raw.direction === 'down' ? 'down' : 'up',
     rise: finite(raw.rise) && raw.rise >= 0 && raw.rise <= 2000 ? raw.rise : 270,
     sections,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Room-scan history (optional, read-only; anything damaged is dropped, never the project)
+// ---------------------------------------------------------------------------
+
+const MAX_SCAN_ITEMS = 5000;
+const MAX_SCAN_NOTES = 200;
+const MAX_SCAN_TEXT = 400;
+const CORRECTION_KEYS = ['length', 'width', 'depth', 'height', 'bottom', 'kind', 'category', 'as', 'include'] as const;
+
+const text = (v: unknown, max = MAX_SCAN_TEXT) => (typeof v === 'string' ? v.slice(0, max) : '');
+const scanNumber = (v: unknown) => (finite(v) && Math.abs(v) <= 1e7 ? v : null);
+
+function parseScanRecord(raw: unknown): ScanRecord | null {
+  if (!isRecord(raw) || !isRecord(raw.transform) || !Array.isArray(raw.items)) return null;
+  const t = raw.transform;
+  const rotation = scanNumber(t.rotation);
+  const offsetX = scanNumber(t.offsetX);
+  const offsetY = scanNumber(t.offsetY);
+  if (rotation === null || offsetX === null || offsetY === null) return null;
+  const ceiling = isRecord(raw.ceiling) ? raw.ceiling : {};
+  const items: ScanItemRecord[] = [];
+  for (const item of raw.items.slice(0, MAX_SCAN_ITEMS)) {
+    if (!isRecord(item) || typeof item.id !== 'string' || !item.id || item.id.length > 100) continue;
+    const type = oneOf(item.type, ['wall', 'opening', 'object'] as const, null);
+    if (!type) continue;
+    let measured: ScanItemRecord['measured'] = null;
+    if (isRecord(item.measured)) {
+      const width = scanNumber(item.measured.width);
+      const height = scanNumber(item.measured.height);
+      if (width !== null && height !== null) {
+        measured = { width, height };
+        const depth = scanNumber(item.measured.depth);
+        const bottom = scanNumber(item.measured.bottom);
+        if (depth !== null) measured.depth = depth;
+        if (bottom !== null) measured.bottom = bottom;
+      }
+    }
+    const corrections: ScanItemRecord['corrections'] = {};
+    if (isRecord(item.corrections)) {
+      for (const key of CORRECTION_KEYS) {
+        const v = item.corrections[key];
+        if (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) corrections[key] = v;
+        else if (typeof v === 'string') corrections[key] = v.slice(0, 60);
+      }
+    }
+    items.push({
+      id: item.id,
+      type,
+      origin: oneOf(item.origin, ['scanned', 'reconstructed', 'added'] as const, 'scanned'),
+      category: text(item.category, 30) || 'unknown',
+      confidence: oneOf(item.confidence, ['high', 'medium', 'low', 'unknown'] as const, 'unknown'),
+      measured,
+      ...(typeof item.inferred === 'string' ? { inferred: item.inferred.slice(0, 60) } : {}),
+      ...(typeof item.inferredName === 'string' ? { inferredName: item.inferredName.slice(0, 80) } : {}),
+      corrections,
+      excluded: item.excluded === true,
+    });
+  }
+  const notes = Array.isArray(raw.notes)
+    ? raw.notes
+        .slice(0, MAX_SCAN_NOTES)
+        .filter(isRecord)
+        .map((n) => ({ level: oneOf(n.level, ['check', 'assumed', 'info'] as const, 'info'), text: text(n.text) }))
+        .filter((n) => n.text)
+    : [];
+  return {
+    source: text(raw.source, 200) || 'Room scan',
+    format: oneOf(raw.format, ['roomplan', 'house-capture', 'roomination-scan'] as const, 'roomplan'),
+    importedAt: finite(raw.importedAt) && raw.importedAt >= 0 && raw.importedAt < 1e14 ? raw.importedAt : 0,
+    transform: { rotation, offsetX, offsetY, straightened: t.straightened === true, quarterTurns: finite(t.quarterTurns) ? Math.round(t.quarterTurns) % 4 : 0 },
+    ceiling: { measured: scanNumber(ceiling.measured), corrected: scanNumber(ceiling.corrected) },
+    items,
+    notes,
   };
 }
 

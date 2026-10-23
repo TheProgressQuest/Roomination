@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
 import { SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, sampleToRoomPlan } from '../src/scan/samples';
-import { exportProject, lightweight3D, openApp, saveAndReload } from './helpers';
+import { writeFileSync } from 'node:fs';
+import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, selectInList } from './helpers';
 
 /**
  * Importing a LiDAR room scan: choose a file, review and correct it, create a new project.
@@ -10,7 +11,8 @@ import { exportProject, lightweight3D, openApp, saveAndReload } from './helpers'
 
 type Piece = { id: string; name: string; kind: string; x: number; y: number; width: number; depth: number; height: number };
 type Feature = { kind: string; width: number; height: number; elevation: number; doorType?: string };
-type Exported = { name: string; room: { height: number; outline: { x: number; y: number }[] }; furniture: Piece[]; features: Feature[] };
+type ScanItem = { id: string; category: string; origin: string; measured: Record<string, number> | null; inferred?: string; corrections: Record<string, unknown>; excluded: boolean };
+type Exported = { name: string; room: { height: number; outline: { x: number; y: number }[] }; furniture: Piece[]; features: Feature[]; scan?: { source: string; transform: Record<string, unknown>; ceiling: { measured: number; corrected: number | null }; items: ScanItem[] } };
 
 const json = (name: string, data: unknown) => ({ name, mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
 const dialog = (page: Page) => page.getByRole('dialog', { name: /room scan|scanned room/i });
@@ -28,7 +30,7 @@ function watchRequests(page: Page) {
 
 async function openImporter(page: Page) {
   await page.getByRole('button', { name: /^Projects/ }).click();
-  await page.getByRole('button', { name: 'Import room scan…' }).click();
+  await page.getByRole('button', { name: /^Import room scan…/ }).click();
   await expect(dialog(page)).toBeVisible();
 }
 
@@ -89,9 +91,32 @@ test('imports a RoomPlan JSON scan as a new project, with the measured sizes and
   await expect(page.locator('.project-list')).toContainText('Guest bedroom');
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
 
-  // It's an ordinary saved project.
+  // The scan record: measured sizes, Roomination's guess and the corrections, kept apart.
+  const bedRecord = p.scan!.items.find((i) => i.category === 'bed')!;
+  expect(bedRecord).toMatchObject({ origin: 'scanned', measured: { width: 160, depth: 205, height: 55 }, inferred: 'bed-queen', corrections: { width: 170 } });
+  expect(p.scan!.items.find((i) => i.category === 'chair')).toMatchObject({ excluded: true, corrections: { include: false } });
+  expect(p.scan!.ceiling).toEqual({ measured: 250, corrected: 255 });
+  expect(p.scan!.transform).toMatchObject({ straightened: true, quarterTurns: 0 });
+
+  // Shown with the piece in the editor.
+  await selectInList(page, 'Queen bed');
+  const history = props(page).getByRole('region', { name: 'From the room scan' });
+  await expect(history).toContainText('Bed, 160 cm × 205 cm, 55 cm high');
+  await expect(history).toContainText('Roomination’s guess Queen bed');
+  await expect(history).toContainText('width → 170 cm');
+
+  // It's an ordinary saved project, and the record survives saving…
   await saveAndReload(page);
   await expect(page.getByRole('button', { name: /^Projects/ })).toContainText('Guest bedroom');
+  const reloaded = (await exportProject(page)) as Exported;
+  expect(reloaded.scan).toEqual(p.scan);
+  // …and exporting and importing the file again.
+  const file = test.info().outputPath('guest-bedroom.json');
+  writeFileSync(file, JSON.stringify({ format: 'roomination-project', project: reloaded }));
+  await importProject(page, file);
+  const reimported = (await exportProject(page)) as Exported;
+  expect(reimported.name).toMatch(/Guest bedroom/);
+  expect(reimported.scan).toEqual(p.scan);
 
   expect(outside).toEqual([]);
   expect(errors).toEqual([]);
@@ -162,7 +187,9 @@ test('a scan missing a wall is closed with a marked wall the person can check', 
   await openImporter(page);
   await chooseFile(page, json('incomplete.json', sampleToRoomPlan({ ...SAMPLE_BEDROOM, openings: [], walls: { ...SAMPLE_BEDROOM.walls, missing: [1] } })));
   const review = dialog(page);
-  await expect(review.getByText('Added to close a gap')).toBeVisible();
+  await expect(review.getByText('Reconstructed: added to close a gap')).toBeVisible();
+  await expect(review.getByText('Beta').first()).toBeVisible();
+  await expect(review.getByText(/real LiDAR scan testing pending/).first()).toBeVisible();
   await review.getByRole('radio', { name: /^Check/ }).click();
   await expect(review.getByText(/The scan missed part of a wall/)).toBeVisible();
   await expect(review.getByText(/found no doors or windows/)).toBeVisible();

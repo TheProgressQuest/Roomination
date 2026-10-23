@@ -2635,6 +2635,42 @@ select {
   justify-content: flex-end;
 }
 
+.beta-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--accepted-soft);
+  color: var(--accepted);
+}
+
+.scan-beta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.scan-panel .scan-beta {
+  margin: 0;
+}
+
+.scan-tag.is-assumed {
+  background: var(--accepted-soft);
+  color: var(--accepted);
+}
+
+.scan-history {
+  display: grid;
+  gap: 6px;
+}
+
 /* ---------- Furniture studio ---------- */
 .studio-dialog,
 .photo-editor-dialog {

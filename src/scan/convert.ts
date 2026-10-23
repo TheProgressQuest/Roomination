@@ -3,7 +3,7 @@ import { MIN_FURNITURE_SIZE } from '../model/geometry';
 import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { boundingBox, isClockwise, polygonArea, projectOntoSegment } from '../model/polygon';
 import { createEmptyProject, DEFAULT_FLOOR, DEFAULT_WALL_COLOR } from '../model/sample';
-import type { Furniture, Partition, Point, Project, Room, RoomFeature, Staircase, WallNode } from '../model/types';
+import type { Furniture, Partition, Point, Project, Room, RoomFeature, ScanItemRecord, ScanRecord, Staircase, WallNode } from '../model/types';
 import { DEFAULT_WALL_THICKNESS, findSegment, MIN_WALL_LENGTH, nearestWall, outlineSegments, segmentInsidePolygon, setWallLength, validateRoom, wallLabel } from '../model/walls';
 import { parseProjectFile, serializeProject } from '../storage/projectFile';
 import { BOX, catalogueName, categoryLabel, pieceFor, STAIRS, suggestPiece, type Suggestion } from './furnitureMap';
@@ -129,7 +129,10 @@ export interface BuiltWall {
   /** Length in the created room. */
   length: number;
   confidence: ScanConfidence;
+  /** Roomination added it to close a gap the scan missed (not measured). */
   added: boolean;
+  /** Taken from the scanned floor outline because the walls didn't join (measured as floor, not wall). */
+  fromFloor: boolean;
   /** Part of the outline (false: an interior wall). */
   outer: boolean;
 }
@@ -434,7 +437,7 @@ function nearestSection(scan: ScanData, p: Point): string | null {
 
 const OPENING_NAMES: Record<ScanOpeningKind, string> = { door: 'Door', window: 'Window', opening: 'Doorway' };
 
-export function buildFromScan(scan: ScanData, review: Review): BuildResult {
+export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.now()): BuildResult {
   const notes: Note[] = [...scan.notes.map((text) => ({ level: 'info' as const, text }))];
 
   // 1. Orientation ------------------------------------------------------------
@@ -521,12 +524,13 @@ export function buildFromScan(scan: ScanData, review: Review): BuildResult {
       length: round1(s.length),
       confidence: scanned?.confidence ?? 'unknown',
       added: !scanned && outlineFrom === 'walls',
+      fromFloor: outlineFrom === 'floor',
       outer: true,
     };
   });
   for (const p of partitions) {
     const scanned = wallById.get(p.nodes[0].id);
-    builtWalls.push({ id: p.nodes[0].id, label: wallLabel(room, p.nodes[0].id), measured: scanned ? round1(dist(scanned.a, scanned.b)) : null, length: round1(dist(p.nodes[0], p.nodes[1])), confidence: scanned?.confidence ?? 'unknown', added: false, outer: false });
+    builtWalls.push({ id: p.nodes[0].id, label: wallLabel(room, p.nodes[0].id), measured: scanned ? round1(dist(scanned.a, scanned.b)) : null, length: round1(dist(p.nodes[0], p.nodes[1])), confidence: scanned?.confidence ?? 'unknown', added: false, fromFloor: false, outer: false });
   }
   if (traced.gaps > 0 && outlineFrom === 'walls') {
     notes.push({ level: 'check', text: `The scan missed ${traced.gaps === 1 ? 'part of a wall' : `${traced.gaps} stretches of wall`}. Roomination closed the outline with ${traced.gaps === 1 ? 'a straight wall' : 'straight walls'} (marked “added”). Check ${traced.gaps === 1 ? 'it' : 'them'} against the real room.` });
@@ -695,10 +699,89 @@ export function buildFromScan(scan: ScanData, review: Review): BuildResult {
 
   // 5. The project, validated like any opened file -------------------------------------
   const name = review.name.trim().slice(0, 60) || 'Scanned room';
-  const draft: Project = { ...createEmptyProject(room, name), furniture, features, stairs };
+  const record: ScanRecord = {
+    source: scan.source,
+    format: scan.format,
+    importedAt,
+    transform: { rotation: Math.round(turnedBy * 1e4) / 1e4, offsetX: Math.round(box.minX * 100) / 100, offsetY: Math.round(box.minY * 100) / 100, straightened: review.straighten, quarterTurns: ((review.quarterTurns % 4) + 4) % 4 },
+    ceiling: { measured: heights.length ? round1(measuredCeiling) : null, corrected: review.ceiling },
+    items: [...wallRecords(builtWalls, wallById, review), ...openingRecords(builtOpenings, review), ...objectRecords(builtObjects, review)],
+    notes: notes.filter((n) => n.level !== 'info').map(({ level, text }) => ({ level, text })),
+  };
+  const draft: Project = { ...createEmptyProject(room, name), furniture, features, stairs, scan: record };
   const checked = parseProjectFile(serializeProject(draft));
   if (!checked.ok) return { ...empty(checked.error), walls: builtWalls, openings: builtOpenings, objects: builtObjects };
   return { project: checked.project, problem: null, walls: builtWalls, openings: builtOpenings, objects: builtObjects, notes, turnedBy, skew, rawWalls, outlineFrom };
+}
+
+// ---------------------------------------------------------------------------
+// The scan record kept with the project: measurements, inferences and corrections, apart
+// ---------------------------------------------------------------------------
+
+/** Only the values the person actually set (undefined = left as measured / suggested). */
+function defined(values: Record<string, string | number | boolean | undefined>): Record<string, string | number | boolean> {
+  return Object.fromEntries(Object.entries(values).filter((e): e is [string, string | number | boolean] => e[1] !== undefined));
+}
+
+function wallRecords(walls: BuiltWall[], scanned: Map<string, ScanWall>, review: Review): ScanItemRecord[] {
+  return walls.map((w) => {
+    const s = scanned.get(w.id);
+    return {
+      id: w.id,
+      type: 'wall',
+      origin: s ? 'scanned' : 'reconstructed',
+      category: w.fromFloor ? 'floorEdge' : 'wall',
+      confidence: w.confidence,
+      measured: s ? { width: round1(dist(s.a, s.b)), height: round1(s.height) } : null,
+      corrections: defined({ length: review.wallLengths[w.id] }),
+      excluded: false,
+    };
+  });
+}
+
+function openingRecords(openings: BuiltOpening[], review: Review): ScanItemRecord[] {
+  return openings.map((o) => {
+    const edit = review.openings[o.id] ?? {};
+    const m = o.measured;
+    return {
+      id: o.id,
+      type: 'opening',
+      origin: o.added ? 'added' : 'scanned',
+      category: m?.kind ?? o.kind,
+      confidence: o.confidence,
+      measured: m ? { width: round1(m.width), height: round1(m.height), bottom: round1(m.bottom) } : null,
+      corrections: o.added ? {} : defined({ kind: edit.kind, width: edit.width, height: edit.height, bottom: edit.bottom, include: edit.include === false ? false : undefined }),
+      excluded: !o.include || !!o.problem,
+    };
+  });
+}
+
+function objectRecords(objects: BuiltObject[], review: Review): ScanItemRecord[] {
+  return objects.map((o) => {
+    const edit = review.objects[o.id] ?? {};
+    const m = o.measured;
+    // Unticking something that started unticked (it hangs or stands on something) isn't a correction.
+    const startsIncluded = !m || m.bottom < MOUNTED_HEIGHT;
+    return {
+      id: o.id,
+      type: 'object',
+      origin: o.added ? 'added' : 'scanned',
+      category: m?.category ?? o.category,
+      confidence: o.confidence,
+      measured: m ? { width: round1(m.width), depth: round1(m.depth), height: round1(m.height), bottom: round1(m.bottom) } : null,
+      ...(o.added ? {} : { inferred: o.suggestion.as, inferredName: pieceName(o.suggestion.as, m?.category ?? o.category) }),
+      corrections: o.added
+        ? defined({ category: o.category, as: o.as, width: o.width, depth: o.depth, height: o.height })
+        : defined({ category: edit.category, as: edit.as, width: edit.width, depth: edit.depth, height: edit.height, include: edit.include !== undefined && edit.include !== startsIncluded ? edit.include : undefined }),
+      excluded: !o.include || !!o.problem,
+    };
+  });
+}
+
+function pieceName(as: string, category: string): string {
+  if (as === STAIRS) return 'Staircase';
+  if (as === BOX) return `Plain box (${categoryLabel(category).toLowerCase()})`;
+  return catalogueName(as) ?? categoryLabel(category);
 }
 
 function weightedMedian(values: { h: number; len: number }[]): number | null {
