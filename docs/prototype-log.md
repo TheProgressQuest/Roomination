@@ -8,7 +8,7 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
-| Room scan import | A real RoomSheet scan (iPhone 17 Pro) end to end; see [real-scan-test.md](real-scan-test.md) | M1 |
+| Room scan import | A real RoomSheet scan (iPhone 17 Pro): checked locally by status only (it reads, 4 walls, 1 door, 5 objects, project valid). Still to do: look at it in 2D/3D in Safari against the real room | M1 |
 | Room scan import | A real LiDAR Room Scanner "RoomPlan JSON" export (its structure isn't documented) | M1 |
 | Room scan import | A real LiDAR scan end to end; real exports from 3D Model Anything | 8A |
 | Room scan import | Safari on iPhone and iPad (file picker from Files, the review on touch) | 8A |
@@ -17,6 +17,9 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Sinks:** RoomPlan measures only the basin. A raised sink is shown as a unit from the floor to
+  the basin's top (labelled assumed); a wall-hung basin needs changing by hand.
+- **Guesses in bathrooms:** low storage can come out as a dresser; change it in the review.
 - **RoomSheet packages:** only `captured-room.json` (the original capture) is read. Edits made in
   RoomSheet (`model-edits.json`) aren't applied, because their format isn't documented.
 - **Real scans on the live site:** until Milestone 1 is released, choose the unzipped

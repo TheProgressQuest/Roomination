@@ -27,7 +27,8 @@ Roomination later.
 1. In RoomSheet, choose **Export Package…** → **Save to Files** → *On My iPhone* (for example a
    folder called *Scans*).
 2. Open the **Files** app and **tap the .zip once**. The iPhone unzips it into a folder.
-3. Inside that folder is **`captured-room.json`**. That's the file Roomination needs.
+3. Inside that folder is **`captured-room.json`**. That's the file Roomination needs. (Not
+   `scan.json`: that's RoomSheet's small index card, with no room in it.)
 
 ## 4. Import it into Roomination (Safari)
 

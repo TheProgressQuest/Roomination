@@ -605,4 +605,30 @@ describe('scanning apps', () => {
     expect(shape).toContain('version: number');
     for (const value of ['Hari', '3.217', '4.05', 'example.com', '3F2A9C1B', 'bed']) expect(shape).not.toContain(value);
   });
+
+  it('shows a raised sink (a basin on a unit) as a unit from the floor, labelled as assumed', () => {
+    const bathroom: SampleRoom = {
+      ...SAMPLE_BEDROOM,
+      sections: [{ label: 'bathroom', x: 210, y: 180 }],
+      objects: [
+        { category: 'sink', x: 200, y: 25, width: 60, depth: 45, height: 15, bottom: 70 },
+        { category: 'storage', x: 320, y: 15, width: 60, depth: 15, height: 70, bottom: 120 },
+      ],
+    };
+    const { result } = build(bathroom);
+    const [sink, cabinet] = result.objects;
+    expect(sink.include).toBe(true);
+    expect(sink.height).toBe(85);
+    expect(sink.as).toMatch(/^vanity-/);
+    expect(sink.measured!.height).toBeCloseTo(15, 3);
+    expect(result.notes.some((n) => n.level === 'assumed' && n.itemId === sink.id && /basin/.test(n.text))).toBe(true);
+    expect(cabinet.include).toBe(false);
+    expect(result.project!.scan!.items.find((i) => i.id === sink.id)).toMatchObject({ measured: { height: 15, bottom: 70 }, corrections: {}, excluded: false });
+  });
+
+  it('explains RoomSheet’s index file (scan.json) instead of a generic refusal', async () => {
+    const index = { nameLetter: 'A', capturedAt: 'x', referencePhotoCount: 0, origin: 'x', firstExportedAt: 'x', scanRecordSchemaVersion: 1, displayName: 'x', id: 'x' };
+    const result = await readScanFile(new File([JSON.stringify(index)], 'scan.json'), 'scan.json');
+    expect(!result.ok && result.error).toMatch(/index file.*captured-room\.json/);
+  });
 });

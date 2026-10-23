@@ -71,6 +71,9 @@ function interpret(data: unknown, source: string, name: string): ScanData {
   if (looksLikeRoomPlan(data)) return parseRoomPlan(data, source, name);
   const record = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
   if ('schemaVersion' in record && 'room' in record) throw new ScanFormatError('That’s a Roomination project, not a room scan. Use “Import file…” to open it.');
+  if ('scanRecordSchemaVersion' in record && 'displayName' in record) {
+    throw new ScanFormatError('That’s RoomSheet’s small index file (scan.json), not the room itself. Choose captured-room.json from the same folder, or the RoomSheet .zip.');
+  }
   if (typeof record.format === 'string' && record.format.startsWith('house-capture')) {
     throw new ScanFormatError('That’s a scan’s manifest, which lists the files but has no room geometry. Choose the room’s .zip (or its rooms/room-N.json) instead.');
   }
