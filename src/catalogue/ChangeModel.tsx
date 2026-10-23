@@ -30,6 +30,8 @@ export default function ChangeModel({ item, onApply, onCancel }: { item: Furnitu
       // Explicitly cleared when the new model has none, so nothing of the old one is left behind.
       components: t.components,
       shape: t.shape,
+      // A light fitting brings its light; anything else has none.
+      light: t.light,
     });
   }
 

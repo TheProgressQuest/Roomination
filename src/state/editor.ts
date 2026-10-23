@@ -90,6 +90,8 @@ export type EditorAction =
   | { type: 'photos/set'; photos: ReferencePhoto[] }
   /** Saved camera viewpoints (Match My Room). */
   | { type: 'views/set'; views: CameraView[] }
+  /** Wall trim (baseboards, casing, crown); undefined removes it. */
+  | { type: 'room/setTrim'; trim: Room['trim']; mergeKey?: string }
   | { type: 'walls/moveNode'; nodeId: string; to: Point }
   | { type: 'walls/setLength'; wallId: string; length: number }
   | { type: 'walls/setAngle'; wallId: string; angle: number }
@@ -294,6 +296,12 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       const finishes = color || texture ? { ...others, [action.wallId]: { ...(color ? { color } : {}), ...(texture ? { texture } : {}) } } : others;
       const { wallFinishes: _f, ...rest } = room;
       return { ...project, room: { ...rest, ...(Object.keys(finishes).length ? { wallFinishes: finishes } : {}) } };
+    }
+
+    case 'room/setTrim': {
+      const { trim: _old, ...room } = project.room;
+      const t = action.trim;
+      return { ...project, room: t && (t.baseboard || t.casing || t.crown) ? { ...room, trim: t } : room };
     }
 
     case 'views/set': {

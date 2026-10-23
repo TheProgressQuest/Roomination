@@ -70,6 +70,8 @@ export interface View3DPreferences {
   hintSeen: boolean;
   /** Rendering quality; 'auto' picks one for this device. */
   quality: QualityPreference;
+  /** Show the ceiling when the camera is inside the room (it's always hidden from outside). */
+  ceiling: boolean;
 }
 
 /**
@@ -91,7 +93,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showMeasurementGrid: true,
   showClearances: true,
   snap: DEFAULT_SNAP,
-  view3d: { wallMode: 'dollhouse', camera: 'isometric', shadows: true, hintSeen: false, quality: 'auto' },
+  view3d: { wallMode: 'dollhouse', camera: 'isometric', shadows: true, hintSeen: false, quality: 'auto', ceiling: true },
   planStyle: 'technical',
   presentation: { labels: false, dimensions: true, roomLabel: true, grid: false, shadows: true, editing: false },
 };
@@ -160,6 +162,7 @@ function readView3D(raw: unknown): View3DPreferences {
     shadows: typeof r.shadows === 'boolean' ? r.shadows : d.shadows,
     quality: r.quality === 'low' || r.quality === 'medium' || r.quality === 'high' || r.quality === 'auto' ? r.quality : d.quality,
     hintSeen: typeof r.hintSeen === 'boolean' ? r.hintSeen : d.hintSeen,
+    ceiling: typeof r.ceiling === 'boolean' ? r.ceiling : d.ceiling,
   };
 }
 

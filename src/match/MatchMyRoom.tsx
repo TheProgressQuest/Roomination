@@ -11,7 +11,7 @@ import type { RGBAImage } from '../photo/imageOps';
 import type { EditorAction } from '../state/editor';
 import { getAsset, putAsset } from '../storage/assets';
 import { CameraMatch } from './CameraMatch';
-import { cutTexture, sampleColour, suggestPalette, type TextureCut } from './photoTools';
+import { NO_CORRECTION, correctImage, cutTexture, sampleColour, suggestPalette, whiteBalanceFrom, type PhotoCorrection, type TextureCut } from './photoTools';
 import type { CameraApi, PhotoOverlay } from '../components/view3d/View3D';
 
 /**
@@ -33,7 +33,7 @@ interface Props {
   onOverlay: (overlay: PhotoOverlay | null) => void;
 }
 
-type Mode = 'colour' | 'texture' | 'camera';
+type Mode = 'correct' | 'colour' | 'texture' | 'camera';
 type Target = { kind: 'piece' } | { kind: 'part'; name: string } | { kind: 'walls' } | { kind: 'wall'; id: string } | { kind: 'floor' };
 type Surface = 'front' | 'top' | 'side';
 
@@ -73,6 +73,9 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   const [image, setImage] = useState<RGBAImage | null>(null);
   const [mode, setMode] = useState<Mode>('colour');
   const [colour, setColour] = useState<string | null>(null);
+  /** Where the last colour was sampled, to compare the photo as taken with the corrected one. */
+  const [samplePoint, setSamplePoint] = useState<Point | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const [corners, setCorners] = useState<[Point, Point, Point, Point] | null>(null);
   const [size, setSize] = useState({ widthCm: 60, heightCm: 60 });
   const [brightness, setBrightness] = useState(1.15);
@@ -110,7 +113,17 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
     };
   }, [active]);
 
-  const palette = useMemo(() => (image ? suggestPalette(image, 6) : []), [image]);
+  // The photo's colour correction (white balance and exposure). The stored photo never changes;
+  // sampling, palettes and textures use this corrected view of it.
+  const activeRecord = photos.find((p) => p.assetId === active) ?? null;
+  const correction: PhotoCorrection = activeRecord?.correction ?? NO_CORRECTION;
+  const view = useMemo(() => (image ? correctImage(image, correction) : null), [image, correction.r, correction.g, correction.b, correction.exposure]);
+  const setCorrection = (next: PhotoCorrection | null) => {
+    if (!activeRecord) return;
+    dispatch({ type: 'photos/set', photos: photos.map((p) => (p.assetId === active ? (next ? { ...p, correction: next } : (({ correction: _c, ...rest }) => rest)(p)) : p)) });
+  };
+  const sampleRadius = image ? Math.max(2, Math.round(image.width / 300)) : 2;
+  const palette = useMemo(() => (view ? suggestPalette(view, 6) : []), [view]);
   const cut: TextureCut | null = corners ? { corners, ...size, brightness, seamless } : null;
 
   async function addPhoto(file: File) {
@@ -145,7 +158,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
     setBusy(true);
     setMessage(null);
     try {
-      const tile = cutTexture(image, cut, 512);
+      const tile = cutTexture(view ?? image, cut, 512);
       const blob = await encodeImage(tile);
       const assetId = await putAsset(blob, { width: tile.width, height: tile.height });
       const texture: PhotoTexture = { assetId, widthCm: Math.round(size.widthCm * 10) / 10, heightCm: Math.round(size.heightCm * 10) / 10, roughness };
@@ -230,6 +243,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
             label="Tool"
             value={mode}
             options={[
+              { value: 'correct', label: 'Correct colours' },
               { value: 'colour', label: 'Pick colour' },
               { value: 'texture', label: 'Cut texture' },
               { value: 'camera', label: 'Line up camera' },
@@ -240,9 +254,46 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
             <CameraMatch project={project} photoId={active} photoAspect={image.width / image.height} camera={camera} dispatch={dispatch} onOverlay={onOverlay} />
           ) : (
           <>
-          <PhotoCanvas image={image} mode={mode} corners={corners} onCorners={setCorners} onSample={(p) => setColour(sampleColour(image, p.x, p.y, Math.max(2, Math.round(image.width / 300))))} />
+          <PhotoCanvas
+            image={mode === 'correct' && showOriginal ? image : view!}
+            mode={mode === 'correct' ? 'colour' : mode}
+            corners={corners}
+            onCorners={setCorners}
+            onSample={(p) => {
+              if (mode === 'correct') {
+                setCorrection(whiteBalanceFrom(sampleColour(image, p.x, p.y, sampleRadius * 2), correction.exposure));
+                return;
+              }
+              setSamplePoint(p);
+              setColour(sampleColour(view!, p.x, p.y, sampleRadius));
+            }}
+          />
 
-          {mode === 'colour' ? (
+          {mode === 'correct' ? (
+            <div className="stack">
+              <p className="hint">Tap something you know is white or plain grey (a toilet, a painted door frame, the ceiling) to remove the photo’s colour cast. Then brighten it if the photo is darker than the room. The photo itself is kept as it was.</p>
+              <label className="range-label field">
+                <span className="field-label">Exposure ×{correction.exposure.toFixed(2)}</span>
+                <input type="range" min={0.6} max={2} step={0.05} value={correction.exposure} onChange={(e) => setCorrection({ ...correction, exposure: Number(e.target.value) })} />
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={showOriginal} onChange={(e) => setShowOriginal(e.target.checked)} />
+                Show the photo as taken
+              </label>
+              <p className="hint">
+                {activeRecord?.correction
+                  ? `Correction: red ×${correction.r.toFixed(2)}, green ×${correction.g.toFixed(2)}, blue ×${correction.b.toFixed(2)}.`
+                  : 'No correction yet: colours are sampled as photographed.'}
+              </p>
+              {activeRecord?.correction && (
+                <div className="button-row">
+                  <button type="button" className="secondary small" onClick={() => setCorrection(null)}>
+                    Reset to the photo as taken
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : mode === 'colour' ? (
             <div className="stack">
               <p className="hint">Tap the photo to sample a colour, or pick one the photo suggests. Photos are often darker than the real surface.</p>
               <div className="match-swatches" role="radiogroup" aria-label="Suggested colours">
@@ -250,6 +301,20 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
                   <button key={c} type="button" role="radio" aria-checked={colour === c} className="match-swatch" style={{ background: c }} aria-label={`Colour ${c}`} onClick={() => setColour(c)} />
                 ))}
               </div>
+              {colour && samplePoint && activeRecord?.correction && (
+                <div className="match-compare" aria-label="The sampled colour before and after correction">
+                  <span>
+                    <span className="match-swatch is-large" style={{ background: sampleColour(image, samplePoint.x, samplePoint.y, sampleRadius) }} aria-hidden="true" />
+                    As photographed
+                    <code>{sampleColour(image, samplePoint.x, samplePoint.y, sampleRadius)}</code>
+                  </span>
+                  <span>
+                    <span className="match-swatch is-large" style={{ background: sampleColour(view!, samplePoint.x, samplePoint.y, sampleRadius) }} aria-hidden="true" />
+                    Corrected
+                    <code>{sampleColour(view!, samplePoint.x, samplePoint.y, sampleRadius)}</code>
+                  </span>
+                </div>
+              )}
               {colour && (
                 <div className="match-picked">
                   <span className="match-swatch is-large" style={{ background: colour }} aria-hidden="true" />
@@ -280,13 +345,13 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
                 <input type="checkbox" checked={seamless} onChange={(e) => setSeamless(e.target.checked)} />
                 Soften the seams where it repeats
               </label>
-              {cut && <TexturePreview image={image} cut={cut} />}
+              {cut && <TexturePreview image={view!} cut={cut} />}
             </div>
           )}
           </>
           )}
 
-          {mode !== 'camera' && (
+          {mode !== 'camera' && mode !== 'correct' && (
           <>
           <div className="field">
             <label htmlFor={targetId}>Apply to</label>

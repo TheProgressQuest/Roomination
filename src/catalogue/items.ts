@@ -2,7 +2,7 @@ import { buildPreset, type PresetId } from '../builder/furniturePresets';
 import { curvedOutline, recomputeComponents } from '../builder/componentGeometry';
 import { componentExtent } from '../model/components';
 import { normaliseShape } from '../model/shape';
-import type { FurnitureKind, FurnitureShape, FurnitureTexture, MaterialKind, ShapeVertex, SurfaceFinish } from '../model/types';
+import type { FurnitureKind, FurnitureLight, FurnitureShape, FurnitureTexture, MaterialKind, ShapeVertex, SurfaceFinish } from '../model/types';
 import type { FurnitureTemplate } from '../storage/projectFile';
 import { Kit } from './kit';
 
@@ -61,7 +61,7 @@ const TEAK = '#a87a52';
 const BRASS = '#b08d57';
 const WATER = '#6fb3bf';
 
-type Base = { kind: FurnitureKind; width: number; depth: number; height: number; color: string; /** Mounted this far above the floor (cm). */ elevation?: number; material?: MaterialKind; finish?: SurfaceFinish; category?: FurnitureTemplate['category']; texture?: FurnitureTexture; shape?: FurnitureShape };
+type Base = { kind: FurnitureKind; width: number; depth: number; height: number; color: string; /** Mounted this far above the floor (cm). */ elevation?: number; /** The light it gives, for light fittings. */ light?: FurnitureLight; material?: MaterialKind; finish?: SurfaceFinish; category?: FurnitureTemplate['category']; texture?: FurnitureTexture; shape?: FurnitureShape };
 
 function template(name: string, b: Base, components?: Kit): FurnitureTemplate {
   let shape = b.shape;
@@ -82,16 +82,24 @@ function template(name: string, b: Base, components?: Kit): FurnitureTemplate {
     color: b.color,
     texture: b.texture ?? 'plain',
     ...(b.elevation ? { elevation: b.elevation } : {}),
+    ...(b.light ? { light: b.light } : {}),
     ...(shape ? { shape } : {}),
     ...(b.material ? { appearance: { material: b.material, finish: b.finish ?? 'satin' } } : {}),
   };
   if (components) {
-    t.components = recomputeComponents({ width, depth, shape, components: components.list }).components;
+    // A light's shades, diffusers and bulbs glow while it's on.
+    const list = b.light ? components.list.map((c) => (GLOWING.has(c.name) ? { ...c, glow: true } : c)) : components.list;
+    t.components = recomputeComponents({ width, depth, shape, components: list }).components;
     // The overall height is the tallest component (a tap rises above a worktop).
     t.height = Math.max(1, Math.round(componentExtent({ width, depth, shape, components: t.components }).top * 10) / 10);
   }
   return t;
 }
+
+const GLOWING = new Set(['Shade', 'Diffuser', 'Bulb']);
+
+/** Typical light output: a lamp or sconce, a vanity bar, a bright multi-bulb bar. */
+const lamp = (lumens: number, direction: FurnitureLight['direction'] = 'all'): FurnitureLight => ({ on: true, lumens, kelvin: 3000, direction });
 
 /** A built-in design (drawn from its kind and name). */
 const simple = (id: string, name: string, category: CatalogueCategory, tags: string, b: Base): CatalogueItem => ({ id, name, category, tags, make: () => template(name, b) });
@@ -795,14 +803,17 @@ export const CATALOGUE: CatalogueItem[] = [
   built('bathtub-freestanding', 'Freestanding bath', 'bathroom', 'bath tub oval', { kind: 'fixture', width: 170, depth: 80, height: 60, color: CERAMIC, material: 'ceramic', shape: ellipse(170, 80) }, (k, b) => bathtub(k, b, true)),
   built('shower-90', 'Shower 90 × 90', 'bathroom', 'shower tray enclosure', { kind: 'fixture', width: 90, depth: 90, height: 200, color: CERAMIC, material: 'ceramic' }, (k, b) => shower(k, b, 'corner')),
   built('shower-walk-in', 'Walk-in shower', 'bathroom', 'shower wet room', { kind: 'fixture', width: 140, depth: 90, height: 200, color: CERAMIC, material: 'ceramic' }, (k, b) => shower(k, b, 'walkIn')),
-  built('wall-sconce', 'Wall sconce', 'lighting', 'wall light lamp', { kind: 'decor', width: 16, depth: 22, height: 30, color: BRASS, elevation: 160 }, (k, b) => wallLight(k, b, 'sconce')),
+  built('wall-sconce', 'Wall sconce', 'lighting', 'wall light lamp', { kind: 'decor', width: 16, depth: 22, height: 30, color: BRASS, elevation: 160, light: lamp(400) }, (k, b) => wallLight(k, b, 'sconce')),
   built('towel-rail', 'Towel radiator', 'bathroom', 'heated towel rail', { kind: 'fixture', width: 50, depth: 10, height: 120, color: STEEL, material: 'metal' }, towelRail),
   simple('bathroom-cabinet', 'Bathroom cabinet', 'bathroom', 'tall storage', { kind: 'cabinet', width: 40, depth: 30, height: 170, color: WHITE, material: 'wood' }),
   built('vanity-countertop-basin', 'Vanity, countertop basin', 'bathroom', 'basin sink vessel wash', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'countertop', { material: 'stone', color: MARBLE })),
   built('vanity-integrated', 'Vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'integrated', { material: 'ceramic', color: CERAMIC })),
   built('vanity-integrated-wide', 'Wide vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 120, depth: 50, height: 86, color: OAK }, (k, b) => vanityTop(k, b, 'integrated', { material: 'stone', color: MARBLE })),
   built('vanity-drop-in', 'Vanity, drop-in basin', 'bathroom', 'basin sink oval laminate shaker', { kind: 'fixture', width: 90, depth: 53, height: 81, color: WHITE }, (k, b) => vanityTop(k, b, 'dropIn', { material: 'stone', color: '#3a3b3e' }, 'knob')),
-  built('vanity-light-3', 'Three-light vanity bar', 'bathroom', 'wall light lamp over mirror shades', { kind: 'fixture', width: 62, depth: 20, height: 22, color: STEEL, elevation: 195 }, (k, b) => lightBar(k, b, 3)),
+  built('backsplash', 'Backsplash strip', 'bathroom', 'splashback upstand worktop kitchen', { kind: 'fixture', width: 90, depth: 1.5, height: 10, color: WHITE, elevation: 80 }, (k, b) => {
+    k.box('base', 'Backsplash', 0, 0, 0, b.width, b.depth, b.height, { material: 'stone', color: b.color, finish: 'satin', radius: 0.3 });
+  }),
+  built('vanity-light-3', 'Three-light vanity bar', 'bathroom', 'wall light lamp over mirror shades', { kind: 'fixture', width: 62, depth: 20, height: 22, color: STEEL, elevation: 195, light: lamp(1200) }, (k, b) => lightBar(k, b, 3)),
   built('shower-curtain-clear', 'Clear shower curtain', 'bathroom', 'bath curtain plastic liner', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#eef1f3', elevation: 25 }, (k, b) => showerCurtain(k, b, 'glass')),
   built('toilet-roll-holder', 'Toilet roll holder', 'bathroom', 'paper tissue', { kind: 'fixture', width: 16, depth: 14, height: 12, color: STEEL, elevation: 65 }, rollHolder),
   built('pegboard', 'Pegboard with shelves', 'office', 'wall organiser shelf storage', { kind: 'storage', width: 36, depth: 12, height: 56, color: WHITE, elevation: 120 }, (k, b) => pegboard(k, b, 3)),
@@ -811,7 +822,7 @@ export const CATALOGUE: CatalogueItem[] = [
   built('mirror-round', 'Round mirror', 'bathroom', 'mirror looking glass circle', { kind: 'decor', width: 60, depth: 3, height: 60, color: '#c9cdd1', elevation: 125 }, (k, b) => mirror(k, b, true, { material: 'metal', color: BRASS })),
   built('mirror-cabinet', 'Mirror cabinet', 'bathroom', 'medicine cabinet mirror', { kind: 'fixture', width: 60, depth: 14, height: 70, color: WHITE, elevation: 120 }, mirrorCabinet),
   built('wall-cabinet-bath', 'Bathroom wall cabinet', 'bathroom', 'over toilet storage cupboard', { kind: 'fixture', width: 60, depth: 22, height: 70, color: WHITE, elevation: 140 }, wallCabinet),
-  built('vanity-light', 'Vanity light bar', 'bathroom', 'wall light lamp over mirror', { kind: 'fixture', width: 60, depth: 9, height: 10, color: STEEL, elevation: 195 }, (k, b) => wallLight(k, b, 'bar')),
+  built('vanity-light', 'Vanity light bar', 'bathroom', 'wall light lamp over mirror', { kind: 'fixture', width: 60, depth: 9, height: 10, color: STEEL, elevation: 195, light: lamp(900) }, (k, b) => wallLight(k, b, 'bar')),
   built('shower-curtain', 'Shower curtain and rod', 'bathroom', 'bath curtain', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#f2f0ea', elevation: 25 }, showerCurtain),
   built('towel-bar', 'Towel bar', 'bathroom', 'towel rail rack holder', { kind: 'fixture', width: 60, depth: 9, height: 45, color: STEEL, elevation: 80 }, towelBar),
   // Laundry ----------------------------------------------------------------------
@@ -840,11 +851,11 @@ export const CATALOGUE: CatalogueItem[] = [
   built('bbq', 'Barbecue', 'outdoor', 'grill bbq', { kind: 'decor', width: 140, depth: 60, height: 110, color: '#2c2e31' }, bbq),
   built('planter', 'Planter box', 'outdoor', 'garden plants shrubs', { kind: 'decor', category: 'decoration', width: 100, depth: 40, height: 45, color: TEAK }, planter),
   // Lighting ---------------------------------------------------------------------------
-  simple('floor-lamp', 'Floor lamp', 'lighting', 'standing lamp light', { kind: 'decor', category: 'decoration', width: 40, depth: 40, height: 160, color: '#f3ead8' }),
-  simple('reading-lamp', 'Reading lamp', 'lighting', 'floor lamp light', { kind: 'decor', category: 'decoration', width: 30, depth: 30, height: 140, color: LINEN }),
-  built('arc-lamp', 'Arc floor lamp', 'lighting', 'arching lamp light', { kind: 'decor', category: 'decoration', width: 150, depth: 40, height: 200, color: BRASS }, arcLamp),
-  built('tripod-lamp', 'Tripod lamp', 'lighting', 'floor lamp light', { kind: 'decor', category: 'decoration', width: 50, depth: 50, height: 150, color: LINEN }, tripodLamp),
-  simple('table-lamp', 'Table lamp', 'lighting', 'desk lamp bedside light', { kind: 'decor', category: 'decoration', width: 25, depth: 25, height: 45, color: '#f3ead8' }),
+  simple('floor-lamp', 'Floor lamp', 'lighting', 'standing lamp light', { kind: 'decor', category: 'decoration', width: 40, depth: 40, height: 160, color: '#f3ead8', light: lamp(800) }),
+  simple('reading-lamp', 'Reading lamp', 'lighting', 'floor lamp light', { kind: 'decor', category: 'decoration', width: 30, depth: 30, height: 140, color: LINEN, light: lamp(600, 'down') }),
+  built('arc-lamp', 'Arc floor lamp', 'lighting', 'arching lamp light', { kind: 'decor', category: 'decoration', width: 150, depth: 40, height: 200, color: BRASS, light: lamp(800, 'down') }, arcLamp),
+  built('tripod-lamp', 'Tripod lamp', 'lighting', 'floor lamp light', { kind: 'decor', category: 'decoration', width: 50, depth: 50, height: 150, color: LINEN, light: lamp(800) }, tripodLamp),
+  simple('table-lamp', 'Table lamp', 'lighting', 'desk lamp bedside light', { kind: 'decor', category: 'decoration', width: 25, depth: 25, height: 45, color: '#f3ead8', light: lamp(450) }),
   // Décor and plants -------------------------------------------------------------------
   simple('plant-small', 'Small plant', 'decor', 'pot houseplant', plantSize(30, 50)),
   simple('plant-medium', 'Plant', 'decor', 'pot houseplant', plantSize(45, 100)),

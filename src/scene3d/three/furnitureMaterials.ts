@@ -19,9 +19,11 @@ export interface SurfaceLook {
   scale?: number;
   /** 0–1, replaces the material's own roughness. */
   roughness?: number;
+  /** Glows in this colour (a lit shade or diffuser). */
+  glow?: string;
 }
 
-export const lookKey = (look: SurfaceLook = {}) => `${look.pattern ?? 'plain'}|${look.scale ?? 1}|${look.roughness ?? ''}`;
+export const lookKey = (look: SurfaceLook = {}) => `${look.pattern ?? 'plain'}|${look.scale ?? 1}|${look.roughness ?? ''}|${look.glow ?? ''}`;
 
 /** Creates and caches materials and detail textures; dispose() frees them all. */
 export class FurnitureMaterials {
@@ -68,7 +70,11 @@ export class FurnitureMaterials {
       material.opacity = preset.opacity;
       material.depthWrite = false;
     }
-    if (preset.emissive) {
+    if (look.glow) {
+      // A lit shade: it glows in the light's colour (the light itself is a separate source).
+      material.emissive = new Color(look.glow);
+      material.emissiveIntensity = 0.9;
+    } else if (preset.emissive) {
       // A lit shade: a soft warm glow, not a light source.
       material.emissive = new Color('#ffdca8');
       material.emissiveIntensity = 0.45;

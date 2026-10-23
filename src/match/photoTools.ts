@@ -146,3 +146,49 @@ export function cutTexture(image: RGBAImage, cut: TextureCut, maxSide = 512): RG
   if (cut.seamless) out = softenSeams(out);
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// White balance: cancel a photo's colour cast using something the person knows is neutral
+// ---------------------------------------------------------------------------
+
+/** Per-channel gains (white balance) and an overall exposure; 1, 1, 1, 1 changes nothing. */
+export interface PhotoCorrection {
+  r: number;
+  g: number;
+  b: number;
+  exposure: number;
+}
+
+export const NO_CORRECTION: PhotoCorrection = { r: 1, g: 1, b: 1, exposure: 1 };
+
+const parseHex = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/**
+ * Gains that make `neutral` (a colour sampled from a white or grey surface) come out grey at
+ * the same brightness, keeping the current exposure. Extreme casts are limited (×0.5–×2).
+ */
+export function whiteBalanceFrom(neutral: string, exposure = 1): PhotoCorrection {
+  const [r, g, b] = parseHex(neutral).map((v) => Math.max(1, v));
+  const grey = (r + g + b) / 3;
+  const gain = (v: number) => Math.min(2, Math.max(0.5, grey / v));
+  return { r: gain(r), g: gain(g), b: gain(b), exposure };
+}
+
+export function correctColour(hex: string, c: PhotoCorrection): string {
+  const [r, g, b] = parseHex(hex);
+  return hex.length === 7 ? `#${[r * c.r, g * c.g, b * c.b].map((v) => Math.round(Math.max(0, Math.min(255, v * c.exposure))).toString(16).padStart(2, '0')).join('')}` : hex;
+}
+
+/** A corrected copy of the photo (the original is never changed). */
+export function correctImage(image: RGBAImage, c: PhotoCorrection): RGBAImage {
+  if (c.r === 1 && c.g === 1 && c.b === 1 && c.exposure === 1) return image;
+  const data = new Uint8ClampedArray(image.data.length);
+  const [kr, kg, kb] = [c.r * c.exposure, c.g * c.exposure, c.b * c.exposure];
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = image.data[i] * kr;
+    data[i + 1] = image.data[i + 1] * kg;
+    data[i + 2] = image.data[i + 2] * kb;
+    data[i + 3] = image.data[i + 3];
+  }
+  return { width: image.width, height: image.height, data };
+}

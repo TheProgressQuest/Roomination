@@ -93,6 +93,8 @@ export interface FurniturePart {
   seams?: SeamStyle;
   /** A photo texture on just this part (Match My Room), repeating at its real size. */
   photo?: PhotoTexture;
+  /** Glows when the piece's light is on. */
+  glow?: boolean;
 }
 
 /** What a piece looks like: its kind, plus a refinement from its name for décor and chairs. */
@@ -605,6 +607,7 @@ export function componentParts(components: readonly FurnitureComponent[]): Furni
       ...(c.pattern && c.pattern !== 'plain' ? { pattern: c.pattern } : {}),
       ...(c.seams && c.seams !== 'none' ? { seams: c.seams } : {}),
       ...(c.texture ? { photo: c.texture } : {}),
+      ...(c.glow ? { glow: true } : {}),
       ...(c.tilt ? { tilt: c.tilt } : {}),
       ...(placed.yaw ? { yaw: placed.yaw } : {}),
     };

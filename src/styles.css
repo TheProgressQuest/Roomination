@@ -445,6 +445,18 @@ h3 {
   margin: 0;
 }
 
+.match-compare {
+  display: flex;
+  gap: 16px;
+  font-size: 0.8rem;
+}
+
+.match-compare > span {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
 .match-save {
   display: flex;
   gap: 6px;

@@ -81,6 +81,8 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
 
       <ModelSection item={item} onApply={(changes) => change(changes)} />
 
+      {item.light && <LightSection light={item.light} onChange={(light, live) => change({ light }, live ? `light:${item.id}` : undefined)} />}
+
       <Section title="Height above floor" hint="For mirrors, wall cabinets, wall lights and shelves. Raised pieces are drawn dashed on the plan and only collide with things at the same height.">
         <div className="field-grid two">
           <NumberField label="Bottom above floor" suffix={unit} min={0} value={length(item.elevation ?? 0)} onCommit={(v) => change({ elevation: Math.max(0, toCm(v)) || undefined })} disabled={item.locked} />
@@ -186,6 +188,41 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
   );
 }
 
+/** A fitting's light in the 3D view: on or off, how bright, how warm, and which way it shines. */
+function LightSection({ light, onChange }: { light: NonNullable<Furniture['light']>; onChange: (light: NonNullable<Furniture['light']>, live?: boolean) => void }) {
+  const warmth = light.kelvin <= 3000 ? 'warm white' : light.kelvin <= 4500 ? 'neutral white' : 'daylight';
+  return (
+    <Section title="Light" hint="How this fitting lights the room in the 3D view (no shadows; Low quality shows only its glow).">
+      <label className="toggle">
+        <input type="checkbox" checked={light.on} onChange={(e) => onChange({ ...light, on: e.target.checked })} />
+        Light on
+      </label>
+      <label className="range-label field">
+        <span className="field-label">
+          Brightness {Math.round(light.lumens)} lm
+        </span>
+        <input type="range" min={50} max={3000} step={50} value={light.lumens} onChange={(e) => onChange({ ...light, lumens: Number(e.target.value) }, true)} />
+      </label>
+      <label className="range-label field">
+        <span className="field-label">
+          Colour {Math.round(light.kelvin)} K ({warmth})
+        </span>
+        <input type="range" min={2200} max={6500} step={100} value={light.kelvin} onChange={(e) => onChange({ ...light, kelvin: Number(e.target.value) }, true)} />
+      </label>
+      <SegmentedControl
+        label="Shines"
+        value={light.direction}
+        options={[
+          { value: 'all', label: 'All round' },
+          { value: 'down', label: 'Down' },
+          { value: 'up', label: 'Up' },
+        ]}
+        onChange={(direction) => onChange({ ...light, direction })}
+      />
+    </Section>
+  );
+}
+
 /** "Change model": the same size and place, a different look. */
 function ModelSection({ item, onApply }: { item: Furniture; onApply: (changes: Partial<Furniture>) => void }) {
   const [open, setOpen] = useState(false);
@@ -285,6 +322,24 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
               ]}
               onChange={(swing) => change({ swing })}
             />
+          )}
+          {feature.doorType !== 'sliding' && feature.doorType !== 'opening' && (
+            <>
+              <SegmentedControl
+                label="Shown in 3D"
+                value={feature.openAngle === undefined ? 'ajar' : feature.openAngle === 0 ? 'closed' : feature.openAngle >= 90 ? 'open' : 'custom'}
+                options={[
+                  { value: 'closed', label: 'Closed' },
+                  { value: 'ajar', label: 'Ajar' },
+                  { value: 'open', label: 'Open' },
+                  ...(feature.openAngle !== undefined && feature.openAngle > 0 && feature.openAngle < 90 ? [{ value: 'custom' as const, label: `${Math.round(feature.openAngle)}°` }] : []),
+                ]}
+                onChange={(v) => v !== 'custom' && change({ openAngle: v === 'closed' ? 0 : v === 'open' ? 90 : undefined })}
+              />
+              <div className="field-grid two">
+                <NumberField label="Open angle" suffix="°" min={0} value={Math.round(feature.openAngle ?? 27)} onCommit={(v) => change({ openAngle: Math.max(0, Math.min(180, v)) })} />
+              </div>
+            </>
           )}
           {feature.doorType === 'hinged' && (
             <SegmentedControl

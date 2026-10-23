@@ -2,7 +2,7 @@ import { isSolid } from '../model/conflicts';
 import { doorLeaves, featureFrame, toRoom, type Frame } from '../model/features';
 import { boundingBox, pointInPolygon, polygonArea, signedArea2, type Box, type Polygon } from '../model/polygon';
 import { layoutStair, stairToRoom, totalSteps } from '../model/stairs';
-import { localFootprint, type Ring } from '../model/shape';
+import { localFootprint, pieceToRoom, type Ring } from '../model/shape';
 import type { FloorStyle, Furniture, MaterialKind, Point, Project, RoomFeature, Staircase, SurfaceFinish, PhotoTexture } from '../model/types';
 import { wallBodies, wallDirection, wallOutward } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
@@ -91,6 +91,8 @@ export interface SceneWall {
   holes: WallHole[];
   openings: { material: OpeningMaterial; block: Block }[];
   fixtures: Block[];
+  /** Baseboards, crown moulding and door/window casing on the room side (optional). */
+  trim: Block[];
 }
 
 /** A furniture part with its colour and surface worked out. */
@@ -126,6 +128,19 @@ export interface SceneFurniture {
   finish: SurfaceFinish;
   /** Photo textures by surface (asset ids). */
   textures: { top?: string; front?: string; side?: string };
+  /** The light it gives (when on), from the middle of its glowing parts, in room cm. */
+  light?: SceneLight;
+}
+
+/** A light source in the room (a fitting's light, or a ceiling light feature). */
+export interface SceneLight {
+  x: number;
+  y: number;
+  /** Height above the floor, cm. */
+  z: number;
+  lumens: number;
+  kelvin: number;
+  direction: 'all' | 'down' | 'up';
 }
 
 export interface SceneStair {
@@ -152,6 +167,8 @@ export interface RoomModel {
   stairs: SceneStair[];
   /** Free-standing fixtures: on the floor (columns, floor vents) and on the ceiling (lights, ceiling vents). */
   fixtures: { floor: Shapes; ceiling: Shapes };
+  /** Ceiling light features, as light sources (they have no settings of their own yet). */
+  lights: SceneLight[];
   /** Everything's plan extent, walls included, for framing the camera. */
   bounds: Box;
 }
@@ -225,8 +242,10 @@ export function buildRoomModel(project: Pick<Project, 'room' | 'features' | 'sta
       holes: [],
       openings: [],
       fixtures: [],
+      trim: [],
     };
     for (const feature of featuresByWall.get(segment.id) ?? []) addWallFeature(wall, segment, feature, room, ceilingHeight);
+    if (room.trim && outer) wall.trim = wallTrim(segment, featuresByWall.get(segment.id) ?? [], room.trim, ceilingHeight);
     return wall;
   });
 
@@ -246,6 +265,11 @@ export function buildRoomModel(project: Pick<Project, 'room' | 'features' | 'sta
     walls,
     stairs,
     fixtures: freeFixtures(freeFeatures, ceilingHeight),
+    // A typical ceiling light: about 800 lm, warm white, shining down.
+    lights: freeFeatures
+      .filter((f) => f.kind === 'light' && f.placement.type === 'free')
+      .map((f) => ({ ...(f.placement as { x: number; y: number }), z: Math.max(0, ceilingHeight - 15), lumens: 800, kelvin: 3000, direction: 'down' as const }))
+      .map(({ x, y, z, lumens, kelvin, direction }) => ({ x, y, z, lumens, kelvin, direction })),
     bounds: boundingBox(allPoints),
   };
 }
@@ -253,6 +277,46 @@ export function buildRoomModel(project: Pick<Project, 'room' | 'features' | 'sta
 // ---------------------------------------------------------------------------
 // Walls, doors and windows
 // ---------------------------------------------------------------------------
+
+/**
+ * Trim on an outer wall's room side: a baseboard broken at doorways, crown moulding along the
+ * top, and casing around each door and window (beside and above the opening).
+ */
+function wallTrim(segment: WallSegment, features: RoomFeature[], trim: NonNullable<Project['room']['trim']>, ceilingHeight: number): Block[] {
+  const frame: Frame = { x: segment.start.x, y: segment.start.y, angle: segment.angle };
+  const blocks: Block[] = [];
+  const openings = features.filter((f) => (f.kind === 'door' || f.kind === 'window') && f.placement.type === 'wall');
+  const span = (f: RoomFeature) => {
+    const offset = f.placement.type === 'wall' ? f.placement.offset : 0;
+    return { start: offset - f.width / 2, end: offset + f.width / 2, ...openingHeights(f, ceilingHeight) };
+  };
+  if (trim.baseboard) {
+    const { height, depth } = trim.baseboard;
+    // Broken at doorways (and where casing meets the floor).
+    const gaps = openings.filter((f) => f.kind === 'door').map((f) => ({ ...span(f), pad: trim.casing?.width ?? 0 }));
+    let cursor = 0;
+    for (const g of [...gaps].sort((a, b) => a.start - b.start)) {
+      if (g.start - g.pad > cursor) blocks.push(localBlock(frame, cursor, g.start - g.pad, 0, depth, 0, height, trim.color));
+      cursor = Math.max(cursor, g.end + g.pad);
+    }
+    if (segment.length > cursor) blocks.push(localBlock(frame, cursor, segment.length, 0, depth, 0, height, trim.color));
+  }
+  if (trim.crown) {
+    const { height, depth } = trim.crown;
+    blocks.push(localBlock(frame, 0, segment.length, 0, depth, ceilingHeight - height, ceilingHeight, trim.color));
+  }
+  if (trim.casing) {
+    const { width: w, depth } = trim.casing;
+    for (const f of openings) {
+      const { start, end, bottom, top } = span(f);
+      const head = Math.min(ceilingHeight, top + w);
+      blocks.push(localBlock(frame, start - w, start, 0, depth, bottom, head, trim.color));
+      blocks.push(localBlock(frame, end, end + w, 0, depth, bottom, head, trim.color));
+      if (head > top) blocks.push(localBlock(frame, start, end, 0, depth, top, head, trim.color));
+    }
+  }
+  return blocks;
+}
 
 /** The wall's two faces in a wall feature's local frame (local y points into the room). */
 function wallFaces(segment: WallSegment): { inner: number; outer: number } {
@@ -328,7 +392,9 @@ function doorPanels(door: RoomFeature, frame: Frame, faces: { inner: number; out
   // Inward doors hang on the room-side face; outward ones on the outside face.
   const hingeY = door.swing === 'out' ? faces.outer : faces.inner;
   return doorLeaves({ ...door, width: half * 2 }).map((leaf) => {
-    const angle = leaf.closedDeg + (leaf.openDeg - leaf.closedDeg) * DOOR_AJAR;
+    // Shown open by its own angle (0–90° and beyond), or ajar by default.
+    const fraction = door.openAngle !== undefined ? door.openAngle / 90 : DOOR_AJAR;
+    const angle = leaf.closedDeg + (leaf.openDeg - leaf.closedDeg) * fraction;
     const rad = (angle * Math.PI) / 180;
     const hinge = { x: leaf.hinge.x, y: hingeY };
     const centre = { x: hinge.x + (Math.cos(rad) * leaf.radius) / 2, y: hinge.y + (Math.sin(rad) * leaf.radius) / 2 };
@@ -382,9 +448,28 @@ function freeFixtures(features: RoomFeature[], ceilingHeight: number): SceneMode
 // ---------------------------------------------------------------------------
 
 function furnitureBlocks(item: Furniture): SceneFurniture {
+  const scene = furnitureBody(item);
+  if (!item.light?.on || item.light.lumens <= 0) return scene;
+  // The light comes from the middle of its glowing parts (shades, diffusers), or near the top.
+  const glowing = scene.parts.filter((p) => p.glow || p.role === 'shade' || p.surface === 'lampshade');
+  const centre = glowing.length
+    ? {
+        x: glowing.reduce((s, p) => s + p.x, 0) / glowing.length,
+        y: glowing.reduce((s, p) => s + p.y, 0) / glowing.length,
+        z: glowing.reduce((s, p) => s + p.z + p.height / 2, 0) / glowing.length,
+      }
+    : { x: 0, y: 0, z: item.height * 0.85 };
+  const at = pieceToRoom(item, centre);
+  return { ...scene, light: { x: at.x, y: at.y, z: (item.elevation ?? 0) + centre.z, lumens: item.light.lumens, kelvin: item.light.kelvin, direction: item.light.direction } };
+}
+
+function furnitureBody(item: Furniture): SceneFurniture {
   const surface = bodySurface(item);
+  const lit = item.light?.on === true;
   const resolve = (part: FurniturePart): ScenePart => ({
     ...part,
+    // Glowing parts glow only while the light is on.
+    glow: part.glow === true && lit,
     color: part.color ?? (part.shade ? shade(item.color, part.shade) : item.color),
     surface: part.surface === 'body' ? surface : part.surface,
   });

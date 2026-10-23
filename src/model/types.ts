@@ -69,6 +69,12 @@ export interface ReferencePhoto {
   assetId: string;
   name: string;
   addedAt: number;
+  /**
+   * Colour correction for this photo (white balance gains and exposure), set from a surface the
+   * person knows is white or grey. Applied when sampling and cutting textures; the stored photo
+   * itself is never changed.
+   */
+  correction?: { r: number; g: number; b: number; exposure: number };
 }
 
 /** How the room's floor surface looks. Purely visual — never affects geometry. */
@@ -121,6 +127,19 @@ export interface Room {
   wallTexture?: PhotoTexture;
   /** Walls with their own colour or texture, by wall id. */
   wallFinishes?: Record<string, WallFinish>;
+  /** Optional trim along the walls (3D). */
+  trim?: RoomTrim;
+}
+
+/** Mouldings along the walls, all optional (sizes in cm). */
+export interface RoomTrim {
+  /** Along the bottom of every wall, broken at doorways. */
+  baseboard?: { height: number; depth: number };
+  /** Around doors and windows, on the room side. */
+  casing?: { width: number; depth: number };
+  /** Along the top of every wall. */
+  crown?: { height: number; depth: number };
+  color: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,11 +232,24 @@ export interface Furniture {
   clearance?: number;
   /** Material, finish and photo textures. Missing = the default look for its type. */
   appearance?: FurnitureAppearance;
+  /** A light fitting's light (lamps, wall lights, vanity bars). Missing = gives no light. */
+  light?: FurnitureLight;
   /**
    * Built from components (Advanced Furniture Builder): what the piece looks like in 2D and
    * 3D. The footprint (`shape`, or width × depth) still decides collisions and layout.
    */
   components?: FurnitureComponent[];
+}
+
+/** The light a fitting gives in the 3D view. */
+export interface FurnitureLight {
+  on: boolean;
+  /** Light output in lumens (a typical bulb is 400–1,000). */
+  lumens: number;
+  /** Colour temperature in kelvin: 2,700 warm white, 4,000 neutral, 6,500 daylight. */
+  kelvin: number;
+  /** Which way it shines: all round (bare bulbs, frosted shades), down or up. */
+  direction: 'all' | 'down' | 'up';
 }
 
 export type ComponentType =
@@ -331,6 +363,8 @@ export interface FurnitureComponent {
   hidden?: boolean;
   /** A photo texture on this part only (Match My Room), repeating at its real size. */
   texture?: PhotoTexture;
+  /** Glows when the piece's light is on (a shade, a diffuser, a bulb). */
+  glow?: boolean;
 }
 
 /**
@@ -483,6 +517,11 @@ export interface RoomFeature {
   swing?: 'in' | 'out';
   /** door: hinge side as seen from inside the room, facing the door */
   hinge?: 'left' | 'right';
+  /**
+   * door: how far it's shown open in 3D, in degrees (0 closed, 90 fully open). Visual only:
+   * the swing kept clear on the plan is always the full swing. Missing = shown ajar (27°).
+   */
+  openAngle?: number;
   /** vent */
   ventMount?: VentMount;
   /** outlet */

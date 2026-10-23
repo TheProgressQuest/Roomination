@@ -13,6 +13,9 @@ import {
   DoubleSide,
   Group,
   HemisphereLight,
+  BackSide,
+  PointLight,
+  SpotLight,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -39,6 +42,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { pointInPolygon, signedArea2, type Polygon } from '../../model/polygon';
 import type { CameraPose, PhotoTexture, Point } from '../../model/types';
 import { floorTexture } from '../../render/textures';
+import { lightHex } from '../../render/lightColour';
 import { loadAssetImage } from '../../storage/assets';
 import type { CameraPreset, WallMode } from '../../state/preferences';
 import { CM_PER_SCENE_UNIT, toScene, type Block, type Cylinder, type OpeningMaterial, type FloorHole, type RoomModel, type SceneFurniture, type SceneWall } from '../model';
@@ -75,6 +79,11 @@ export interface ViewerOptions {
 }
 
 
+/** Scales a fitting's candela to sit alongside the room's (non-physical) daylight levels. */
+const LIGHT_SCALE = 0.008;
+/** Inside a room under its ceiling, daylight is dimmer and the room's own lights matter more. */
+const INDOOR_DAYLIGHT = 0.72;
+
 /** Drawing-buffer budget per quality: keeps memory sensible on large, high-density screens. */
 const MAX_BUFFER_PIXELS: Record<RenderQuality, number> = { low: 2_000_000, medium: 4_000_000, high: 6_000_000 };
 const MAX_PIXEL_RATIO: Record<RenderQuality, number> = { low: 1.25, medium: 2, high: 2 };
@@ -91,9 +100,11 @@ export class RoomViewer {
   private readonly controls: OrbitControls;
   // Soft architectural daylight: a warm-white sky dome, a gentle bounce from the floor, and a
   // key light from the upper left (the same direction as the 2D presentation's shadows).
-  private readonly sun = new DirectionalLight(0xfff6ea, 1.9);
-  private readonly fill = new DirectionalLight(0xe8eefc, 0.35);
-  private readonly hemisphere = new HemisphereLight(0xfbf8f2, 0xcbbfae, 1.55);
+  // Close to neutral, so colours matched from a corrected photo aren't warmed again in 3D: a
+  // barely warm sun, a barely cool fill, and a grey (not brown) bounce from below.
+  private readonly sun = new DirectionalLight(0xfffaf3, 1.9);
+  private readonly fill = new DirectionalLight(0xeef1f8, 0.35);
+  private readonly hemisphere = new HemisphereLight(0xf8f8f6, 0xc6c4c0, 1.55);
   private readonly ambient = new AmbientLight(0xffffff, 0.3);
   private readonly unitBox = new BoxGeometry(1, 1, 1);
   private readonly unitCylinder = new CylinderGeometry(0.5, 0.5, 1, 24);
@@ -114,6 +125,11 @@ export class RoomViewer {
   /** Whether shadows are currently drawn (null until the first room arrives). */
   private shadowsOn: boolean | null = null;
   private wallMode: WallMode = 'dollhouse';
+  /** The ceiling: drawn at the measured height, shown only when the camera is inside the room below it. */
+  private ceiling: Mesh | null = null;
+  private ceilingOn = true;
+  /** Light from fittings and ceiling lights (no shadows; how many depends on quality). */
+  private readonly fixtureLights = new Group();
   private shadows: boolean;
 
   private frameRequest = 0;
@@ -191,6 +207,7 @@ export class RoomViewer {
     this.updateWallVisibility();
     this.roomBuildMs = performance.now() - started;
     if (first) this.setPreset(this.options.initialPreset, false);
+    this.updateLights();
     this.updateReflections();
     this.requestRender();
   }
@@ -202,12 +219,20 @@ export class RoomViewer {
     this.furniture.build(furniture);
     this.updateShadows();
     this.furnitureBuildMs = performance.now() - started;
+    this.updateLights();
     this.updateReflections();
     this.requestRender();
   }
 
   setSelection(id: string | null) {
     this.furniture.setSelection(id);
+    this.requestRender();
+  }
+
+  /** Whether the ceiling may be shown (it still hides itself whenever the camera is outside or above). */
+  setCeiling(on: boolean) {
+    this.ceilingOn = on;
+    this.updateWallVisibility();
     this.requestRender();
   }
 
@@ -229,6 +254,7 @@ export class RoomViewer {
     this.quality = quality;
     this.furnitureMaterials.setQuality(quality);
     queueMicrotask(() => {
+      this.updateLights();
       this.updateReflections();
       this.requestRender();
     });
@@ -361,6 +387,39 @@ export class RoomViewer {
   }
 
   /**
+   * Light from fittings (lamps, wall lights, vanity bars) and ceiling lights, by quality:
+   *  - Low: none (their shades still glow);
+   *  - Medium: up to 4 lights; High: up to 8. None casts shadows (that would cost a shadow
+   *    map per light per frame).
+   * Lumens become candela (÷ 4π for light all round), scaled to sit with the room's daylight.
+   */
+  private updateLights() {
+    for (const light of [...this.fixtureLights.children]) {
+      this.fixtureLights.remove(light);
+      (light as PointLight).dispose?.();
+    }
+    if (!this.fixtureLights.parent) this.scene.add(this.fixtureLights);
+    const limit = this.quality === 'low' ? 0 : this.quality === 'medium' ? 4 : 8;
+    const sources = [...(this.lastFurniture ?? []).flatMap((f) => (f.light ? [f.light] : [])), ...(this.room?.lights ?? [])].slice(0, limit);
+    for (const source of sources) {
+      const colour = new Color(lightHex(source.kelvin));
+      const candela = (source.lumens / (4 * Math.PI)) * LIGHT_SCALE;
+      const at = toScene({ x: source.x, y: source.y }, source.z);
+      if (source.direction === 'all') {
+        const light = new PointLight(colour, candela, 8, 2);
+        light.position.set(at.x, at.y, at.z);
+        this.fixtureLights.add(light);
+      } else {
+        // A cone of light down (or up), soft-edged; a spot concentrates the same light.
+        const light = new SpotLight(colour, candela * 2, 8, Math.PI / 3, 0.7, 2);
+        light.position.set(at.x, at.y, at.z);
+        light.target.position.set(at.x, source.direction === 'down' ? 0 : at.y + 5, at.z);
+        this.fixtureLights.add(light, light.target);
+      }
+    }
+  }
+
+  /**
    * Reflections, by quality:
    *  - Low: none (plain lighting, as before).
    *  - Medium and High: a soft generic room environment, so glossy ceramics, chrome and tiles
@@ -410,8 +469,14 @@ export class RoomViewer {
       const at = toScene({ x: piece.x - Math.sin(turn) * front, y: piece.y + Math.cos(turn) * front }, piece.elevation + piece.height / 2);
       const { camera, target } = this.mirrorCapture;
       camera.position.set(at.x, at.y, at.z);
+      // The mirror sees the whole room, whatever the main camera hides (dollhouse walls, ceiling).
+      const hidden = [...this.wallGroups.map((w) => w.group), ...(this.ceiling ? [this.ceiling] : [])].filter((o) => !o.visible);
+      for (const o of hidden) o.visible = true;
       for (const m of mirrors) m.visible = false;
       camera.update(this.renderer, this.scene);
+      for (const o of hidden) o.visible = false;
+      // The mirror's material keeps a pre-filtered copy of its reflection: refresh it.
+      target.texture.needsPMREMUpdate = true;
       for (const m of mirrors) {
         m.visible = true;
         for (const material of [m.material].flat() as MeshStandardMaterial[]) {
@@ -546,6 +611,15 @@ export class RoomViewer {
     floor.receiveShadow = true;
     floor.name = 'floor';
     this.roomContent.add(floor);
+
+    // The ceiling at the measured height, seen from below (it hides itself from outside views).
+    const ceiling = new Mesh(floorGeometry(room.floor, [], { ...room.floorStyle, preset: 'plain', photo: undefined }), materials.ceiling);
+    ceiling.position.y = m(room.ceilingHeight);
+    ceiling.receiveShadow = true;
+    ceiling.name = 'ceiling';
+    ceiling.userData.blocksSelection = true;
+    this.ceiling = ceiling;
+    this.roomContent.add(ceiling);
     if (room.floorHoles.length > 0) {
       const shaft = new Mesh(shaftGeometry(room.floorHoles), materials.shaft);
       shaft.receiveShadow = true;
@@ -564,6 +638,13 @@ export class RoomViewer {
       const byMaterial = new Map<OpeningMaterial | 'fixture', Block[]>();
       for (const { material, block } of wall.openings) byMaterial.set(material, [...(byMaterial.get(material) ?? []), block]);
       if (wall.fixtures.length > 0) byMaterial.set('fixture', wall.fixtures);
+      if (wall.trim.length > 0) {
+        const trim = new Mesh(mergedBlocks(this.unitBox, wall.trim), materials.trim(wall.trim[0].color));
+        trim.castShadow = true;
+        trim.receiveShadow = true;
+        trim.name = 'trim';
+        group.add(trim);
+      }
       for (const [material, blocks] of byMaterial) {
         const mesh = new Mesh(mergedBlocks(this.unitBox, blocks), materials.opening(material));
         mesh.castShadow = material !== 'glass';
@@ -759,6 +840,15 @@ export class RoomViewer {
   /** Dollhouse: hide outer walls between the camera and the room (purely visual). */
   private updateWallVisibility() {
     const eye = { x: this.camera.position.x * CM_PER_SCENE_UNIT, y: this.camera.position.z * CM_PER_SCENE_UNIT };
+    if (this.ceiling && this.room) {
+      // Only from inside the room and below the ceiling (eye level, a matched photo view);
+      // never in top-down, isometric or dollhouse views, where it would hide the room.
+      const height = this.camera.position.y * CM_PER_SCENE_UNIT;
+      this.ceiling.visible = this.ceilingOn && height < this.room.ceilingHeight - 2 && pointInPolygon(eye, this.room.floor);
+      const daylight = this.ceiling.visible ? INDOOR_DAYLIGHT : 1;
+      this.sun.intensity = 1.9 * daylight;
+      this.hemisphere.intensity = 1.55 * daylight;
+    }
     const lookingDown = this.camera.position.clone().sub(this.controls.target).normalize().y > 0.97;
     for (const wall of this.wallGroups) {
       if (this.wallMode === 'all' || !wall.outer || lookingDown) {
@@ -821,6 +911,14 @@ class MaterialSet {
   readonly wall: MeshStandardMaterial;
   readonly shaft: MeshStandardMaterial;
   readonly stairs = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.75 });
+  readonly ceiling = new MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.95, side: BackSide });
+  private trimMaterial: MeshStandardMaterial | null = null;
+
+  /** Painted trim (satin, like woodwork). */
+  trim(color: string): MeshStandardMaterial {
+    this.trimMaterial ??= new MeshStandardMaterial({ color, roughness: 0.45 });
+    return this.trimMaterial;
+  }
   readonly fixture = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
   private readonly openings: Record<OpeningMaterial | 'fixture', MeshStandardMaterial>;
   private floorMaterial: MeshStandardMaterial | null = null;
@@ -903,7 +1001,7 @@ class MaterialSet {
 
   dispose() {
     this.disposed = true;
-    for (const material of [this.wall, this.shaft, this.stairs, this.fixture, ...Object.values(this.openings), this.floorMaterial, ...this.looks.values()]) material?.dispose();
+    for (const material of [this.wall, this.shaft, this.stairs, this.fixture, this.ceiling, this.trimMaterial, ...Object.values(this.openings), this.floorMaterial, ...this.looks.values()]) material?.dispose();
     this.texture?.dispose();
     for (const photo of this.photos) photo.dispose();
   }

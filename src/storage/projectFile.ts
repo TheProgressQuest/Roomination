@@ -321,6 +321,7 @@ function parseRoom(raw: unknown, uniqueId: (id: unknown) => string): Room {
     // The colour picker and the 3D renderer only understand #rrggbb.
     wallColor: typeof raw.wallColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.wallColor) ? raw.wallColor : DEFAULT_WALL_COLOR,
     ...wallLooks(raw, new Set([...outline, ...partitions.flatMap((p) => p.nodes)].map((n) => n.id))),
+    ...(parseTrim(raw.trim) ? { trim: parseTrim(raw.trim)! } : {}),
   };
 }
 
@@ -342,6 +343,32 @@ function wallLooks(raw: Record<string, unknown>, wallIds: Set<string>): Pick<Roo
     if (Object.keys(finishes).length) out.wallFinishes = finishes;
   }
   return out;
+}
+
+function parseLight(raw: unknown): Furniture['light'] {
+  if (!isRecord(raw) || !finite(raw.lumens) || !finite(raw.kelvin)) return undefined;
+  return {
+    on: raw.on !== false,
+    lumens: Math.min(20000, Math.max(0, raw.lumens)),
+    kelvin: Math.min(10000, Math.max(1000, raw.kelvin)),
+    direction: oneOf(raw.direction, ['all', 'down', 'up'] as const, 'all'),
+  };
+}
+
+function parseTrim(raw: unknown): Room['trim'] | null {
+  if (!isRecord(raw)) return null;
+  const size = (v: unknown, max: number) => (finite(v) && v > 0 && v <= max ? v : null);
+  const pair = (r: unknown, a: string, b: string, maxA: number, maxB: number) => {
+    if (!isRecord(r)) return undefined;
+    const x = size(r[a], maxA);
+    const y = size(r[b], maxB);
+    return x !== null && y !== null ? ({ [a]: x, [b]: y } as Record<string, number>) : undefined;
+  };
+  const baseboard = pair(raw.baseboard, 'height', 'depth', 60, 10) as { height: number; depth: number } | undefined;
+  const casing = pair(raw.casing, 'width', 'depth', 40, 10) as { width: number; depth: number } | undefined;
+  const crown = pair(raw.crown, 'height', 'depth', 40, 20) as { height: number; depth: number } | undefined;
+  if (!baseboard && !casing && !crown) return null;
+  return { ...(baseboard ? { baseboard } : {}), ...(casing ? { casing } : {}), ...(crown ? { crown } : {}), color: color(raw.color, '#f7f5f0') };
 }
 
 export function parsePhotoTexture(raw: unknown): PhotoTexture | null {
@@ -381,7 +408,13 @@ function parseReferencePhotos(raw: unknown): ReferencePhoto[] {
     .slice(0, 50)
     .filter(isRecord)
     .filter((p) => typeof p.assetId === 'string' && ASSET_ID.test(p.assetId) && !seen.has(p.assetId) && seen.add(p.assetId))
-    .map((p) => ({ assetId: p.assetId as string, name: typeof p.name === 'string' ? p.name.slice(0, 80) : 'Photo', addedAt: finite(p.addedAt) ? p.addedAt : 0 }));
+    .map((p) => {
+      const photo: ReferencePhoto = { assetId: p.assetId as string, name: typeof p.name === 'string' ? p.name.slice(0, 80) : 'Photo', addedAt: finite(p.addedAt) ? p.addedAt : 0 };
+      const c = isRecord(p.correction) ? p.correction : null;
+      const ok = (v: unknown, lo: number, hi: number): v is number => finite(v) && v >= lo && v <= hi;
+      if (c && ok(c.r, 0.25, 4) && ok(c.g, 0.25, 4) && ok(c.b, 0.25, 4) && ok(c.exposure, 0.25, 4)) photo.correction = { r: c.r, g: c.g, b: c.b, exposure: c.exposure };
+      return photo;
+    });
 }
 
 function parseNodes(raw: unknown[], uniqueId: (id: unknown) => string, what: string): WallNode[] {
@@ -433,6 +466,8 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   if (finite(raw.elevation) && raw.elevation > 0 && raw.elevation <= MAX_ROOM_SPAN) item.elevation = raw.elevation;
   const appearance = parseAppearance(raw.appearance);
   if (appearance) item.appearance = appearance;
+  const light = parseLight(raw.light);
+  if (light) item.light = light;
   const components = parseComponents(raw.components);
   if (components) item.components = components;
   if (raw.shape === undefined) return item;
@@ -637,6 +672,7 @@ export function parseComponents(raw: unknown): FurnitureComponent[] | undefined 
     if (r.hidden === true) c.hidden = true;
     const texture = parsePhotoTexture(r.texture);
     if (texture) c.texture = texture;
+    if (r.glow === true) c.glow = true;
     seen.add(c.id);
     out.push(c);
   }
@@ -712,6 +748,7 @@ function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => st
     feature.doorType = oneOf(raw.doorType, ['hinged', 'double', 'sliding', 'opening'] as const, 'hinged');
     feature.swing = oneOf(raw.swing, ['in', 'out'] as const, 'in');
     feature.hinge = oneOf(raw.hinge, ['left', 'right'] as const, 'left');
+    if (finite(raw.openAngle) && raw.openAngle >= 0 && raw.openAngle <= 180) feature.openAngle = raw.openAngle;
   }
   if (kind === 'vent') feature.ventMount = oneOf(raw.ventMount, ['wall', 'floor', 'ceiling'] as const, 'floor');
   if (kind === 'outlet') feature.outletType = oneOf(raw.outletType, ['standard', 'usb', 'gfci', 'highVoltage'] as const, 'standard');

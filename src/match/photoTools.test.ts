@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjustBrightness, cutTexture, sampleColour, softenSeams, suggestPalette } from './photoTools';
+import { adjustBrightness, correctColour, correctImage, cutTexture, sampleColour, softenSeams, suggestPalette, whiteBalanceFrom } from './photoTools';
 
 /** A synthetic photo: left half one colour, right half another, with optional noise. */
 function twoTone(w: number, h: number, left: number[], right: number[], noise = 0) {
@@ -50,5 +50,28 @@ describe('Match My Room photo tools', () => {
     const right = soft.data[(20 * 40 + 39) * 4];
     expect(Math.abs(left - right)).toBeLessThan(140);
     expect(adjustBrightness(img, 2).data[(0 + 39) * 4]).toBe(255);
+  });
+});
+
+
+describe('white balance', () => {
+  it('turns a warm-cast white into neutral grey at the same brightness', () => {
+    const warm = '#e0d2bc'; // a white wall under warm light
+    const c = whiteBalanceFrom(warm);
+    const fixed = correctColour(warm, c);
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(fixed.slice(i, i + 2), 16));
+    expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(2);
+    // A wall sampled elsewhere in the same photo loses the same cast.
+    const wall = correctColour('#cfc3ae', c);
+    const [wr, , wb] = [1, 3, 5].map((i) => parseInt(wall.slice(i, i + 2), 16));
+    expect(Math.abs(wr - wb)).toBeLessThan(6);
+  });
+
+  it('applies exposure, and never changes the original image', () => {
+    const img = { width: 1, height: 1, data: new Uint8ClampedArray([100, 100, 100, 255]) };
+    const out = correctImage(img, { r: 1, g: 1, b: 1, exposure: 1.5 });
+    expect(out.data[0]).toBe(150);
+    expect(img.data[0]).toBe(100);
+    expect(correctImage(img, { r: 1, g: 1, b: 1, exposure: 1 })).toBe(img);
   });
 });

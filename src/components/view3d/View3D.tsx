@@ -125,6 +125,7 @@ export default function View3D(props: View3DProps) {
   useEffect(() => viewerRef.current?.setSelection(selectedId), [selectedId, furnitureModel, attempt]);
   useEffect(() => viewerRef.current?.setWallMode(preferences.wallMode), [preferences.wallMode, attempt]);
   useEffect(() => viewerRef.current?.setShadows(preferences.shadows), [preferences.shadows, attempt]);
+  useEffect(() => viewerRef.current?.setCeiling(preferences.ceiling !== false), [preferences.ceiling, attempt]);
   // Automatic quality also takes the graphics hardware into account (software rendering → Low).
   const [software, setSoftware] = useState(false);
   const quality = preferences.quality === 'auto' && software ? 'low' : resolveQuality(preferences.quality, touch);
@@ -200,6 +201,10 @@ export default function View3D(props: View3DProps) {
         <label className="chip-toggle">
           <input type="checkbox" checked={preferences.shadows} onChange={(e) => onPreferences({ shadows: e.target.checked })} disabled={status !== 'ready'} />
           <span>Shadows</span>
+        </label>
+        <label className="chip-toggle" title="Shown when looking from inside the room; hidden from above">
+          <input type="checkbox" checked={preferences.ceiling !== false} onChange={(e) => onPreferences({ ceiling: e.target.checked })} disabled={status !== 'ready'} />
+          <span>Ceiling</span>
         </label>
         {onToggleMatch && (
           <button type="button" className={`secondary view3d-match${matchOpen ? ' is-active' : ''}`} aria-pressed={!!matchOpen} onClick={onToggleMatch}>

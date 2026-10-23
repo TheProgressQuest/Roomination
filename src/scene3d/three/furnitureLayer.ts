@@ -32,6 +32,7 @@ import type { SurfaceKind } from '../../render/materials';
 import { loadAssetImage } from '../../storage/assets';
 import { CM_PER_SCENE_UNIT, type SceneFurniture } from '../model';
 import { lookKey, type FurnitureMaterials, type SurfaceLook } from './furnitureMaterials';
+import { lightHex } from '../../render/lightColour';
 import { partGeometry, partMatrix, withMetreUVs, type PartDetail } from './partGeometry';
 
 /**
@@ -165,7 +166,7 @@ export class FurnitureLayer {
         // keeps the shadow pass cheap in rooms full of books and leaves.
         const casts = !SHADOWLESS_ROLES.has(part.role);
         const finish = part.finish ?? piece.finish;
-        const look: SurfaceLook = { pattern: part.pattern, scale: part.textureScale, roughness: part.roughness };
+        const look: SurfaceLook = { pattern: part.pattern, scale: part.textureScale, roughness: part.roughness, ...(part.glow ? { glow: lightHex(piece.light?.kelvin ?? 3000) } : {}) };
         const key = `${part.surface}|${finish}|${lookKey(look)}|${casts}`;
         const group = bySurface.get(key) ?? { surface: part.surface, finish, look, casts, parts: [] };
         group.parts.push({ owner: piece.id, geometry: geometry.key, matrix: placement.clone().multiply(partMatrix(part, geometry.scale)), color: new Color(part.color) });

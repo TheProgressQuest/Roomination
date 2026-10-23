@@ -50,6 +50,7 @@ export function FloorSettings({ project, dispatch }: Pick<AppearanceProps, 'proj
       </div>
       <ColorField label="Floor colour" value={floor.color} onChange={(color) => set({ color }, 'floor.color')} />
       <ColorField label="Wall colour (3D)" value={project.room.wallColor} onChange={(color) => dispatch({ type: 'room/setWallColor', color, mergeKey: 'room.wallColor' })} />
+      <TrimSettings project={project} dispatch={dispatch} />
       {floor.preset !== 'plain' && (
         <>
           <RangeField label="Pattern size" min={0.5} max={2.5} step={0.1} value={floor.scale} format={(v) => `${v.toFixed(1)}×`} onChange={(scale) => set({ scale }, 'floor.scale')} />
@@ -90,6 +91,24 @@ export function BoardSettings({ preferences, onPreferences }: Pick<AppearancePro
 }
 
 /** A tiny preview of each floor, rendered from the same generator as the plan. */
+/** Optional wall trim in 3D: baseboards, door and window casing, crown moulding. */
+function TrimSettings({ project, dispatch }: Pick<AppearanceProps, 'project' | 'dispatch'>) {
+  const trim = project.room.trim ?? { color: '#f7f5f0' };
+  const set = (changes: Partial<NonNullable<Project['room']['trim']>>, mergeKey?: string) => dispatch({ type: 'room/setTrim', trim: { ...trim, ...changes }, mergeKey });
+  return (
+    <div className="stack trim-settings">
+      <span className="field-label">Trim (3D)</span>
+      <Toggle label="Baseboards" checked={!!trim.baseboard} onChange={(on) => set({ baseboard: on ? { height: 10, depth: 1.5 } : undefined })} />
+      {trim.baseboard && <RangeField label="Baseboard height" min={4} max={25} step={1} value={trim.baseboard.height} format={(v) => `${v} cm`} onChange={(height) => set({ baseboard: { ...trim.baseboard!, height } }, 'trim.baseboard')} />}
+      <Toggle label="Door and window casing" checked={!!trim.casing} onChange={(on) => set({ casing: on ? { width: 7, depth: 1.5 } : undefined })} />
+      {trim.casing && <RangeField label="Casing width" min={3} max={20} step={0.5} value={trim.casing.width} format={(v) => `${v} cm`} onChange={(width) => set({ casing: { ...trim.casing!, width } }, 'trim.casing')} />}
+      <Toggle label="Crown moulding" checked={!!trim.crown} onChange={(on) => set({ crown: on ? { height: 8, depth: 6 } : undefined })} />
+      {trim.crown && <RangeField label="Crown height" min={3} max={25} step={1} value={trim.crown.height} format={(v) => `${v} cm`} onChange={(height) => set({ crown: { ...trim.crown!, height } }, 'trim.crown')} />}
+      {(trim.baseboard || trim.casing || trim.crown) && <ColorField label="Trim colour" value={trim.color} onChange={(color) => set({ color }, 'trim.color')} />}
+    </div>
+  );
+}
+
 function FloorSwatch({ preset }: { preset: FloorPreset }) {
   const url = useMemo(() => {
     const tile = floorTexture({ preset, color: FLOOR_PRESET_COLORS[preset], scale: 0.6, angle: 0, intensity: 0.6 });

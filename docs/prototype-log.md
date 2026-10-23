@@ -17,6 +17,23 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Colour correction, lighting, ceiling, doors and trim (M2.6):**
+  - **White balance:** taken from one surface the person picks. An off-white surface (a cream
+    toilet seat) skews everything, so the panel suggests plain white plastic or paint in good
+    light.
+  - **Fittings:** light from fittings casts no shadows. Medium draws 4 lights and High 8; any
+    more are left out. Daylight dims to 72% when the camera is under the ceiling.
+  - **Light brightness:** lumens are scaled to sit alongside Roomination's (non-physical)
+    daylight, so brightness is relative, not photometric. Colour temperature is shown against a
+    5,000 K white point.
+  - **Ceiling:** flat, at the measured height, with no soffits or slopes. It's shown only from
+    inside the room, below it.
+  - **Doors:** the open angle changes only the 3D drawing; the plan always keeps the full swing
+    clear.
+  - **Trim:** on outer walls only (not interior walls). There is no apron below window sills.
+  - **Mirror reflections:** captured from one point.
+  - **Through openings:** nothing beyond a doorway is drawn (the background shows).
+
 - **Real-room comparison (bathroom, M2.5):** see the visual differences in the owner's report.
   Not modelled yet:
   - ceilings (the sky shows above the walls at eye level);
@@ -82,6 +99,8 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Light cost on the GPU | Only CPU frame time is measured (under 1 ms at Low, Medium and High with a fitting, the ceiling and a mirror); measure frame rates on an iPhone and iPad with several lights before release |
+| Lights, trim and door controls | Only desktop Chromium; check touch sizes in the Light and Trim controls on iPhone (44 px) |
 | Part textures (M2.5) draw each textured part as its own mesh (not batched) | Fine for a few parts; measure if a room gets dozens |
 | Match My Room panel touch targets | Some panel buttons are the small (32 px) size; check on iPhone and iPad before release (44 px rule) |
 | Full regression not run for M2.1–M2.4 | Only targeted tests, the 3D suite and smoke tests; run `npm run test:full` before release |
