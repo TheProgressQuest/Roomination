@@ -681,7 +681,7 @@ export function parseComponents(raw: unknown): FurnitureComponent[] | undefined 
   return out.length > 0 ? out : undefined;
 }
 
-const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'water', 'mirror', 'custom'];
+const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'water', 'mirror', 'granite', 'custom'];
 const FINISHES: SurfaceFinish[] = ['matte', 'satin', 'gloss'];
 /** Photos are referenced by the SHA-256 of their bytes. */
 const ASSET_ID = /^[0-9a-f]{64}$/;

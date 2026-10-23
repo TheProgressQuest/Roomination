@@ -277,7 +277,7 @@ function vanityTop(k: Kit, b: Base, basin: 'integrated' | 'countertop' | 'dropIn
   const { width: w, depth: d, height: top } = b;
   k.span('base', 'Plinth', -w / 2 + 2, w / 2 - 2, -d / 2, d / 2 - 7, 0, 9, { color: shadeHex(b.color), radius: 0.3 });
   k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, d / 2 - 4.3, 9, top - 3, { color: b.color, radius: 0.4 });
-  k.fronts('door', w, d, 9.5, top - 3.5, w > 70 ? 2 : 1, { color: b.color, handle, handleColor: STEEL });
+  k.fronts('door', w, d, 9.5, top - 3.5, w > 70 ? 2 : 1, { color: b.color, handle, handleColor: STEEL, shaker: handle === 'knob' });
   k.span('tabletop', 'Worktop', -w / 2, w / 2, -d / 2, d / 2, top - 3, top, { material: worktop.material, color: worktop.color, finish: 'gloss', radius: 0.6, edge: 'rounded' });
   const bw = Math.min(46, w - 14);
   const bd = Math.min(36, d - 14);
@@ -809,7 +809,7 @@ export const CATALOGUE: CatalogueItem[] = [
   built('vanity-countertop-basin', 'Vanity, countertop basin', 'bathroom', 'basin sink vessel wash', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'countertop', { material: 'stone', color: MARBLE })),
   built('vanity-integrated', 'Vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'integrated', { material: 'ceramic', color: CERAMIC })),
   built('vanity-integrated-wide', 'Wide vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 120, depth: 50, height: 86, color: OAK }, (k, b) => vanityTop(k, b, 'integrated', { material: 'stone', color: MARBLE })),
-  built('vanity-drop-in', 'Vanity, drop-in basin', 'bathroom', 'basin sink oval laminate shaker', { kind: 'fixture', width: 90, depth: 53, height: 81, color: WHITE }, (k, b) => vanityTop(k, b, 'dropIn', { material: 'stone', color: '#3a3b3e' }, 'knob')),
+  built('vanity-drop-in', 'Vanity, drop-in basin', 'bathroom', 'basin sink oval laminate shaker', { kind: 'fixture', width: 90, depth: 53, height: 81, color: WHITE }, (k, b) => vanityTop(k, b, 'dropIn', { material: 'granite', color: '#3a3b3e' }, 'knob')),
   built('backsplash', 'Backsplash strip', 'bathroom', 'splashback upstand worktop kitchen', { kind: 'fixture', width: 90, depth: 1.5, height: 10, color: WHITE, elevation: 80 }, (k, b) => {
     k.box('base', 'Backsplash', 0, 0, 0, b.width, b.depth, b.height, { material: 'stone', color: b.color, finish: 'satin', radius: 0.3 });
   }),

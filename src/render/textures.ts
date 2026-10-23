@@ -243,13 +243,31 @@ function tiles(color: string, scale: number, intensity: number): TextureTile {
         }
       }
     }
-    ctx.fillStyle = shade(color, -0.15 - 0.25 * intensity);
+    // Fine stone mottle (slate, porcelain), barely there on pale tiles.
+    for (let k = 0; k < 700; k++) {
+      ctx.fillStyle = random() < 0.5 ? `rgba(255,255,255,${0.02 + 0.03 * intensity})` : `rgba(0,0,0,${0.03 + 0.04 * intensity})`;
+      const r = 0.3 + random() * 1.4;
+      ctx.fillRect(random() * size * 2, random() * size * 2, r, r);
+    }
+    // Grout contrasts with the tile: pale grout between dark tiles, darker grout between pale ones.
+    ctx.fillStyle = luminance(color) < 0.3 ? mix(color, '#9a9893', 0.55 + 0.25 * intensity) : shade(color, -0.15 - 0.25 * intensity);
     // Grout centred on the tile edges; the halves at 0 and 2·size meet when repeated.
     for (const p of [0, size, size * 2]) {
       ctx.fillRect(p - grout / 2, 0, grout, size * 2);
       ctx.fillRect(0, p - grout / 2, size * 2, grout);
     }
   });
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function mix(a: string, b: string, t: number): string {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return `#${pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** Mottled neutral surface with fine speckles. */

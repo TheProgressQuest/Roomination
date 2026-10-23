@@ -17,6 +17,18 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Fidelity pass (M2.7):**
+  - **Lighting balance:** indoors (under the ceiling), daylight drops to 30% and fittings
+    provide most of the light. Tuned against one bathroom photo; check other room types and
+    daylight-filled rooms.
+  - **Grout:** lighter than the tile on dark tiles, darker on pale ones. There's no tile-size
+    or grout-width control beyond pattern size.
+  - **Granite / laminate:** a procedural fleck pattern, not a photo; no worktop edge profile.
+  - **Shaker fronts:** only on the drop-in vanity so far.
+  - **Doorways:** what's beyond is a dim plain surface, not the next room.
+  - **Edge darkening:** fixed width (28 cm) and strength; not true ambient occlusion.
+  - **GLB fixture models:** not added (licence and realism review in the report).
+
 - **Colour correction, lighting, ceiling, doors and trim (M2.6):**
   - **White balance:** taken from one surface the person picks. An off-white surface (a cream
     toilet seat) skews everything, so the panel suggests plain white plastic or paint in good
@@ -99,6 +111,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Lighting retune (M2.7) changes every interior view | Re-check the existing 3D screenshots and other rooms before release |
 | Light cost on the GPU | Only CPU frame time is measured (under 1 ms at Low, Medium and High with a fitting, the ceiling and a mirror); measure frame rates on an iPhone and iPad with several lights before release |
 | Lights, trim and door controls | Only desktop Chromium; check touch sizes in the Light and Trim controls on iPhone (44 px) |
 | Part textures (M2.5) draw each textured part as its own mesh (not batched) | Fine for a few parts; measure if a room gets dozens |

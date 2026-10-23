@@ -14,6 +14,8 @@ import {
   Group,
   HemisphereLight,
   BackSide,
+  MeshBasicMaterial,
+  PlaneGeometry,
   PointLight,
   SpotLight,
   InstancedMesh,
@@ -80,9 +82,9 @@ export interface ViewerOptions {
 
 
 /** Scales a fitting's candela to sit alongside the room's (non-physical) daylight levels. */
-const LIGHT_SCALE = 0.008;
+const LIGHT_SCALE = 0.032;
 /** Inside a room under its ceiling, daylight is dimmer and the room's own lights matter more. */
-const INDOOR_DAYLIGHT = 0.72;
+const INDOOR_DAYLIGHT = 0.3;
 
 /** Drawing-buffer budget per quality: keeps memory sensible on large, high-density screens. */
 const MAX_BUFFER_PIXELS: Record<RenderQuality, number> = { low: 2_000_000, medium: 4_000_000, high: 6_000_000 };
@@ -638,6 +640,28 @@ export class RoomViewer {
       const byMaterial = new Map<OpeningMaterial | 'fixture', Block[]>();
       for (const { material, block } of wall.openings) byMaterial.set(material, [...(byMaterial.get(material) ?? []), block]);
       if (wall.fixtures.length > 0) byMaterial.set('fixture', wall.fixtures);
+      if (wall.outer) {
+        // Soft darkening where the wall meets the floor (and the ceiling, which shows only from inside).
+        const [p0, p1, , p3] = wall.footprint;
+        const inward = { x: -wall.outward.x, y: -wall.outward.y };
+        for (const [height, flip] of [[0.2, false], [room.ceilingHeight - 0.2, true]] as const) {
+          const strip = edgeShade(p0, p1, inward, height, flip, materials.edgeShade);
+          if (flip) strip.userData.ceiling = true;
+          group.add(strip);
+        }
+        // Beyond a doorway: a dim surface, so it reads as the next room rather than blank background.
+        const thickness = Math.hypot(p3.x - p0.x, p3.y - p0.y);
+        for (const hole of wall.holes.filter((h) => h.bottom < 1)) {
+          const mid = (hole.start + hole.end) / 2;
+          const along = { x: wall.origin.x + wall.direction.x * mid, y: wall.origin.y + wall.direction.y * mid };
+          const at = toScene({ x: along.x + wall.outward.x * (thickness + 60), y: along.y + wall.outward.y * (thickness + 60) }, hole.top / 2);
+          const backdrop = new Mesh(new PlaneGeometry(m(hole.end - hole.start + 80), m(hole.top + 20)), materials.beyond);
+          backdrop.position.set(at.x, at.y, at.z);
+          backdrop.lookAt(at.x - wall.outward.x, at.y, at.z - wall.outward.y);
+          backdrop.name = 'beyond-doorway';
+          group.add(backdrop);
+        }
+      }
       if (wall.trim.length > 0) {
         const trim = new Mesh(mergedBlocks(this.unitBox, wall.trim), materials.trim(wall.trim[0].color));
         trim.castShadow = true;
@@ -845,9 +869,12 @@ export class RoomViewer {
       // never in top-down, isometric or dollhouse views, where it would hide the room.
       const height = this.camera.position.y * CM_PER_SCENE_UNIT;
       this.ceiling.visible = this.ceilingOn && height < this.room.ceilingHeight - 2 && pointInPolygon(eye, this.room.floor);
+      // The shade along the ceiling's edges shows only with the ceiling.
+      for (const wall of this.wallGroups) for (const child of wall.group.children) if (child.userData.ceiling) child.visible = this.ceiling.visible;
       const daylight = this.ceiling.visible ? INDOOR_DAYLIGHT : 1;
       this.sun.intensity = 1.9 * daylight;
       this.hemisphere.intensity = 1.55 * daylight;
+      this.ambient.intensity = 0.3 * daylight;
     }
     const lookingDown = this.camera.position.clone().sub(this.controls.target).normalize().y > 0.97;
     for (const wall of this.wallGroups) {
@@ -912,6 +939,10 @@ class MaterialSet {
   readonly shaft: MeshStandardMaterial;
   readonly stairs = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.75 });
   readonly ceiling = new MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.95, side: BackSide });
+  /** What a doorway looks onto: a dim, neutral surface (the next room isn't modelled). */
+  readonly beyond = new MeshStandardMaterial({ color: 0x5b5e63, roughness: 1 });
+  /** Soft contact darkening along the floor and ceiling edges. */
+  readonly edgeShade = new MeshBasicMaterial({ map: edgeShadeTexture(), color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false });
   private trimMaterial: MeshStandardMaterial | null = null;
 
   /** Painted trim (satin, like woodwork). */
@@ -995,13 +1026,13 @@ class MaterialSet {
       texture.anisotropy = 4;
       this.texture = texture;
     }
-    this.floorMaterial = new MeshStandardMaterial({ color: tile ? 0xffffff : style.color, map: this.texture, roughness: style.preset === 'tile' ? 0.55 : 0.85 });
+    this.floorMaterial = new MeshStandardMaterial({ color: tile ? 0xffffff : style.color, map: this.texture, roughness: style.preset === 'tile' ? 0.42 : 0.85 });
     return this.floorMaterial;
   }
 
   dispose() {
     this.disposed = true;
-    for (const material of [this.wall, this.shaft, this.stairs, this.fixture, this.ceiling, this.trimMaterial, ...Object.values(this.openings), this.floorMaterial, ...this.looks.values()]) material?.dispose();
+    for (const material of [this.wall, this.shaft, this.stairs, this.fixture, this.ceiling, this.trimMaterial, this.beyond, ...Object.values(this.openings), this.floorMaterial, ...this.looks.values()]) material?.dispose();
     this.texture?.dispose();
     for (const photo of this.photos) photo.dispose();
   }
@@ -1012,6 +1043,43 @@ class MaterialSet {
 // ---------------------------------------------------------------------------
 
 const UP = new Vector3(0, 1, 0);
+
+/** A soft strip of shade along a wall's room-side edge, on the floor (or under the ceiling). */
+function edgeShade(a: Point, b: Point, inward: Point, height: number, ceiling: boolean, material: MeshBasicMaterial): Mesh {
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  const depth = 28;
+  const mid = { x: (a.x + b.x) / 2 + inward.x * (depth / 2), y: (a.y + b.y) / 2 + inward.y * (depth / 2) };
+  const plane = new Mesh(new PlaneGeometry(m(length), m(depth)), material);
+  const at = toScene(mid, height);
+  plane.position.set(at.x, at.y, at.z);
+  // Lie flat, then turn so the dark edge (the texture's top) is against the wall.
+  const angle = Math.atan2(b.y - a.y, b.x - a.x);
+  plane.rotation.set(ceiling ? Math.PI / 2 : -Math.PI / 2, 0, 0);
+  plane.rotateOnWorldAxis(UP, -angle);
+  if (ceiling) plane.rotateOnWorldAxis(UP, Math.PI);
+  plane.renderOrder = -1;
+  plane.name = 'edge-shade';
+  return plane;
+}
+
+let edgeTexture: CanvasTexture | null = null;
+
+/** Dark along one long edge, fading to nothing (shared by every strip). */
+function edgeShadeTexture(): CanvasTexture {
+  if (edgeTexture) return edgeTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 4;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 4, 64);
+  edgeTexture = new CanvasTexture(canvas);
+  return edgeTexture;
+}
 
 /** Position, turn and size a unit shape to fill a block (or cylinder). */
 function blockMatrix(b: Block | Cylinder): Matrix4 {

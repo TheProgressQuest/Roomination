@@ -61,6 +61,8 @@ export class FurnitureMaterials {
       metalness: preset.metalness,
       map: this.texture(kind, look),
     });
+    // Patterns whose flecks are lighter than the surface: lift the colour so the base matches it.
+    if (preset.lift) material.color.multiplyScalar(1 / preset.lift);
     if (kind === 'velvet') {
       // Velvet's pile catches light at grazing angles.
       material.roughness = Math.max(material.roughness, 0.7);

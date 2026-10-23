@@ -84,19 +84,30 @@ export class Kit {
   }
 
   /** A row of `count` equal doors or drawer fronts across a cabinet's front face, each with a handle. */
-  fronts(kind: 'door' | 'drawer', w: number, d: number, z0: number, z1: number, count: number, o: PartOptions & { handle?: 'bar' | 'knob' | 'none'; handleColor?: string } = {}) {
+  fronts(kind: 'door' | 'drawer', w: number, d: number, z0: number, z1: number, count: number, o: PartOptions & { handle?: 'bar' | 'knob' | 'none'; handleColor?: string; shaker?: boolean } = {}) {
     const gap = 0.4;
     const fw = (w - gap * (count + 1)) / count;
     // Fronts sit 2.5 cm behind the footprint's front edge, so their handles stay inside it.
     const fy = d / 2 - 3.4;
     for (let i = 0; i < count; i++) {
       const x = -w / 2 + gap + fw / 2 + i * (fw + gap);
-      const id = this.box(kind, kind === 'door' ? 'Door' : 'Drawer', x, fy, z0, fw, 1.8, z1 - z0, { radius: 0.3, ...o });
+      const id = this.box(kind, kind === 'door' ? 'Door' : 'Drawer', x, fy - (o.shaker ? 0.5 : 0), z0, fw, o.shaker ? 0.8 : 1.8, z1 - z0, { radius: 0.3, ...o });
+      if (o.shaker) {
+        // A shaker front: a flat frame (stiles and rails) around the recessed panel.
+        const rail = Math.min(6, fw * 0.17, (z1 - z0) * 0.2);
+        const frame = { ...o, parent: id, radius: 0.25 };
+        this.box(kind, 'Stile', -fw / 2 + rail / 2, 0.5, 0, rail, 1.8, z1 - z0, frame);
+        this.box(kind, 'Stile', fw / 2 - rail / 2, 0.5, 0, rail, 1.8, z1 - z0, frame);
+        this.box(kind, 'Rail', 0, 0.5, 0, fw - rail * 2, 1.8, rail, frame);
+        this.box(kind, 'Rail', 0, 0.5, z1 - z0 - rail, fw - rail * 2, 1.8, rail, frame);
+      }
       if (o.handle === 'none') continue;
       const handleColor = o.handleColor ?? '#b08d57';
-      if (o.handle === 'knob') this.cyl('detail', 'Knob', count > 1 && kind === 'door' ? (i % 2 ? -fw / 2 + 4 : fw / 2 - 4) : 0, 0.9, (z1 - z0) * (kind === 'door' ? 0.55 : 0.5), 2.4, 1.5, 2.4, { parent: id, material: 'metal', color: handleColor });
-      else if (kind === 'door') this.box('detail', 'Handle', count > 1 ? (i % 2 ? -fw / 2 + 3 : fw / 2 - 3) : fw / 2 - 3, 0.9, (z1 - z0) * 0.55, 1.2, 1.4, Math.min(16, (z1 - z0) * 0.4), { parent: id, material: 'metal', color: handleColor, radius: 0.5 });
-      else this.box('detail', 'Handle', 0, 0.9, (z1 - z0) * 0.6, Math.min(16, fw * 0.4), 1.4, 1.2, { parent: id, material: 'metal', color: handleColor, radius: 0.5 });
+      // Handles sit on the front face (proud of a shaker frame, which stands out from its panel).
+      const hy = o.shaker ? 1.4 : 0.9;
+      if (o.handle === 'knob') this.cyl('detail', 'Knob', count > 1 && kind === 'door' ? (i % 2 ? -fw / 2 + 4 : fw / 2 - 4) : 0, hy, (z1 - z0) * (kind === 'door' ? 0.55 : 0.5), 2.4, 1.5, 2.4, { parent: id, material: 'metal', color: handleColor });
+      else if (kind === 'door') this.box('detail', 'Handle', count > 1 ? (i % 2 ? -fw / 2 + 3 : fw / 2 - 3) : fw / 2 - 3, hy, (z1 - z0) * 0.55, 1.2, 1.4, Math.min(16, (z1 - z0) * 0.4), { parent: id, material: 'metal', color: handleColor, radius: 0.5 });
+      else this.box('detail', 'Handle', 0, hy, (z1 - z0) * 0.6, Math.min(16, fw * 0.4), 1.4, 1.2, { parent: id, material: 'metal', color: handleColor, radius: 0.5 });
     }
   }
 }

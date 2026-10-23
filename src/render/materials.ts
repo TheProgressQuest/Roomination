@@ -22,7 +22,15 @@ export interface SurfacePreset {
   opacity?: number;
   /** Glows faintly (a lit lampshade). */
   emissive?: boolean;
+  /**
+   * The pattern's base value (< 1 when its flecks are lighter than the surface): the colour is
+   * divided by it, so the surface itself still shows the chosen colour.
+   */
+  lift?: number;
 }
+
+/** Granite's base value (its flecks are lighter and darker than the surface). */
+const GRANITE_BASE = 0.7;
 
 /** Texture resolution: enough for 1–2 m of furniture surface without visible pixels. */
 export const TILE_PX = 256;
@@ -44,6 +52,8 @@ export const SURFACES: Record<SurfaceKind, SurfacePreset> = {
   // Silvered glass. Without real reflections (a later, measured option) it reads as a bright,
   // polished, slightly blue-grey surface.
   mirror: { roughness: 0.06, metalness: 0.15, tileCm: 100, pattern: null },
+  // Speckled stone or laminate worktops: fine light and dark flecks over the chosen colour.
+  granite: { roughness: 0.32, metalness: 0, tileCm: 24, pattern: granite, lift: GRANITE_BASE },
   custom: { roughness: 0.8, metalness: 0, tileCm: 100, pattern: null },
   paper: { roughness: 0.85, metalness: 0, tileCm: 20, pattern: null },
   foliage: { roughness: 0.65, metalness: 0, tileCm: 15, pattern: leafVeins },
@@ -373,6 +383,21 @@ function leafVeins(ctx: CanvasRenderingContext2D, size: number) {
 }
 
 /** Soil and gravel: dense speckle. */
+/** Granite or speckled laminate: a mid base with dense fine flecks, dark and light (a few bright). */
+function granite(ctx: CanvasRenderingContext2D, size: number) {
+  const random = seededRandom(41);
+  const base = Math.round(255 * GRANITE_BASE);
+  ctx.fillStyle = `rgb(${base},${base},${base})`;
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 9000; i++) {
+    const t = random();
+    const v = t < 0.55 ? 40 + random() * 90 : t < 0.93 ? 215 + random() * 40 : 255;
+    ctx.fillStyle = `rgb(${v},${v},${v})`;
+    const r = 0.6 + random() * (t > 0.93 ? 1.6 : 1.1);
+    ctx.fillRect(random() * size, random() * size, r, r);
+  }
+}
+
 function speckle(ctx: CanvasRenderingContext2D, size: number) {
   const random = seededRandom(29);
   for (let i = 0; i < 2400; i++) {

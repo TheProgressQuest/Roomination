@@ -420,7 +420,7 @@ export type BuilderNode =
     }
   | { id: string; type: 'union' | 'subtract' | 'intersect' | 'group'; children: BuilderNode[] };
 
-export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'water' | 'mirror' | 'custom';
+export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'water' | 'mirror' | 'granite' | 'custom';
 export type SurfaceFinish = 'matte' | 'satin' | 'gloss';
 
 /** How a piece looks. Photos are referenced by asset id (stored on this device). */
