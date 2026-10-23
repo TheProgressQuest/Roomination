@@ -11,6 +11,7 @@ import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { normaliseShape, pieceToRoom, scaleShape, shapeProblem } from '../model/shape';
 import { scaleComponents, shiftComponents } from '../model/components';
 import { applyRoomChange } from '../model/roomChange';
+import { carryResting } from '../model/resting';
 import type { CameraView, FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, PhotoTexture, Placement, Point, Project, ReferencePhoto, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
   MAX_ROOM_SPAN,
@@ -204,12 +205,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return commit(state, action.project, { promptForConflicts: false });
     }
     default: {
-      const result = applyEdit(state.present, action);
-      if (typeof result === 'string') {
-        return { ...state, notice: { id: (state.notice?.id ?? 0) + 1, message: result } };
+      const edited = applyEdit(state.present, action);
+      if (typeof edited === 'string') {
+        return { ...state, notice: { id: (state.notice?.id ?? 0) + 1, message: edited } };
       }
+      // Things resting on a moved piece go with it; things on a deleted one go too (undoable).
+      const { project: result, removed } = carryResting(state.present, edited);
       const mergeKey = 'mergeKey' in action ? (action.mergeKey ?? null) : null;
-      return commit(state, result, { promptForConflicts: true, mergeKey });
+      const next = commit(state, result, { promptForConflicts: true, mergeKey });
+      return removed ? { ...next, notice: { id: (next.notice?.id ?? 0) + 1, message: `Also removed ${removed} item${removed === 1 ? '' : 's'} resting on it. Undo brings ${removed === 1 ? 'it' : 'them'} back.` } } : next;
     }
   }
 }

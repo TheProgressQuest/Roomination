@@ -113,6 +113,8 @@ export interface SceneFurniture {
   rotation: number;
   /** Bottom above the floor, cm (wall-mounted and raised pieces). */
   elevation: number;
+  /** Resting on another piece's surface (gets a contact shadow there). */
+  resting: boolean;
   /**
    * The piece's parts in its own frame (see render/furnitureParts), colours and surfaces
    * resolved. Drawn and photo-textured pieces have only supporting parts (a table's pedestal).
@@ -485,6 +487,7 @@ function furnitureBody(item: Furniture): SceneFurniture {
     height,
     rotation: item.rotation,
     elevation: item.elevation ?? 0,
+    resting: !!item.restsOn,
     material: surface,
     finish: item.appearance?.finish ?? 'satin',
     textures,

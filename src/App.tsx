@@ -12,6 +12,7 @@ import { PreviewBar } from './components/PreviewBar';
 import { ProjectsDialog } from './components/ProjectsDialog';
 import { scanSummary } from './components/ScanDetails';
 import { mountOnWall } from './model/placement';
+import { preferredSurface, surfaceCentre } from './model/resting';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SelectionBar } from './components/SelectionBar';
 import { SelectionEditor } from './components/StructureEditors';
@@ -325,10 +326,26 @@ export function App() {
   function placeTemplate(template: FurnitureTemplate) {
     const cascade = (project.furniture.length % 5) * 15;
     const centre = roomCentre(project);
-    const furniture = onWallIfRaised(createFurniture({ ...template, x: centre.x + cascade, y: centre.y + cascade }));
+    const furniture = onSurfaceIfSmall(onWallIfRaised(createFurniture({ ...template, x: centre.x + cascade, y: centre.y + cascade })));
     dispatch({ type: 'furniture/add', furniture });
-    setSelection({ kind: 'object', id: furniture.id });
+    // Decorating: the surface stays selected, so the next accessory goes onto it too.
+    if (furniture.restsOn) dispatch({ type: 'notice/show', message: `Put “${furniture.name}” on “${project.furniture.find((f) => f.id === furniture.restsOn)?.name ?? 'it'}”. Add more, or select it to move it.` });
+    else setSelection({ kind: 'object', id: furniture.id });
     setAddOpen(false);
+  }
+
+  /**
+   * Small décor added while a piece is selected goes onto that piece's worktop or top (spread a
+   * little so several don't stack exactly), resting on it so it moves with it.
+   */
+  function onSurfaceIfSmall(furniture: Furniture): Furniture {
+    const support = selection?.kind === 'object' ? project.furniture.find((f) => f.id === selection.id) : undefined;
+    if (!support || furniture.category !== 'decoration' || Math.max(furniture.width, furniture.depth) > 60) return furniture;
+    const surface = preferredSurface(support);
+    const centre = surfaceCentre(surface);
+    const others = project.furniture.filter((f) => f.restsOn === support.id).length;
+    const nudge = (others % 5) * 6 - 12;
+    return { ...furniture, restsOn: support.id, elevation: surface.height, x: Math.round((centre.x + nudge) * 10) / 10, y: Math.round(centre.y * 10) / 10, rotation: support.rotation };
   }
 
   /** Wall-mounted pieces (mirrors, wall lights, cabinets) go onto the wall nearest where they were placed. */

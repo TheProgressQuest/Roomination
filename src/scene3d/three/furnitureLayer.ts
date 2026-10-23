@@ -268,7 +268,7 @@ export class FurnitureLayer {
       entry.colors.push(part.color);
     }
     // Glass is see-through; small details are covered by contact shadows.
-    mesh.castShadow = casts && surface !== 'glass';
+    mesh.castShadow = casts && surface !== 'glass' && surface !== 'sheer';
     mesh.receiveShadow = true;
     mesh.name = `furniture:${surface}`;
     this.batchOwners.set(mesh, owners);
@@ -278,14 +278,17 @@ export class FurnitureLayer {
   /** A soft, blurred shadow under every solid piece, the size of its footprint. */
   private addContactShadows(furniture: SceneFurniture[]) {
     // Raised and wall-mounted pieces don't touch the floor, so they get no contact shadow there.
-    const solid = furniture.filter((f) => f.height > 2 && f.elevation < 1);
+    // …except things resting on a surface (bottles on a worktop): their shadow is on that surface.
+    const solid = furniture.filter((f) => f.height > 2 && (f.elevation < 1 || f.resting));
     if (solid.length === 0) return;
     const mesh = new InstancedMesh(this.contactPlane, this.contactMaterial, solid.length);
     solid.forEach((f, i) => {
       // A little wider than the piece; bigger pieces get a slightly wider spread.
-      const spread = 6 + Math.min(14, Math.max(f.width, f.depth) * 0.06);
+      // Small things (a bottle) get a tight shadow, not one wider than themselves.
+      const size = Math.max(f.width, f.depth);
+      const spread = Math.min(6 + Math.min(14, size * 0.06), size * 0.35);
       const matrix = new Matrix4().compose(
-        new Vector3(m(f.x), CONTACT_HEIGHT, m(f.y)),
+        new Vector3(m(f.x), CONTACT_HEIGHT + m(f.resting ? f.elevation : 0), m(f.y)),
         new Quaternion().setFromAxisAngle(UP, (-f.rotation * Math.PI) / 180),
         new Vector3(m(f.width + spread * 2), 1, m(f.depth + spread * 2)),
       );

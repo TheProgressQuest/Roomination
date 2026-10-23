@@ -1,5 +1,5 @@
 import { componentId } from '../model/components';
-import type { ComponentShape, ComponentType, FurnitureComponent, MaterialKind, SeamStyle, SurfaceFinish } from '../model/types';
+import type { ComponentShape, ComponentType, FurnitureComponent, MaterialKind, SeamStyle, SurfaceFinish, UpholsteryPattern } from '../model/types';
 
 /**
  * A small vocabulary for describing catalogue items as components. Positions are in the
@@ -19,6 +19,7 @@ export interface PartOptions {
   rotation?: number;
   parent?: string;
   roughness?: number;
+  pattern?: UpholsteryPattern;
 }
 
 export class Kit {
@@ -30,6 +31,7 @@ export class Kit {
     if (o.parent) c.parentId = o.parent;
     if (o.material) c.material = o.material;
     if (o.color) c.color = o.color;
+    if (o.pattern) c.pattern = o.pattern;
     if (o.finish) c.finish = o.finish;
     if (o.radius !== undefined) c.radius = o.radius;
     if (o.edge) c.edgeStyle = o.edge;

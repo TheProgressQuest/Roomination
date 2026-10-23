@@ -34,7 +34,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
   const h = item.depth * scale;
   const isRug = item.category === 'floorCovering';
   // Raised and wall-mounted pieces are drawn dashed, as plans show things above the floor.
-  const raised = (item.elevation ?? 0) > 0;
+  const raised = (item.elevation ?? 0) > 0 && !item.restsOn;
   const lifted = selected || hovered;
   const texture = isRug ? rugTexture(item.texture, item.color) : null;
   const patternScale = texture ? tileScale(texture, scale) : 1;

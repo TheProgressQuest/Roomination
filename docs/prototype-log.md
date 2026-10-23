@@ -8,6 +8,8 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| Decorate My Room | Dragging resting items in 2D and 3D on touch; the Surface picker on iPhone; items on a support that's then resized narrower (they keep their place, possibly past its edge) | M5 |
+| Decorate My Room | Grouping several loose items without a tray (only "rest on" grouping exists) | M5 |
 | Room scan import | A real RoomSheet scan (iPhone 17 Pro): checked locally by status only (it reads, 4 walls, 1 door, 5 objects, project valid). Still to do: look at it in 2D/3D in Safari against the real room | M1 |
 | Room scan import | A real LiDAR Room Scanner "RoomPlan JSON" export (its structure isn't documented) | M1 |
 | Room scan import | A real LiDAR scan end to end; real exports from 3D Model Anything | 8A |
@@ -17,6 +19,24 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Decorate My Room (M5):**
+  - **Resting:** an item rests on one support (`restsOn`) and is carried when the support moves,
+    turns or rises; nesting works (bottle → tray → vanity). Deleting a support deletes what's on
+    it (Undo restores both). Items aren't kept inside the surface's outline if dragged off it.
+  - **Auto-placement:** a small accessory added while a piece is selected lands on that piece's
+    worktop or highest surface, at its centre with a small nudge; other surfaces are chosen under
+    *Rests on*.
+  - **Accessories:** 17 generic procedural items (bottles, pump and spray, jar, cup, candle,
+    tray, soap dish, two-tier organiser, basket, lidded box, towels, cloth, books, succulent,
+    spare roll). No labels or brands; no textured printing.
+  - **Shower curtain:** new *Sheer fabric* material (38% opaque, casts no shadow map); folds vary
+    repeatably in width, depth and hem. Optional pattern (striped variant; any part's pattern
+    can be changed in the studio). Fabric doesn't move or drape.
+  - **Ambient occlusion:** not added. Screen-space AO would need a post-processing pass (a
+    second full-screen render with depth and normals): roughly 2–6 ms per frame on a phone at
+    full resolution, it blocks the renderer's built-in antialiasing, and it halos thin parts
+    such as shelves and rods. Small objects get the existing soft contact shadow at their
+    resting height instead, plus the existing edge darkening.
 - **Fidelity pass (M2.7):**
   - **Lighting balance:** indoors (under the ceiling), daylight drops to 30% and fittings
     provide most of the light. Tuned against one bathroom photo; check other room types and
@@ -111,6 +131,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Resting items add one contact-shadow quad and a few parts each | 30 accessories in the bathroom: 54 draw calls, 23k triangles, 0.6 ms CPU per frame; measure on an iPhone with a fuller room |
 | Lighting retune (M2.7) changes every interior view | Re-check the existing 3D screenshots and other rooms before release |
 | Light cost on the GPU | Only CPU frame time is measured (under 1 ms at Low, Medium and High with a fitting, the ceiling and a mirror); measure frame rates on an iPhone and iPad with several lights before release |
 | Lights, trim and door controls | Only desktop Chromium; check touch sizes in the Light and Trim controls on iPhone (44 px) |

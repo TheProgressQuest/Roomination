@@ -85,6 +85,30 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     expect(errors).toEqual([]);
   });
 
+  test('Decorate: a bottle added with a vanity selected sits on its worktop and moves with it', async ({ page }) => {
+    const errors = await openApp(page);
+    await toolsTab(page, 'Furnish');
+    const cat = tools(page).locator('.catalogue');
+    await cat.getByLabel('Search the catalogue').fill('vanity');
+    await cat.getByRole('button', { name: /^Add Vanity, drop-in basin\b/ }).click();
+    await cat.getByLabel('Search the catalogue').fill('pump bottle');
+    await cat.getByRole('button', { name: /^Add Pump bottle\b/ }).click();
+    await expect(page.getByText(/Put “Pump bottle” on/)).toBeVisible();
+    // The vanity is still selected: move it, and the bottle goes along.
+    const props = page.locator('.properties-panel');
+    await props.getByLabel('From left', { exact: true }).fill('150');
+    await props.getByLabel('From left', { exact: true }).press('Enter');
+    const project = await exportProject(page);
+    type Piece = { id: string; name: string; x: number; elevation?: number; restsOn?: string };
+    const pieces = project.furniture as Piece[];
+    const vanity = pieces.find((f) => f.name.startsWith('Vanity'))!;
+    const bottle = pieces.find((f) => f.name === 'Pump bottle')!;
+    expect(bottle.restsOn).toBe(vanity.id);
+    expect(bottle.elevation).toBe(81);
+    expect(Math.abs(bottle.x - 150)).toBeLessThan(45);
+    expect(errors).toEqual([]);
+  });
+
   test('Match my room: a photo’s colour goes onto the walls, locally', async ({ page, baseURL }) => {
     const errors = await openApp(page);
     const origin = new URL(baseURL!).origin;

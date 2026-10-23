@@ -2,7 +2,7 @@ import { buildPreset, type PresetId } from '../builder/furniturePresets';
 import { curvedOutline, recomputeComponents } from '../builder/componentGeometry';
 import { componentExtent } from '../model/components';
 import { normaliseShape } from '../model/shape';
-import type { FurnitureKind, FurnitureLight, FurnitureShape, FurnitureTexture, MaterialKind, ShapeVertex, SurfaceFinish } from '../model/types';
+import type { FurnitureKind, FurnitureLight, FurnitureShape, FurnitureTexture, MaterialKind, ShapeVertex, SurfaceFinish, UpholsteryPattern } from '../model/types';
 import type { FurnitureTemplate } from '../storage/projectFile';
 import { Kit } from './kit';
 
@@ -15,9 +15,10 @@ import { Kit } from './kit';
  * Nothing here comes from another product's catalogue: shapes are generic, sizes typical.
  */
 
-export type CatalogueCategory = 'living' | 'dining' | 'bedroom' | 'office' | 'kitchen' | 'bathroom' | 'laundry' | 'sauna' | 'outdoor' | 'lighting' | 'decor' | 'rugs';
+export type CatalogueCategory = 'accessories' | 'living' | 'dining' | 'bedroom' | 'office' | 'kitchen' | 'bathroom' | 'laundry' | 'sauna' | 'outdoor' | 'lighting' | 'decor' | 'rugs';
 
 export const CATEGORY_LABELS: Record<CatalogueCategory, string> = {
+  accessories: 'Accessories',
   living: 'Living room',
   dining: 'Dining',
   bedroom: 'Bedroom',
@@ -374,19 +375,116 @@ function pegboard(k: Kit, b: Base, shelves: number) {
   }
 }
 
-/** A shower curtain on a rod: pleated fabric hanging from rings. */
-function showerCurtain(k: Kit, b: Base, material: MaterialKind = 'cotton') {
+// ---------------------------------------------------------------------------
+// Accessories: small everyday things for worktops, shelves and tables (generic, no brands)
+// ---------------------------------------------------------------------------
+
+/** A bottle: body, shoulder and cap; or a pump (dispenser) or a trigger spray on top. */
+function bottle(k: Kit, b: Base, top: 'cap' | 'pump' | 'spray', cap = '#f4f4f2') {
+  const { width: w, depth: d, height: h } = b;
+  const body = top === 'spray' ? h * 0.62 : h * 0.72;
+  k.cyl('base', 'Bottle', 0, 0, 0, w, d, body, { material: 'plastic', color: b.color, finish: 'gloss' });
+  k.cyl('base', 'Shoulder', 0, 0, body, w, d, h * 0.08, { material: 'plastic', color: b.color, finish: 'gloss', taper: 0.55 });
+  const neck = body + h * 0.08;
+  if (top === 'cap') k.cyl('detail', 'Cap', 0, 0, neck, w * 0.45, d * 0.45, h - neck, { material: 'plastic', color: cap, finish: 'satin' });
+  if (top === 'pump') {
+    k.cyl('detail', 'Collar', 0, 0, neck, w * 0.42, d * 0.42, h * 0.06, { material: 'plastic', color: cap, finish: 'satin' });
+    k.cyl('detail', 'Stem', 0, 0, neck + h * 0.06, w * 0.15, w * 0.15, h * 0.08, { material: 'plastic', color: cap });
+    k.box('detail', 'Pump head', 0, d * 0.1, h - h * 0.06, w * 0.3, d * 0.75, h * 0.06, { material: 'plastic', color: cap, radius: 0.4 });
+  }
+  if (top === 'spray') {
+    k.cyl('detail', 'Collar', 0, 0, neck, w * 0.5, d * 0.5, h * 0.05, { material: 'plastic', color: cap });
+    k.box('detail', 'Trigger head', 0, d * 0.05, neck + h * 0.05, w * 0.45, d * 0.85, h - neck - h * 0.05, { material: 'plastic', color: cap, radius: 0.8 });
+  }
+}
+
+/** A cup, jar or candle: an upright cylinder, with a lid or a rim. */
+function cup(k: Kit, b: Base, lid: string | null, material: MaterialKind = 'ceramic') {
+  const { width: w, depth: d, height: h } = b;
+  k.cyl('base', 'Body', 0, 0, 0, w, d, lid ? h * 0.85 : h, { material, color: b.color, finish: 'gloss', taper: lid ? 1 : 1.12 });
+  if (lid) k.cyl('detail', 'Lid', 0, 0, h * 0.85, w * 1.0, d * 1.0, h * 0.15, { material: 'plastic', color: lid, finish: 'satin' });
+}
+
+/** A tray or soap dish: a thin base with a low rim (things rest on its base). */
+function tray(k: Kit, b: Base, material: MaterialKind) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('tabletop', 'Base', -w / 2, w / 2, -d / 2, d / 2, 0, Math.min(1, h / 3), { material, color: b.color, radius: 0.3 });
+  rim(k, 4, 0, h, 0.8, { material, color: b.color, radius: 0.3 });
+}
+
+/** A two-tier organiser: black posts with two wooden shelves (things rest on the shelves). */
+function organiser(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) k.cyl('leg', 'Post', sx * (w / 2 - 0.6), sy * (d / 2 - 0.6), 0, 1.2, 1.2, h, { material: 'metal', color: '#1f2124' });
+  for (const z of [1.5, h * 0.55]) k.span('shelf', 'Shelf', -w / 2, w / 2, -d / 2, d / 2, z, z + 1.2, { material: 'wood', color: b.color, radius: 0.2 });
+}
+
+/** A small woven basket for a shelf or worktop. */
+function smallBasket(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Basket', -w / 2, w / 2, -d / 2, d / 2, 0, h, { material: 'linen', color: b.color, radius: 1.5 });
+  k.span('detail', 'Rim', -w / 2, w / 2, -d / 2, d / 2, h - 1.5, h, { material: 'linen', color: '#8a6a45', radius: 0.8 });
+}
+
+/** Towels folded and stacked. */
+function towels(k: Kit, b: Base, count: number) {
+  const { width: w, depth: d, height: h } = b;
+  const each = h / count;
+  for (let i = 0; i < count; i++) k.span('cushion', 'Towel', -w / 2 + (i % 2) * 0.6, w / 2 - ((i + 1) % 2) * 0.6, -d / 2, d / 2, i * each, (i + 1) * each, { material: 'cotton', color: b.color, radius: Math.min(2, each / 2) });
+}
+
+/** A short stack of books in a few colours. */
+function books(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  const colours = ['#7a3b2e', '#2f4858', b.color];
+  colours.forEach((c, i) => {
+    const inset = i * 1.2;
+    k.span('detail', 'Book', -w / 2 + inset, w / 2 - inset * 0.5, -d / 2 + inset * 0.6, d / 2 - inset * 0.3, (i * h) / 3, ((i + 1) * h) / 3, { material: 'custom', color: c, radius: 0.3 });
+  });
+}
+
+/** A small potted plant: a pot and a few soft leaves. */
+function pottedPlant(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.cyl('base', 'Pot', 0, 0, 0, w * 0.7, d * 0.7, h * 0.4, { material: 'ceramic', color: b.color, taper: 1.2 });
+  const leaf = { material: 'custom' as MaterialKind, color: '#5f8a5b' };
+  k.soft('detail', 'Leaves', 0, 0, h * 0.35, w * 0.8, d * 0.8, h * 0.5, leaf);
+  k.soft('detail', 'Leaves', w * 0.12, -d * 0.1, h * 0.55, w * 0.55, d * 0.55, h * 0.45, { ...leaf, color: '#6e9c66' });
+}
+
+/** A lidded box (cotton buds, storage). */
+function lidBox(k: Kit, b: Base, lid: string) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Box', -w / 2, w / 2, -d / 2, d / 2, 0, h * 0.82, { material: 'plastic', color: b.color, finish: 'satin', radius: 0.6 });
+  k.span('tabletop', 'Lid', -w / 2, w / 2, -d / 2, d / 2, h * 0.82, h, { material: 'wood', color: lid, radius: 0.6 });
+}
+
+/** A repeatable 0–1 value for fold number `i`, so a curtain looks the same every time it's built. */
+function jitter(i: number): number {
+  const v = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+/**
+ * A shower curtain on a rod: fabric hanging in uneven folds from rings. Fold widths, depths and
+ * hem lengths vary a little (repeatably), as real fabric does; `pattern` adds a subtle print.
+ */
+function showerCurtain(k: Kit, b: Base, material: MaterialKind = 'cotton', pattern?: UpholsteryPattern) {
   const { width: w, depth: d, height: h } = b;
   k.span('support', 'Rod', -w / 2, w / 2, -1.2, 1.2, h - 2.4, h, { material: 'metal', color: STEEL, finish: 'gloss', radius: 1.1 });
   const pleats = Math.max(4, Math.round(w / 9));
   const pw = w / pleats;
+  let x = -w / 2;
   for (let i = 0; i < pleats; i++) {
-    const x = -w / 2 + pw / 2 + i * pw;
-    // Folds alternate towards the front and the back of the curtain's depth.
+    // Each fold takes 75–125% of an even share, so the folds bunch and spread unevenly.
+    const share = i === pleats - 1 ? w / 2 - x : Math.min(w / 2 - x, pw * (0.75 + jitter(i) * 0.5));
+    const centre = x + share / 2;
+    x += share;
     // Folds overlap their neighbours, except at the ends where they stop at the curtain's edge.
-    const fw = Math.min(pw * 1.35, (w / 2 - Math.abs(x)) * 2);
-    // Upright, elliptical pleats read as soft folds of hanging fabric.
-    k.cyl('cushion', 'Fold', x, (i % 2 ? 1 : -1) * (d / 2 - 1.6), 0, fw, 3.2, h - 4, { material, color: b.color });
+    const fw = Math.min(share * 1.4, (w / 2 - Math.abs(centre)) * 2);
+    const out = (i % 2 ? 1 : -1) * (d / 2 - 1.6) * (0.6 + jitter(i + 31) * 0.4);
+    const hem = jitter(i + 57) * 2.5;
+    k.cyl('cushion', 'Fold', centre, out, hem, fw, 2.4 + jitter(i + 83) * 1.6, h - 4 - hem, { material, color: b.color, ...(pattern ? { pattern } : {}) });
   }
 }
 
@@ -809,12 +907,29 @@ export const CATALOGUE: CatalogueItem[] = [
   built('vanity-countertop-basin', 'Vanity, countertop basin', 'bathroom', 'basin sink vessel wash', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'countertop', { material: 'stone', color: MARBLE })),
   built('vanity-integrated', 'Vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'integrated', { material: 'ceramic', color: CERAMIC })),
   built('vanity-integrated-wide', 'Wide vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 120, depth: 50, height: 86, color: OAK }, (k, b) => vanityTop(k, b, 'integrated', { material: 'stone', color: MARBLE })),
+  built('pump-bottle', 'Pump bottle', 'accessories', 'soap dispenser hand wash lotion', { kind: 'decor', category: 'decoration', width: 7, depth: 7, height: 19, color: '#f2f0eb' }, (k, b) => bottle(k, b, 'pump')),
+  built('tall-bottle', 'Tall bottle', 'accessories', 'shampoo toiletry bottle', { kind: 'decor', category: 'decoration', width: 6, depth: 6, height: 22, color: '#3d6fb4' }, (k, b) => bottle(k, b, 'cap')),
+  built('small-bottle', 'Small bottle', 'accessories', 'serum toner toiletry bottle', { kind: 'decor', category: 'decoration', width: 4.5, depth: 4.5, height: 12, color: '#e9e6df' }, (k, b) => bottle(k, b, 'cap', '#c9a24a')),
+  built('spray-bottle', 'Spray bottle', 'accessories', 'cleaner trigger spray', { kind: 'decor', category: 'decoration', width: 9, depth: 6, height: 24, color: '#f4f3ef' }, (k, b) => bottle(k, b, 'spray')),
+  built('jar', 'Round jar', 'accessories', 'cream pot container tub', { kind: 'decor', category: 'decoration', width: 8, depth: 8, height: 7, color: '#f1efe9' }, (k, b) => cup(k, b, '#d9d6cf', 'plastic')),
+  built('tumbler', 'Cup', 'accessories', 'tumbler glass toothbrush cup', { kind: 'decor', category: 'decoration', width: 8, depth: 8, height: 10, color: '#cfd8e2' }, (k, b) => cup(k, b, null, 'plastic')),
+  built('candle', 'Candle', 'accessories', 'candle jar scented', { kind: 'decor', category: 'decoration', width: 8, depth: 8, height: 9, color: '#efe7d8' }, (k, b) => cup(k, b, null, 'glass')),
+  built('tray', 'Tray', 'accessories', 'vanity tray organiser', { kind: 'decor', category: 'decoration', width: 30, depth: 18, height: 3, color: '#e8e4dc' }, (k, b) => tray(k, b, 'plastic')),
+  built('soap-dish', 'Soap dish', 'accessories', 'soap holder', { kind: 'decor', category: 'decoration', width: 12, depth: 9, height: 2, color: '#f3f2ee' }, (k, b) => tray(k, b, 'ceramic')),
+  built('organiser-2', 'Two-tier organiser', 'accessories', 'shelf rack counter organizer caddy', { kind: 'decor', category: 'decoration', width: 40, depth: 20, height: 32, color: '#c9a77c' }, organiser),
+  built('small-basket', 'Woven basket', 'accessories', 'storage basket organizer', { kind: 'decor', category: 'decoration', width: 30, depth: 20, height: 14, color: '#c4a77d' }, smallBasket),
+  built('lidded-box', 'Lidded box', 'accessories', 'cotton bud storage box bamboo', { kind: 'decor', category: 'decoration', width: 25, depth: 12, height: 10, color: '#eef0f1' }, (k, b) => lidBox(k, b, '#c8a77a')),
+  built('folded-towels', 'Folded towels', 'accessories', 'towel stack bath', { kind: 'decor', category: 'decoration', width: 30, depth: 20, height: 12, color: '#f2f0ea' }, (k, b) => towels(k, b, 3)),
+  built('cloth', 'Folded cloth', 'accessories', 'face cloth washcloth napkin', { kind: 'decor', category: 'decoration', width: 15, depth: 15, height: 1.5, color: '#5b8fd6' }, (k, b) => towels(k, b, 1)),
+  built('book-stack', 'Book stack', 'accessories', 'books magazines', { kind: 'decor', category: 'decoration', width: 22, depth: 16, height: 9, color: '#c9b79c' }, books),
+  built('succulent', 'Small succulent', 'accessories', 'plant pot cactus', { kind: 'decor', category: 'decoration', width: 10, depth: 10, height: 13, color: '#e7e2d8' }, pottedPlant),
+  built('spare-roll', 'Spare toilet roll', 'accessories', 'toilet paper', { kind: 'decor', category: 'decoration', width: 11, depth: 11, height: 10, color: '#f6f5f2' }, (k, b) => cup(k, b, null, 'cotton')),
   built('vanity-drop-in', 'Vanity, drop-in basin', 'bathroom', 'basin sink oval laminate shaker', { kind: 'fixture', width: 90, depth: 53, height: 81, color: WHITE }, (k, b) => vanityTop(k, b, 'dropIn', { material: 'granite', color: '#3a3b3e' }, 'knob')),
   built('backsplash', 'Backsplash strip', 'bathroom', 'splashback upstand worktop kitchen', { kind: 'fixture', width: 90, depth: 1.5, height: 10, color: WHITE, elevation: 80 }, (k, b) => {
     k.box('base', 'Backsplash', 0, 0, 0, b.width, b.depth, b.height, { material: 'stone', color: b.color, finish: 'satin', radius: 0.3 });
   }),
   built('vanity-light-3', 'Three-light vanity bar', 'bathroom', 'wall light lamp over mirror shades', { kind: 'fixture', width: 62, depth: 20, height: 22, color: STEEL, elevation: 195, light: lamp(1200) }, (k, b) => lightBar(k, b, 3)),
-  built('shower-curtain-clear', 'Clear shower curtain', 'bathroom', 'bath curtain plastic liner', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#eef1f3', elevation: 25 }, (k, b) => showerCurtain(k, b, 'glass')),
+  built('shower-curtain-clear', 'Clear shower curtain', 'bathroom', 'bath curtain plastic liner', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#eef1f3', elevation: 25 }, (k, b) => showerCurtain(k, b, 'sheer')),
   built('toilet-roll-holder', 'Toilet roll holder', 'bathroom', 'paper tissue', { kind: 'fixture', width: 16, depth: 14, height: 12, color: STEEL, elevation: 65 }, rollHolder),
   built('pegboard', 'Pegboard with shelves', 'office', 'wall organiser shelf storage', { kind: 'storage', width: 36, depth: 12, height: 56, color: WHITE, elevation: 120 }, (k, b) => pegboard(k, b, 3)),
   built('mirror-wall', 'Wall mirror', 'bathroom', 'mirror looking glass', { kind: 'decor', width: 60, depth: 3, height: 80, color: '#c9cdd1', elevation: 110 }, (k, b) => mirror(k, b, false, { material: 'metal', color: '#2b2d31' })),
@@ -823,6 +938,7 @@ export const CATALOGUE: CatalogueItem[] = [
   built('mirror-cabinet', 'Mirror cabinet', 'bathroom', 'medicine cabinet mirror', { kind: 'fixture', width: 60, depth: 14, height: 70, color: WHITE, elevation: 120 }, mirrorCabinet),
   built('wall-cabinet-bath', 'Bathroom wall cabinet', 'bathroom', 'over toilet storage cupboard', { kind: 'fixture', width: 60, depth: 22, height: 70, color: WHITE, elevation: 140 }, wallCabinet),
   built('vanity-light', 'Vanity light bar', 'bathroom', 'wall light lamp over mirror', { kind: 'fixture', width: 60, depth: 9, height: 10, color: STEEL, elevation: 195, light: lamp(900) }, (k, b) => wallLight(k, b, 'bar')),
+  built('shower-curtain-striped', 'Striped shower curtain', 'bathroom', 'bath curtain pattern', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#e9edf0', elevation: 25 }, (k, b) => showerCurtain(k, b, 'sheer', 'stripes')),
   built('shower-curtain', 'Shower curtain and rod', 'bathroom', 'bath curtain', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#f2f0ea', elevation: 25 }, showerCurtain),
   built('towel-bar', 'Towel bar', 'bathroom', 'towel rail rack holder', { kind: 'fixture', width: 60, depth: 9, height: 45, color: STEEL, elevation: 80 }, towelBar),
   // Laundry ----------------------------------------------------------------------

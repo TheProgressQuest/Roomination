@@ -106,6 +106,7 @@ const MATERIALS: { value: MaterialKind | 'piece'; label: string }[] = [
   { value: 'water', label: 'Water (baths, hot tubs)' },
   { value: 'mirror', label: 'Mirror' },
   { value: 'granite', label: 'Granite / speckled laminate' },
+  { value: 'sheer', label: 'Sheer fabric (see-through)' },
   { value: 'custom', label: 'Custom (plain)' },
 ];
 const PATTERNS: { value: UpholsteryPattern; label: string }[] = [

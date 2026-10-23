@@ -182,6 +182,22 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     ? data.acceptedOverlaps.filter((key): key is string => typeof key === 'string' && key.length < 300).slice(0, MAX_ITEMS)
     : [];
 
+  // A piece rests only on a piece that exists, never (through others) on itself.
+  const byId = new Map(furniture.map((f) => [f.id, f]));
+  for (const f of furniture) {
+    if (!f.restsOn) continue;
+    let at: string | undefined = f.restsOn;
+    let ok = false;
+    for (let depth = 0; depth < 10; depth++) {
+      if (!at || at === f.id || !byId.has(at)) break;
+      at = byId.get(at)!.restsOn;
+      if (!at) {
+        ok = true;
+        break;
+      }
+    }
+    if (!ok) delete f.restsOn;
+  }
   const ids = new Set(furniture.map((f) => f.id));
   const fengShui = parseFengShui(data.fengShui, features);
   const scan = parseScanRecord(data.scan);
@@ -468,6 +484,7 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   if (appearance) item.appearance = appearance;
   const light = parseLight(raw.light);
   if (light) item.light = light;
+  if (typeof raw.restsOn === 'string' && raw.restsOn.length <= 100) item.restsOn = raw.restsOn;
   const components = parseComponents(raw.components);
   if (components) item.components = components;
   if (raw.shape === undefined) return item;
@@ -681,7 +698,7 @@ export function parseComponents(raw: unknown): FurnitureComponent[] | undefined 
   return out.length > 0 ? out : undefined;
 }
 
-const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'water', 'mirror', 'granite', 'custom'];
+const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'water', 'mirror', 'granite', 'sheer', 'custom'];
 const FINISHES: SurfaceFinish[] = ['matte', 'satin', 'gloss'];
 /** Photos are referenced by the SHA-256 of their bytes. */
 const ASSET_ID = /^[0-9a-f]{64}$/;

@@ -14,6 +14,8 @@ import { furnitureOrigin, ORIGIN_LABELS, saveToLibrary, toTemplate } from '../st
 import { NumberField } from './NumberField';
 import { ScanDetails } from './ScanDetails';
 import { mountOnWall } from '../model/placement';
+import { pointInPolygon } from '../model/polygon';
+import { restingOn, surfaceCentre, surfacesOf } from '../model/resting';
 import { SegmentedControl } from './SegmentedControl';
 
 // The catalogue loads only when someone changes a piece's model.
@@ -82,6 +84,8 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
       <ModelSection item={item} onApply={(changes) => change(changes)} />
 
       {item.light && <LightSection light={item.light} onChange={(light, live) => change({ light }, live ? `light:${item.id}` : undefined)} />}
+
+      <RestsOnSection project={project} item={item} onChange={(changes) => change(changes)} />
 
       <Section title="Height above floor" hint="For mirrors, wall cabinets, wall lights and shelves. Raised pieces are drawn dashed on the plan and only collide with things at the same height.">
         <div className="field-grid two">
@@ -183,6 +187,50 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
         >
           <Icon name="download" size={14} /> Save to my library
         </button>
+      </div>
+    </Section>
+  );
+}
+
+/** Which surface a piece rests on (a worktop, a shelf, a tray): it then moves with that piece. */
+function RestsOnSection({ project, item, onChange }: { project: Project; item: Furniture; onChange: (changes: Partial<Furniture>) => void }) {
+  const selectId = useId();
+  const excluded = new Set([item.id, ...restingOn(project.furniture, item.id)]);
+  const near = (f: Furniture) => Math.hypot(f.x - item.x, f.y - item.y);
+  const candidates = project.furniture
+    .filter((f) => !excluded.has(f.id) && f.category !== 'floorCovering')
+    .sort((a, b) => (a.id === item.restsOn ? -1 : b.id === item.restsOn ? 1 : near(a) - near(b)))
+    .slice(0, 12);
+  const options = candidates.flatMap((f) => surfacesOf(f).map((s) => ({ key: `${f.id}|${s.name}`, label: `${f.name} · ${s.name} (${Math.round(s.height)} cm)`, surface: s })));
+  const current = item.restsOn ? options.find((o) => o.surface.pieceId === item.restsOn && Math.abs(o.surface.height - (item.elevation ?? 0)) < 1) : undefined;
+  return (
+    <Section title="Rests on" hint="Put it on a worktop, shelf or tray: it then moves, turns and rises with that piece.">
+      <div className="field">
+        <label htmlFor={selectId}>Surface</label>
+        <select
+          id={selectId}
+          value={current?.key ?? (item.restsOn ? 'other' : '')}
+          disabled={item.locked}
+          onChange={(e) => {
+            if (!e.target.value) {
+              onChange({ restsOn: undefined, elevation: undefined });
+              return;
+            }
+            const picked = options.find((o) => o.key === e.target.value);
+            if (!picked) return;
+            const inside = pointInPolygon({ x: item.x, y: item.y }, picked.surface.outline);
+            const at = inside ? { x: item.x, y: item.y } : surfaceCentre(picked.surface);
+            onChange({ restsOn: picked.surface.pieceId, elevation: picked.surface.height, x: Math.round(at.x * 10) / 10, y: Math.round(at.y * 10) / 10 });
+          }}
+        >
+          <option value="">Nothing (the floor or a wall)</option>
+          {item.restsOn && !current && <option value="other">{project.furniture.find((f) => f.id === item.restsOn)?.name ?? 'Another piece'}</option>}
+          {options.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
     </Section>
   );

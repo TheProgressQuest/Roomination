@@ -54,6 +54,8 @@ export const SURFACES: Record<SurfaceKind, SurfacePreset> = {
   mirror: { roughness: 0.06, metalness: 0.15, tileCm: 100, pattern: null },
   // Speckled stone or laminate worktops: fine light and dark flecks over the chosen colour.
   granite: { roughness: 0.32, metalness: 0, tileCm: 24, pattern: granite, lift: GRANITE_BASE },
+  // Thin, see-through fabric (shower curtains, voile): light passes through it.
+  sheer: { roughness: 0.9, metalness: 0, tileCm: 10, pattern: twill, opacity: 0.38 },
   custom: { roughness: 0.8, metalness: 0, tileCm: 100, pattern: null },
   paper: { roughness: 0.85, metalness: 0, tileCm: 20, pattern: null },
   foliage: { roughness: 0.65, metalness: 0, tileCm: 15, pattern: leafVeins },

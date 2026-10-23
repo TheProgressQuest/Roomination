@@ -84,6 +84,7 @@ const MATERIALS: { value: MaterialKind | 'none'; label: string }[] = [
   { value: 'plastic', label: 'Plastic' },
   { value: 'mirror', label: 'Mirror' },
   { value: 'granite', label: 'Granite' },
+  { value: 'sheer', label: 'Sheer fabric' },
   { value: 'custom', label: 'Custom' },
 ];
 const FINISHES: { value: SurfaceFinish; label: string }[] = [

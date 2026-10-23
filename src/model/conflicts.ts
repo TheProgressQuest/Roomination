@@ -145,7 +145,8 @@ function partitionBodies(partition: Partition, openings: Map<string, Span[]>): P
  */
 export function findConflicts(project: Project, onlyItemId?: string, onlyObstacleId?: string): Conflict[] {
   const accepted = new Set(project.acceptedOverlaps);
-  const solids = project.furniture.filter(isSolid);
+  // Small things resting on furniture (bottles on a worktop) don't raise overlap warnings.
+  const solids = project.furniture.filter((f) => isSolid(f) && !f.restsOn);
   const footprints = new Map(solids.map((item) => [item.id, roomFootprint(item)]));
   const clearances = solids.flatMap((owner) => {
     const zone = furnitureClearanceZone(owner);
