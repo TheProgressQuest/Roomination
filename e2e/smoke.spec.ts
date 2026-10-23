@@ -115,6 +115,15 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     const project = await exportProject(page);
     expect(project.room.wallColor).toBe('#8ea393');
     expect(project.referencePhotos).toHaveLength(1);
+
+    // Line the camera up with the photo and save the view.
+    await page.getByRole('button', { name: /^Projects/ }).isVisible();
+    await panel.getByRole('radio', { name: 'Line up camera' }).click();
+    await expect(page.locator('.view3d-overlay')).toBeVisible();
+    await panel.getByLabel('Save this view as').fill('From the door');
+    await panel.getByRole('button', { name: 'Save view' }).click();
+    const withView = await exportProject(page);
+    expect(withView.cameraViews).toHaveLength(1);
     expect(outside).toEqual([]);
     expect(errors).toEqual([]);
   });

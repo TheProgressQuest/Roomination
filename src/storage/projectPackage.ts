@@ -151,7 +151,12 @@ export function withAssets(project: Project, map: (id: string) => string | null)
       .filter(([, f]) => f.color || f.texture),
   );
   const photos = (project.referencePhotos ?? []).map((p) => texture(p)).filter((p) => p !== undefined);
-  const { referencePhotos: _photos, ...rest } = project;
+  // A saved view keeps working without its photo; it just loses the link to it.
+  const views = (project.cameraViews ?? []).map(({ photoAssetId, ...v }) => {
+    const id = photoAssetId ? map(photoAssetId) : null;
+    return id ? { ...v, photoAssetId: id } : v;
+  });
+  const { referencePhotos: _photos, cameraViews: _views, ...rest } = project;
   return {
     ...rest,
     room: {
@@ -162,6 +167,7 @@ export function withAssets(project: Project, map: (id: string) => string | null)
     },
     furniture: project.furniture.map((f) => remapFurniture(f, map)),
     ...(photos.length ? { referencePhotos: photos } : {}),
+    ...(views.length ? { cameraViews: views } : {}),
   };
 }
 

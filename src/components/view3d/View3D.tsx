@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Project } from '../../model/types';
+import type { CameraPose, Project } from '../../model/types';
 import { formatLength } from '../../model/units';
 import type {} from '../../scene3d/diagnostics';
 import { buildFurniture, buildRoomModel } from '../../scene3d/model';
@@ -25,6 +25,23 @@ export interface View3DProps {
   matchOpen?: boolean;
   onToggleMatch?: () => void;
   sidePanel?: ReactNode;
+  /** A photo laid over the view for lining the camera up (the view takes the photo's shape). */
+  overlay?: PhotoOverlay | null;
+  /** Lets Match My Room place the camera by hand. */
+  onCameraApi?: (api: CameraApi | null) => void;
+}
+
+export interface PhotoOverlay {
+  url: string;
+  /** Width ÷ height of the photo. */
+  aspect: number;
+  /** 0–1. */
+  opacity: number;
+}
+
+export interface CameraApi {
+  pose(): CameraPose;
+  setManual(pose: CameraPose | null): void;
 }
 
 const CAMERA_OPTIONS: { value: CameraPreset; label: string }[] = [
@@ -44,7 +61,7 @@ const QUALITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 
 export default function View3D(props: View3DProps) {
-  const { project, selectedId, theme, preferences, touch, onPreferences, onSelect, onExit, matchOpen, onToggleMatch, sidePanel } = props;
+  const { project, selectedId, theme, preferences, touch, onPreferences, onSelect, onExit, matchOpen, onToggleMatch, sidePanel, overlay } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<RoomViewer | null>(null);
   const [status, setStatus] = useState<Status>('ready');
@@ -53,8 +70,8 @@ export default function View3D(props: View3DProps) {
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   // Callbacks change identity on every render; the viewer always calls the latest ones.
-  const latest = useRef({ onSelect });
-  latest.current = { onSelect };
+  const latest = useRef({ onSelect, onCameraApi: props.onCameraApi });
+  latest.current = { onSelect, onCameraApi: props.onCameraApi };
 
   // Rebuild only what changed: furniture moves far more often than walls.
   const { room, furniture, features, stairs } = project;
@@ -93,7 +110,9 @@ export default function View3D(props: View3DProps) {
       cameraPosition: () => viewer.cameraPosition(),
     };
     setStatus('ready');
+    latest.current.onCameraApi?.({ pose: () => viewer.cameraPose(), setManual: (pose) => viewer.setManualCamera(pose) });
     return () => {
+      latest.current.onCameraApi?.(null);
       viewer.dispose();
       viewerRef.current = null;
       delete window.__roomination3D;
@@ -120,6 +139,25 @@ export default function View3D(props: View3DProps) {
   }, [theme, attempt]);
 
   const selected = project.furniture.find((f) => f.id === selectedId) ?? null;
+
+  // While lining up with a photo, the view is sized to the photo's exact shape (fitted to the space).
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [space, setSpace] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setSpace({ width: body.clientWidth, height: body.clientHeight }));
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, []);
+  const panelWidth = space ? space.width - (sidePanel ? (bodyRef.current?.querySelector('.match-panel')?.clientWidth ?? 0) + 10 : 0) : 0;
+  const fitted =
+    overlay && space && panelWidth > 0
+      ? (() => {
+          const height = Math.min(space.height, panelWidth / overlay.aspect);
+          return { width: height * overlay.aspect, height };
+        })()
+      : null;
 
   function choosePreset(preset: CameraPreset) {
     onPreferences({ camera: preset });
@@ -179,11 +217,13 @@ export default function View3D(props: View3DProps) {
         </label>
       </div>
 
-      <div className="view3d-body">
-      <section className="canvas-panel view3d-panel" aria-label="3D view">
+      <div className="view3d-body" ref={bodyRef}>
+      <section className={`canvas-panel view3d-panel${overlay ? ' is-matching' : ''}`} aria-label="3D view" style={fitted ? { width: fitted.width, height: fitted.height } : undefined}>
         <div ref={containerRef} key={attempt} className="view3d-canvas" />
+        {overlay && <img className="view3d-overlay" src={overlay.url} alt="" style={{ opacity: overlay.opacity }} />}
 
-        {status === 'ready' && (
+        {/* While lining up with a photo, nothing covers it (the camera is placed by the panel). */}
+        {status === 'ready' && !overlay && (
           <>
             {selected && (
               <div className="view3d-selected" role="status">

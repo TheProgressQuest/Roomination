@@ -33,7 +33,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { pointInPolygon, signedArea2, type Polygon } from '../../model/polygon';
-import type { PhotoTexture, Point } from '../../model/types';
+import type { CameraPose, PhotoTexture, Point } from '../../model/types';
 import { floorTexture } from '../../render/textures';
 import { loadAssetImage } from '../../storage/assets';
 import type { CameraPreset, WallMode } from '../../state/preferences';
@@ -114,6 +114,8 @@ export class RoomViewer {
 
   private frameRequest = 0;
   private transition: { frame: number } | null = null;
+  /** The orbiting camera, kept while a manual camera is in use. */
+  private orbitBefore: { position: Vector3; target: Vector3; fov: number } | null = null;
   private roomBuildMs = 0;
   private furnitureBuildMs = 0;
   private framesRendered = 0;
@@ -351,6 +353,59 @@ export class RoomViewer {
     const v = new Vector3(s.x, s.y, s.z).project(this.camera);
     const rect = this.renderer.domElement.getBoundingClientRect();
     return { x: ((v.x + 1) / 2) * rect.width, y: ((1 - v.y) / 2) * rect.height };
+  }
+
+  /**
+   * Manual camera (Match My Room): placed and aimed by numbers, to line the view up with a
+   * photo. Orbiting is paused while it's on; null hands the camera back to orbiting, where it was.
+   */
+  setManualCamera(pose: CameraPose | null) {
+    this.cancelTransition();
+    if (!pose) {
+      if (!this.orbitBefore) return;
+      this.camera.fov = this.orbitBefore.fov;
+      this.camera.up.set(0, 1, 0);
+      this.camera.position.copy(this.orbitBefore.position);
+      this.controls.target.copy(this.orbitBefore.target);
+      this.camera.updateProjectionMatrix();
+      this.controls.enabled = true;
+      this.controls.update();
+      this.orbitBefore = null;
+      this.requestRender();
+      return;
+    }
+    this.orbitBefore ??= { position: this.camera.position.clone(), target: this.controls.target.clone(), fov: this.camera.fov };
+    this.controls.enabled = false;
+    const yaw = (pose.yaw * Math.PI) / 180;
+    const pitch = (pose.pitch * Math.PI) / 180;
+    const eye = toScene({ x: pose.x, y: pose.y }, pose.height);
+    // Turn 0 looks towards the top of the plan (−y); positive turns clockwise, as on the plan.
+    const direction = new Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+    this.camera.position.set(eye.x, eye.y, eye.z);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(this.camera.position.clone().add(direction));
+    this.camera.rotateZ((-pose.roll * Math.PI) / 180);
+    this.camera.fov = Math.min(120, Math.max(10, pose.fov));
+    this.camera.updateProjectionMatrix();
+    this.updateWallVisibility();
+    this.requestRender();
+  }
+
+  /** Where the camera is and where it looks, as a manual-camera pose. */
+  cameraPose(): CameraPose {
+    const direction = new Vector3();
+    this.camera.getWorldDirection(direction);
+    const p = this.camera.position;
+    const r = (v: number) => Math.round(v * 10) / 10;
+    return {
+      x: r(p.x * CM_PER_SCENE_UNIT),
+      y: r(p.z * CM_PER_SCENE_UNIT),
+      height: r(p.y * CM_PER_SCENE_UNIT),
+      yaw: r((((Math.atan2(direction.x, -direction.z) * 180) / Math.PI) % 360 + 360) % 360),
+      pitch: r((Math.asin(Math.max(-1, Math.min(1, direction.y))) * 180) / Math.PI),
+      roll: 0,
+      fov: r(this.camera.fov),
+    };
   }
 
   /** The camera's plan position and height, in cm (for tests and diagnostics). */

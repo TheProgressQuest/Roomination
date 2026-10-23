@@ -17,6 +17,14 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Camera matching (M2.3):**
+  - lined up by eye, with no automatic calibration;
+  - lens presets assume iPhone Pro focal lengths (13, 24 and 48 mm equivalent) and a photo that
+    isn't cropped;
+  - the 3D view is shrunk to the photo's shape beside the panel, so it can be small on laptop
+    screens;
+  - orbiting is paused while matching, and saved views reopen through the panel.
+
 - **Match My Room (M2.2):**
   - wall colours and textures show in 3D only, not on the 2D plan; floor photo textures show in
     both;

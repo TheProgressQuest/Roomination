@@ -58,6 +58,7 @@ const AUTOSAVE_DELAY_MS = 400;
 
 /** The 3D view (and Three.js) only downloads the first time someone opens it. */
 const View3D = lazy(() => import('./components/view3d/View3D'));
+import type { CameraApi, PhotoOverlay } from './components/view3d/View3D';
 /** So do the furniture studio and its photo tools. */
 const FurnitureStudio = lazy(() => import('./components/studio/FurnitureStudio'));
 /** The furniture catalogue. */
@@ -113,6 +114,8 @@ export function App() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [matchOpen, setMatchOpen] = useState(false);
+  const [cameraApi, setCameraApi] = useState<CameraApi | null>(null);
+  const [overlay, setOverlay] = useState<PhotoOverlay | null>(null);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [studio, setStudio] = useState<StudioSession | null>(null);
   const [builder, setBuilder] = useState<BuilderSession | null>(null);
@@ -811,11 +814,13 @@ export function App() {
                       onExit={() => setView('2d')}
                       matchOpen={matchOpen}
                       onToggleMatch={() => setMatchOpen((open) => !open)}
+                      overlay={matchOpen ? overlay : null}
+                      onCameraApi={setCameraApi}
                       sidePanel={
                         matchOpen ? (
                           <LoadBoundary title="Match my room" onClose={() => setMatchOpen(false)}>
                             <Suspense fallback={<aside className="match-panel" aria-busy="true" />}>
-                              <MatchMyRoom project={project} selectedId={selectedId} dispatch={dispatch} onClose={() => setMatchOpen(false)} />
+                              <MatchMyRoom project={project} selectedId={selectedId} dispatch={dispatch} onClose={() => setMatchOpen(false)} camera={cameraApi} onOverlay={setOverlay} />
                             </Suspense>
                           </LoadBoundary>
                         ) : null

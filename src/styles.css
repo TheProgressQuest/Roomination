@@ -292,6 +292,22 @@ h3 {
   min-width: 0;
 }
 
+/* Lining up with a photo: the view takes the photo's exact shape (sized by the component). */
+.view3d-body > .view3d-panel.is-matching {
+  flex: none;
+  align-self: center;
+}
+
+.view3d-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .view3d-toolbar .secondary.is-active {
   background: var(--accent-soft);
   border-color: var(--accent-line);
@@ -427,6 +443,32 @@ h3 {
 
 .match-preview {
   margin: 0;
+}
+
+.match-save {
+  display: flex;
+  gap: 6px;
+}
+
+.match-save input {
+  flex: 1;
+  min-width: 0;
+}
+
+.match-views {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.match-views li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
 }
 
 .match-preview canvas {

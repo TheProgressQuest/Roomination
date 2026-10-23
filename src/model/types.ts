@@ -41,6 +41,29 @@ export interface WallFinish {
   texture?: PhotoTexture;
 }
 
+/**
+ * A camera placed by hand (Match My Room): plan position and eye height (cm), turn (degrees
+ * clockwise from the top of the plan), tilt (up +), roll, and vertical field of view (degrees).
+ */
+export interface CameraPose {
+  x: number;
+  y: number;
+  height: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  fov: number;
+}
+
+/** A saved viewpoint, usually lined up with one of the reference photos. */
+export interface CameraView {
+  id: string;
+  name: string;
+  pose: CameraPose;
+  /** The photo it was lined up with. */
+  photoAssetId?: string;
+}
+
 /** A photo of the real room kept with the project, for matching colours, textures and views. */
 export interface ReferencePhoto {
   assetId: string;
@@ -644,4 +667,6 @@ export interface Project {
   scan?: ScanRecord;
   /** Photos of the real room (Match My Room), stored on this device. */
   referencePhotos?: ReferencePhoto[];
+  /** Saved camera viewpoints (Match My Room). */
+  cameraViews?: CameraView[];
 }

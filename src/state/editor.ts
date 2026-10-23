@@ -11,7 +11,7 @@ import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { normaliseShape, pieceToRoom, scaleShape, shapeProblem } from '../model/shape';
 import { scaleComponents, shiftComponents } from '../model/components';
 import { applyRoomChange } from '../model/roomChange';
-import type { FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, PhotoTexture, Placement, Point, Project, ReferencePhoto, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
+import type { CameraView, FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, PhotoTexture, Placement, Point, Project, ReferencePhoto, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
   MAX_ROOM_SPAN,
   deleteWall,
@@ -88,6 +88,8 @@ export type EditorAction =
   | { type: 'room/setWallLook'; wallId: string | null; color?: string | null; texture?: PhotoTexture | null; mergeKey?: string }
   /** The project's reference photos (Match My Room). */
   | { type: 'photos/set'; photos: ReferencePhoto[] }
+  /** Saved camera viewpoints (Match My Room). */
+  | { type: 'views/set'; views: CameraView[] }
   | { type: 'walls/moveNode'; nodeId: string; to: Point }
   | { type: 'walls/setLength'; wallId: string; length: number }
   | { type: 'walls/setAngle'; wallId: string; angle: number }
@@ -292,6 +294,11 @@ function applyEdit(project: Project, action: EditAction): Project | string {
       const finishes = color || texture ? { ...others, [action.wallId]: { ...(color ? { color } : {}), ...(texture ? { texture } : {}) } } : others;
       const { wallFinishes: _f, ...rest } = room;
       return { ...project, room: { ...rest, ...(Object.keys(finishes).length ? { wallFinishes: finishes } : {}) } };
+    }
+
+    case 'views/set': {
+      const { cameraViews: _old, ...rest } = project;
+      return action.views.length ? { ...rest, cameraViews: action.views } : rest;
     }
 
     case 'photos/set': {

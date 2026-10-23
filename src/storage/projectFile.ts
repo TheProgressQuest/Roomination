@@ -31,6 +31,7 @@ import {
   type SavedLayout,
   type ScanItemRecord,
   type PhotoTexture,
+  type CameraView,
   type ReferencePhoto,
   type WallFinish,
   type ScanRecord,
@@ -185,6 +186,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
   const fengShui = parseFengShui(data.fengShui, features);
   const scan = parseScanRecord(data.scan);
   const referencePhotos = parseReferencePhotos(data.referencePhotos);
+  const cameraViews = parseCameraViews(data.cameraViews);
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     name,
@@ -200,6 +202,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     ...(fengShui ? { fengShui } : {}),
     ...(scan ? { scan } : {}),
     ...(referencePhotos.length ? { referencePhotos } : {}),
+    ...(cameraViews.length ? { cameraViews } : {}),
   };
 }
 
@@ -350,6 +353,25 @@ export function parsePhotoTexture(raw: unknown): PhotoTexture | null {
   const texture: PhotoTexture = { assetId: raw.assetId, widthCm, heightCm };
   if (finite(raw.roughness) && raw.roughness >= 0 && raw.roughness <= 1) texture.roughness = raw.roughness;
   return texture;
+}
+
+function parseCameraViews(raw: unknown): CameraView[] {
+  if (!Array.isArray(raw)) return [];
+  const views: CameraView[] = [];
+  for (const v of raw.slice(0, 50)) {
+    if (!isRecord(v) || !isRecord(v.pose) || typeof v.id !== 'string' || v.id.length > 100) continue;
+    const p = v.pose;
+    const n = (x: unknown, lo: number, hi: number) => (finite(x) && x >= lo && x <= hi ? x : null);
+    const pose = { x: n(p.x, -MAX_ROOM_SPAN, 2 * MAX_ROOM_SPAN), y: n(p.y, -MAX_ROOM_SPAN, 2 * MAX_ROOM_SPAN), height: n(p.height, -1000, 10000), yaw: n(p.yaw, -360, 720), pitch: n(p.pitch, -90, 90), roll: n(p.roll, -180, 180), fov: n(p.fov, 5, 150) };
+    if (Object.values(pose).some((x) => x === null)) continue;
+    views.push({
+      id: v.id,
+      name: typeof v.name === 'string' ? v.name.slice(0, 60) : 'View',
+      pose: pose as CameraView['pose'],
+      ...(typeof v.photoAssetId === 'string' && ASSET_ID.test(v.photoAssetId) ? { photoAssetId: v.photoAssetId } : {}),
+    });
+  }
+  return views;
 }
 
 function parseReferencePhotos(raw: unknown): ReferencePhoto[] {

@@ -10,7 +10,9 @@ import { encodeImage, imageFromFile, toImageData } from '../photo/imageIO';
 import type { RGBAImage } from '../photo/imageOps';
 import type { EditorAction } from '../state/editor';
 import { getAsset, putAsset } from '../storage/assets';
+import { CameraMatch } from './CameraMatch';
 import { cutTexture, sampleColour, suggestPalette, type TextureCut } from './photoTools';
+import type { CameraApi, PhotoOverlay } from '../components/view3d/View3D';
 
 /**
  * Match My Room: photos of the real room beside the live 3D view, and tools to copy what's in
@@ -26,9 +28,12 @@ interface Props {
   selectedId: string | null;
   dispatch: Dispatch<EditorAction>;
   onClose: () => void;
+  /** The 3D view's camera, for lining it up with a photo (null until the 3D view is ready). */
+  camera: CameraApi | null;
+  onOverlay: (overlay: PhotoOverlay | null) => void;
 }
 
-type Mode = 'colour' | 'texture';
+type Mode = 'colour' | 'texture' | 'camera';
 type Target = { kind: 'piece' } | { kind: 'walls' } | { kind: 'wall'; id: string } | { kind: 'floor' };
 type Surface = 'front' | 'top' | 'side';
 
@@ -47,7 +52,7 @@ async function loadPhoto(assetId: string): Promise<RGBAImage | null> {
   return { width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
 }
 
-export default function MatchMyRoom({ project, selectedId, dispatch, onClose }: Props) {
+export default function MatchMyRoom({ project, selectedId, dispatch, onClose, camera, onOverlay }: Props) {
   const photos = project.referencePhotos ?? [];
   const units = project.units;
   const unit = inputUnitLabel(units);
@@ -206,9 +211,14 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose }: 
             options={[
               { value: 'colour', label: 'Pick colour' },
               { value: 'texture', label: 'Cut texture' },
+              { value: 'camera', label: 'Line up camera' },
             ]}
             onChange={setMode}
           />
+          {mode === 'camera' ? (
+            <CameraMatch project={project} photoId={active} photoAspect={image.width / image.height} camera={camera} dispatch={dispatch} onOverlay={onOverlay} />
+          ) : (
+          <>
           <PhotoCanvas image={image} mode={mode} corners={corners} onCorners={setCorners} onSample={(p) => setColour(sampleColour(image, p.x, p.y, Math.max(2, Math.round(image.width / 300))))} />
 
           {mode === 'colour' ? (
@@ -252,7 +262,11 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose }: 
               {cut && <TexturePreview image={image} cut={cut} />}
             </div>
           )}
+          </>
+          )}
 
+          {mode !== 'camera' && (
+          <>
           <div className="field">
             <label htmlFor={targetId}>Apply to</label>
             <select
@@ -299,6 +313,8 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose }: 
               </button>
             )}
           </div>
+          </>
+          )}
         </>
       )}
       {!photos.length && <p className="hint">Add a photo taken from a corner or doorway, with the lights on. Then match colours and textures to it, surface by surface.</p>}
