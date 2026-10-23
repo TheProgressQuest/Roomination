@@ -237,6 +237,8 @@ export interface Furniture {
   clearance?: number;
   /** Material, finish and photo textures. Missing = the default look for its type. */
   appearance?: FurnitureAppearance;
+  /** Rebuilt from photos (Reconstruct): visual only, never the measurements. */
+  photoModel?: PhotoModel;
   /** A light fitting's light (lamps, wall lights, vanity bars). Missing = gives no light. */
   light?: FurnitureLight;
   /**
@@ -429,6 +431,42 @@ export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' 
 export type SurfaceFinish = 'matte' | 'satin' | 'gloss';
 
 /** How a piece looks. Photos are referenced by asset id (stored on this device). */
+/**
+ * An outline traced from a photo: which cells of a grid laid over the photo patch belong to
+ * the object. Row 0 is the top of the patch; `bits` is base64 of the cells, row by row, 8 per
+ * byte (lowest bit first).
+ */
+export interface Silhouette {
+  cols: number;
+  rows: number;
+  bits: string;
+}
+
+/** One view of an object for Reconstruct (Rebuild from photos): a perspective-corrected patch and its outline. */
+export interface PhotoModelView {
+  /** The patch, cropped to the object (front: left→right, top→bottom as you face it). */
+  assetId: string;
+  silhouette: Silhouette;
+  /** The object's average colour in this view (for surfaces no photo shows). */
+  color: string;
+}
+
+/**
+ * How a piece looks when rebuilt from photos (shape from silhouettes plus projected photos).
+ * Purely visual: the piece's width, depth, height and footprint stay the measured ones, and
+ * collisions and the plan use those. Removing it brings back the piece's ordinary look.
+ *
+ * Views: `front` as you face the piece; `side` its right side as you face that side (front at
+ * the left of the image); `top` from above with the back at the top of the image.
+ */
+export interface PhotoModel {
+  front?: PhotoModelView;
+  side?: PhotoModelView;
+  top?: PhotoModelView;
+  /** Kept but not shown (to compare with the ordinary look). */
+  off?: boolean;
+}
+
 export interface FurnitureAppearance {
   material: MaterialKind;
   finish: SurfaceFinish;

@@ -308,6 +308,18 @@ h3 {
   z-index: 1;
 }
 
+.view3d-wipe {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 2;
+}
+
 .view3d-toolbar .secondary.is-active {
   background: var(--accent-soft);
   border-color: var(--accent-line);
@@ -488,6 +500,16 @@ h3 {
   height: 120px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
+}
+
+/* Rebuild object: big enough to tap the background accurately, scaling down on narrow panels. */
+.rebuild-preview canvas {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  aspect-ratio: 280 / 200;
+  cursor: crosshair;
+  touch-action: none;
 }
 
 .view3d-toolbar {

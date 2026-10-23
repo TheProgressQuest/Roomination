@@ -181,6 +181,18 @@ function remapFurniture(item: Furniture, map: (id: string) => string | null): Fu
     return id ? { ...rest, texture: { ...texture, assetId: id } } : rest;
   });
   item = components ? { ...item, components } : item;
+  if (item.photoModel) {
+    // Rebuilt views: remapped, or dropped when their photo isn't available.
+    const { photoModel, ...rest } = item;
+    const views = Object.fromEntries(
+      (['front', 'side', 'top'] as const).flatMap((key) => {
+        const v = photoModel[key];
+        const id = v ? map(v.assetId) : null;
+        return v && id ? [[key, { ...v, assetId: id }]] : [];
+      }),
+    );
+    item = Object.keys(views).length ? { ...rest, photoModel: { ...views, ...(photoModel.off ? { off: true } : {}) } } : rest;
+  }
   if (!item.appearance) return item;
   const { textures, photos, ...rest } = item.appearance;
   const nextTextures = Object.fromEntries(

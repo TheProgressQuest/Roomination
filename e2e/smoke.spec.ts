@@ -152,6 +152,54 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     expect(errors).toEqual([]);
   });
 
+  test('Reconstruct: an object rebuilt from a photo keeps its measured size and saves its outline', async ({ page }) => {
+    const errors = await openApp(page);
+    await toolsTab(page, 'Furnish');
+    const cat = tools(page).locator('.catalogue');
+    await cat.getByLabel('Search the catalogue').fill('lidded box');
+    await cat.getByRole('button', { name: /^Add Lidded box\b/ }).click();
+    // A synthetic photo: a brown object with a rounded top on a pale wall, where the default corners sit.
+    const png = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 400;
+      c.height = 300;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#e6e3dc';
+      g.fillRect(0, 0, 400, 300);
+      g.fillStyle = '#7a4a2a';
+      g.beginPath();
+      g.moveTo(90, 260);
+      g.lineTo(90, 200);
+      g.quadraticCurveTo(200, 140, 310, 200);
+      g.lineTo(310, 260);
+      g.closePath();
+      g.fill();
+      return c.toDataURL('image/png').split(',')[1];
+    });
+    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
+    await page.getByRole('button', { name: 'Match my room' }).click();
+    const panel = page.getByRole('complementary', { name: 'Match my room' });
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), panel.getByRole('button', { name: /Add a photo/ }).click()]);
+    await chooser.setFiles({ name: 'object.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+    await panel.getByRole('radio', { name: 'Rebuild object' }).click();
+    // Tap the wall in the preview's top-left corner to trim it.
+    const preview = panel.locator('.rebuild-preview canvas');
+    await preview.scrollIntoViewIfNeeded();
+    const box = (await preview.boundingBox())!;
+    // The lidded box's front is 25 × 10 cm: drawn 280 × 112 inside the 280 × 200 preview.
+    await page.mouse.click(box.x + (3 / 280) * box.width, box.y + ((44 + 3) / 200) * box.height);
+    await panel.getByRole('button', { name: 'Use as the front view' }).click();
+    await expect(panel.getByText('Views used')).toBeVisible();
+    const project = await exportProject(page);
+    const piece = (project.furniture as { name: string; width: number; height: number; photoModel?: { front?: { silhouette: { bits: string } } } }[]).find((f) => f.name === 'Lidded box')!;
+    expect(piece).toMatchObject({ width: 25, height: 10 });
+    const bits = atob(piece.photoModel!.front!.silhouette.bits);
+    // The trimmed corner is outside the outline; the middle is inside.
+    expect(bits.charCodeAt(0) & 1).toBe(0);
+    expect([...bits].some((ch) => ch.charCodeAt(0) === 255)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
   test('the 3D view starts and draws', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();

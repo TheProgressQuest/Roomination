@@ -11,6 +11,7 @@ import type { RGBAImage } from '../photo/imageOps';
 import type { EditorAction } from '../state/editor';
 import { getAsset, putAsset } from '../storage/assets';
 import { CameraMatch } from './CameraMatch';
+import { RebuildObject } from './RebuildObject';
 import { NO_CORRECTION, correctImage, cutTexture, sampleColour, suggestPalette, whiteBalanceFrom, type PhotoCorrection, type TextureCut } from './photoTools';
 import type { CameraApi, PhotoOverlay } from '../components/view3d/View3D';
 
@@ -33,7 +34,7 @@ interface Props {
   onOverlay: (overlay: PhotoOverlay | null) => void;
 }
 
-type Mode = 'correct' | 'colour' | 'texture' | 'camera';
+type Mode = 'correct' | 'colour' | 'texture' | 'rebuild' | 'camera';
 type Target = { kind: 'piece' } | { kind: 'part'; name: string } | { kind: 'walls' } | { kind: 'wall'; id: string } | { kind: 'floor' };
 type Surface = 'front' | 'top' | 'side';
 
@@ -246,6 +247,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
               { value: 'correct', label: 'Correct colours' },
               { value: 'colour', label: 'Pick colour' },
               { value: 'texture', label: 'Cut texture' },
+              { value: 'rebuild', label: 'Rebuild object' },
               { value: 'camera', label: 'Line up camera' },
             ]}
             onChange={setMode}
@@ -256,7 +258,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
           <>
           <PhotoCanvas
             image={mode === 'correct' && showOriginal ? image : view!}
-            mode={mode === 'correct' ? 'colour' : mode}
+            mode={mode === 'correct' ? 'colour' : mode === 'rebuild' ? 'texture' : mode}
             corners={corners}
             onCorners={setCorners}
             onSample={(p) => {
@@ -293,6 +295,8 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
                 </div>
               )}
             </div>
+          ) : mode === 'rebuild' ? (
+            <RebuildObject piece={piece} image={view!} corners={corners} units={units} dispatch={dispatch} />
           ) : mode === 'colour' ? (
             <div className="stack">
               <p className="hint">Tap the photo to sample a colour, or pick one the photo suggests. Photos are often darker than the real surface.</p>
@@ -351,7 +355,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
           </>
           )}
 
-          {mode !== 'camera' && mode !== 'correct' && (
+          {mode !== 'camera' && mode !== 'correct' && mode !== 'rebuild' && (
           <>
           <div className="field">
             <label htmlFor={targetId}>Apply to</label>
@@ -444,8 +448,28 @@ function PhotoThumb({ photo, active, onSelect, onRemove }: { photo: ReferencePho
   );
 }
 
+/** The part of the photo the canvas shows: around the corners when zoomed in. */
+type Window = { x: number; y: number; w: number; h: number };
+
+/** A window around the corners (with room to spare), at the photo's own proportions. */
+function windowAround(image: RGBAImage, corners: Point[]): Window {
+  const xs = corners.map((c) => c.x);
+  const ys = corners.map((c) => c.y);
+  const aspect = image.width / image.height;
+  let w = Math.max(Math.max(...xs) - Math.min(...xs), (Math.max(...ys) - Math.min(...ys)) * aspect) * 2.2;
+  w = Math.min(image.width, Math.max(w, image.width * 0.08));
+  const h = w / aspect;
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+  const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  return { x: Math.max(0, Math.min(image.width - w, cx - w / 2)), y: Math.max(0, Math.min(image.height - h, cy - h / 2)), w, h };
+}
+
 /** The photo, fitted to the panel: tap to sample, or drag the texture corners. */
 function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGBAImage; mode: Mode; corners: [Point, Point, Point, Point]; onCorners: (c: [Point, Point, Point, Point]) => void; onSample: (p: Point) => void }) {
+  // Zoomed in, the window stays put while corners are dragged (it doesn't chase them).
+  const [zoom, setZoom] = useState<Window | null>(null);
+  const win = zoom ?? { x: 0, y: 0, w: image.width, h: image.height };
+  useEffect(() => setZoom(null), [image.width, image.height]);
   const ref = useRef<HTMLCanvasElement>(null);
   const source = useMemo(() => {
     const c = document.createElement('canvas');
@@ -460,13 +484,13 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
     const canvas = ref.current;
     if (!canvas) return;
     const width = canvas.clientWidth || 340;
-    const scale = width / image.width;
+    const scale = width / win.w;
     const ratio = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(image.height * scale * ratio);
-    canvas.style.height = `${image.height * scale}px`;
+    canvas.height = Math.round(win.h * scale * ratio);
+    canvas.style.height = `${win.h * scale}px`;
     const ctx = canvas.getContext('2d')!;
-    ctx.setTransform(ratio * scale, 0, 0, ratio * scale, 0, 0);
+    ctx.setTransform(ratio * scale, 0, 0, ratio * scale, -win.x * ratio * scale, -win.y * ratio * scale);
     ctx.drawImage(source, 0, 0);
     if (mode === 'texture') {
       ctx.lineWidth = 2 / scale;
@@ -496,15 +520,16 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
         ctx.fillText(String(i + 1), p.x, p.y);
       });
     }
-  }, [image, source, mode, corners]);
+  }, [image, source, mode, corners, win.x, win.y, win.w, win.h]);
 
   const toImage = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const scale = rect.width / image.width;
-    return { x: Math.max(0, Math.min(image.width, (e.clientX - rect.left) / scale)), y: Math.max(0, Math.min(image.height, (e.clientY - rect.top) / scale)) };
+    const scale = rect.width / win.w;
+    return { x: Math.max(0, Math.min(image.width, win.x + (e.clientX - rect.left) / scale)), y: Math.max(0, Math.min(image.height, win.y + (e.clientY - rect.top) / scale)) };
   };
 
   return (
+    <>
     <canvas
       ref={ref}
       className={`match-photo is-${mode}`}
@@ -516,8 +541,17 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
           return;
         }
         const rect = e.currentTarget.getBoundingClientRect();
-        const scale = rect.width / image.width;
-        const near = corners.findIndex((c) => Math.hypot(c.x - p.x, c.y - p.y) * scale < 22);
+        const scale = rect.width / win.w;
+        // The nearest corner within reach (corners of a small object sit close together).
+        let near = -1;
+        let best = 22;
+        corners.forEach((c, i) => {
+          const d = Math.hypot(c.x - p.x, c.y - p.y) * scale;
+          if (d < best) {
+            best = d;
+            near = i;
+          }
+        });
         if (near >= 0) {
           dragging.current = near;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -533,6 +567,14 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
       onPointerUp={() => (dragging.current = null)}
       onPointerCancel={() => (dragging.current = null)}
     />
+    {mode === 'texture' && (
+      <div className="button-row tight">
+        <button type="button" className="secondary" aria-pressed={zoom !== null} onClick={() => setZoom(zoom ? null : windowAround(image, corners))}>
+          {zoom ? 'Show the whole photo' : 'Zoom in on the corners'}
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 

@@ -8,6 +8,9 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| Reconstruct | A real iPhone run: rebuild time, memory with several rebuilt objects, touch dragging of corners and tap-to-trim (only WebKit and slowed-down Chromium were measured; their 3D frame times are software-rendered and not meaningful) | M6 |
+| Reconstruct | Safari Private Browsing end to end on a device (fixed: photos are now stored as plain bytes; verified in WebKit's private sessions only) | M6 |
+| Reconstruct | Rebuilt objects in the 2D presentation plan (they draw as their ordinary look there) | M6 |
 | Decorate My Room | Dragging resting items in 2D and 3D on touch; the Surface picker on iPhone; items on a support that's then resized narrower (they keep their place, possibly past its edge) | M5 |
 | Decorate My Room | Grouping several loose items without a tray (only "rest on" grouping exists) | M5 |
 | Room scan import | A real RoomSheet scan (iPhone 17 Pro): checked locally by status only (it reads, 4 walls, 1 door, 5 objects, project valid). Still to do: look at it in 2D/3D in Safari against the real room | M1 |
@@ -19,7 +22,18 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
-- **Decorate My Room (M5):**
+- **Reconstruct My Room (M6, prototype):** see [reconstruction-feasibility.md](reconstruction-feasibility.md).
+  - **Shape from outlines:** hollows that no outline shows stay filled; backs and bottoms are a
+    plain average colour unless photographed; the grid is 40 cells along the longest side.
+  - **Photos carry their own lighting**, and the 3D lights add more; brightness is a manual fix.
+  - **Trimming** is a magic wand compared with the tapped colour: shaded background needs
+    another tap. The outline is smoothed (about 1% of the patch).
+  - **Not built:** mesh (GLB/USDZ) import, posed-photo camera setup, depth evidence, automatic
+    mismatch detection.
+  - **Visual only:** measurements, collisions and the plan ignore the rebuilt look.
+  - **On phones**, selecting the object means closing the panel, tapping the object, and
+    reopening the panel.
+
   - **Resting:** an item rests on one support (`restsOn`) and is carried when the support moves,
     turns or rises; nesting works (bottle → tray → vanity). Deleting a support deletes what's on
     it (Undo restores both). Items aren't kept inside the surface's outline if dragged off it.
@@ -131,6 +145,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Rebuilt objects are one unbatched mesh each, about 10k triangles for a curved object (12 for a box) | Fine for a few; add simplification of flat areas before rooms have many |
 | Resting items add one contact-shadow quad and a few parts each | 30 accessories in the bathroom: 54 draw calls, 23k triangles, 0.6 ms CPU per frame; measure on an iPhone with a fuller room |
 | Lighting retune (M2.7) changes every interior view | Re-check the existing 3D screenshots and other rooms before release |
 | Light cost on the GPU | Only CPU frame time is measured (under 1 ms at Low, Medium and High with a fitting, the ceiling and a mirror); measure frame rates on an iPhone and iPad with several lights before release |

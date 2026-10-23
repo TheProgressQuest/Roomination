@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import { createFurniture, createSampleProject } from '../model/sample';
-import { deleteAssets, existingAssetIds, putAsset, sniffImageType, StorageFullError, unusedAssets } from './assets';
+import { deleteAssets, existingAssetIds, getAsset, putAsset, sniffImageType, StorageFullError, unusedAssets } from './assets';
 import { db } from './db';
 import { deleteLibraryItem, duplicateLibraryItem, furnitureOrigin, listLibraryRecords, saveToLibrary, toTemplate } from './library';
 import { saveProject } from './projectStore';
@@ -16,6 +16,19 @@ describe('photo storage', () => {
     expect(sniffImageType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg');
     expect(sniffImageType(new TextEncoder().encode('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp');
     expect(sniffImageType(new TextEncoder().encode('<svg onload="alert(1)">'))).toBeNull();
+  });
+
+  it('keeps photos as plain bytes (Safari private browsing refuses Blobs), and still reads older Blob records', async () => {
+    const id = await putAsset(png(7), size);
+    const record = await db.assets.get(id);
+    expect(record?.data).toBeInstanceOf(ArrayBuffer);
+    expect(record?.blob).toBeUndefined();
+    const read = await getAsset(id);
+    expect(new Uint8Array(await read!.blob.arrayBuffer())[8]).toBe(7);
+    expect(read!.blob.type).toBe('image/png');
+    // A photo saved by an earlier version, as a Blob.
+    await db.assets.put({ id: 'e'.repeat(64), blob: png(9), type: 'image/png', width: 10, height: 10, bytes: 12, createdAt: 1 });
+    expect(new Uint8Array(await (await getAsset('e'.repeat(64)))!.blob.arrayBuffer())[8]).toBe(9);
   });
 
   it('stores identical photos once, under the hash of their bytes', async () => {
@@ -36,6 +49,23 @@ describe('photo storage', () => {
     const spy = vi.spyOn(db.assets, 'put').mockRejectedValueOnce(Object.assign(new Error('full'), { name: 'QuotaExceededError' }));
     await expect(putAsset(png(9), size)).rejects.toBeInstanceOf(StorageFullError);
     spy.mockRestore();
+  });
+
+  it('never offers to remove a saved project’s reference photos, room textures or rebuilt objects', async () => {
+    await db.projects.clear();
+    await db.library.clear();
+    await db.assets.clear();
+    const reference = await putAsset(png(11), size);
+    const wall = await putAsset(png(12), size);
+    const rebuilt = await putAsset(png(13), size);
+    const unused = await putAsset(png(14), size);
+    const project = createSampleProject();
+    project.referencePhotos = [{ assetId: reference, name: 'room.jpg', addedAt: 1 }];
+    project.room = { ...project.room, wallTexture: { assetId: wall, widthCm: 50, heightCm: 50 } };
+    project.furniture[0] = { ...project.furniture[0], photoModel: { front: { assetId: rebuilt, silhouette: { cols: 1, rows: 1, bits: 'AQ==' }, color: '#806040' } } };
+    await saveProject('p', project);
+    // Not the open project (nothing passed as in use): only what's saved protects them.
+    expect((await unusedAssets()).map((a) => a.id)).toEqual([unused]);
   });
 
   it('only offers to remove photos nothing uses, and keeps them all if a project is unreadable', async () => {

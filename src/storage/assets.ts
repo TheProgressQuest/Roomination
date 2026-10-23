@@ -1,5 +1,5 @@
-import { db, type StoredAsset } from './db';
-import { furnitureAssetIds, parseProject } from './projectFile';
+import { db, type StoredAsset, type StoredAssetRecord } from './db';
+import { furnitureAssetIds, parseProject, projectAssetIds } from './projectFile';
 import { listLibraryRecords } from './library';
 
 /**
@@ -45,7 +45,8 @@ export async function putAsset(blob: Blob, size: { width: number; height: number
   const id = await sha256Hex(data);
   try {
     if (await db.assets.get(id)) return id;
-    await db.assets.put({ id, blob: new Blob([data], { type }), type, width: size.width, height: size.height, bytes: data.byteLength, createdAt: Date.now() });
+    // Plain bytes, not a Blob: Safari can't store Blobs in private browsing.
+    await db.assets.put({ id, data, type, width: size.width, height: size.height, bytes: data.byteLength, createdAt: Date.now() });
   } catch (error) {
     if (isQuotaError(error)) throw new StorageFullError();
     throw error;
@@ -60,13 +61,20 @@ function isQuotaError(error: unknown): boolean {
 }
 
 export async function getAsset(id: string): Promise<StoredAsset | null> {
-  return (await db.assets.get(id)) ?? null;
+  const record = await db.assets.get(id);
+  return record ? toAsset(record) : null;
+}
+
+/** A stored photo as a Blob, whether it was saved as bytes (now) or as a Blob (before). */
+function toAsset({ data, blob, ...rest }: StoredAssetRecord): StoredAsset | null {
+  const photo = blob ?? (data ? new Blob([data], { type: rest.type }) : null);
+  return photo ? { ...rest, blob: photo } : null;
 }
 
 /** Which of these ids are actually stored (for spotting missing photos). */
 export async function existingAssetIds(ids: string[]): Promise<Set<string>> {
   const found = await db.assets.bulkGet(ids);
-  return new Set(found.filter((a): a is StoredAsset => a !== undefined).map((a) => a.id));
+  return new Set(found.filter((a): a is StoredAssetRecord => a !== undefined).map((a) => a.id));
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +142,9 @@ export async function unusedAssets(inUse: Iterable<string> = []): Promise<{ id: 
   await db.projects.each((record) => {
     const result = parseProject(record.project);
     if (!result.ok) unreadable = true;
-    else for (const f of result.project.furniture) for (const id of furnitureAssetIds(f)) used.add(id);
+    // Everything a saved project refers to: furniture photos, but also its reference photos and
+    // room textures (Match My Room), which aren't furniture.
+    else for (const id of projectAssetIds(result.project)) used.add(id);
   });
   const libraryRecords = await db.library.count();
   const library = await listLibraryRecords();

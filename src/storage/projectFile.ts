@@ -10,6 +10,7 @@ import {
   type ComponentShape,
   type ComponentType,
   type FurnitureComponent,
+  type PhotoModel,
   type PrimitiveKind,
   type SeamStyle,
   type UpholsteryPattern,
@@ -46,6 +47,7 @@ import {
 import { DEFAULT_WALL_THICKNESS, MAX_ROOM_SPAN, MAX_WALL_THICKNESS, findSegment, validateRoom } from '../model/walls';
 import { MAX_SHAPE_POINTS, normaliseShape, pieceToRoom, shapeProblem } from '../model/shape';
 import { COMPONENT_TYPE_LABELS, MAX_COMPONENTS, shiftComponents } from '../model/components';
+import { decodeSilhouette } from '../model/photoModel';
 
 /**
  * Reading projects from untrusted sources: browser storage (possibly written by an
@@ -482,6 +484,8 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   if (finite(raw.elevation) && raw.elevation > 0 && raw.elevation <= MAX_ROOM_SPAN) item.elevation = raw.elevation;
   const appearance = parseAppearance(raw.appearance);
   if (appearance) item.appearance = appearance;
+  const photoModel = parsePhotoModel(raw.photoModel);
+  if (photoModel) item.photoModel = photoModel;
   const light = parseLight(raw.light);
   if (light) item.light = light;
   if (typeof raw.restsOn === 'string' && raw.restsOn.length <= 100) item.restsOn = raw.restsOn;
@@ -705,6 +709,24 @@ const ASSET_ID = /^[0-9a-f]{64}$/;
 const MAX_PHOTOS = 12;
 const MAX_CLEARANCE = 500;
 
+/** A piece rebuilt from photos. Views with a damaged photo id or outline are dropped. */
+export function parsePhotoModel(raw: unknown): PhotoModel | undefined {
+  if (!isRecord(raw)) return undefined;
+  const model: PhotoModel = {};
+  for (const key of ['front', 'side', 'top'] as const) {
+    const v = raw[key];
+    if (!isRecord(v) || typeof v.assetId !== 'string' || !ASSET_ID.test(v.assetId) || !isRecord(v.silhouette)) continue;
+    const s = v.silhouette;
+    if (!finite(s.cols) || !finite(s.rows) || typeof s.bits !== 'string' || s.bits.length > 4096) continue;
+    const silhouette = { cols: s.cols, rows: s.rows, bits: s.bits };
+    if (!decodeSilhouette(silhouette)) continue;
+    model[key] = { assetId: v.assetId, silhouette, color: color(v.color, '#9a8a78') };
+  }
+  if (!model.front && !model.side && !model.top) return undefined;
+  if (raw.off === true) model.off = true;
+  return model;
+}
+
 /** A piece's look. Anything unrecognised is dropped rather than rejecting the project. */
 export function parseAppearance(raw: unknown): FurnitureAppearance | undefined {
   if (!isRecord(raw)) return undefined;
@@ -737,10 +759,11 @@ export function projectAssetIds(project: Pick<Project, 'furniture'> & Partial<Pi
   ];
 }
 
-export function furnitureAssetIds(item: Pick<Furniture, 'appearance'> & Partial<Pick<Furniture, 'components'>>): string[] {
+export function furnitureAssetIds(item: Pick<Furniture, 'appearance'> & Partial<Pick<Furniture, 'components' | 'photoModel'>>): string[] {
   const a = item.appearance;
   const parts = (item.components ?? []).map((c) => c.texture?.assetId);
-  return [...Object.values(a?.textures ?? {}), ...(a?.photos ?? []), ...parts].filter((v): v is string => typeof v === 'string');
+  const rebuilt = [item.photoModel?.front, item.photoModel?.side, item.photoModel?.top].map((v) => v?.assetId);
+  return [...Object.values(a?.textures ?? {}), ...(a?.photos ?? []), ...parts, ...rebuilt].filter((v): v is string => typeof v === 'string');
 }
 
 function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => string, room: Room, version: number): RoomFeature {

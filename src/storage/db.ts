@@ -27,6 +27,24 @@ export interface StoredAsset {
   createdAt: number;
 }
 
+/**
+ * A photo as kept in IndexedDB: its bytes as plain binary data. (Photos saved before October
+ * 2026 hold a Blob instead; both are read.) Plain bytes, because Safari refuses to store Blobs
+ * in private browsing, which made adding photos fail there.
+ */
+export interface StoredAssetRecord {
+  /** SHA-256 of the bytes, as hex. */
+  id: string;
+  data?: ArrayBuffer;
+  blob?: Blob;
+  /** image/webp, image/png or image/jpeg. */
+  type: string;
+  width: number;
+  height: number;
+  bytes: number;
+  createdAt: number;
+}
+
 export interface StoredLibraryItem {
   id: string;
   savedAt: number;
@@ -36,7 +54,7 @@ export interface StoredLibraryItem {
 
 export const db = new Dexie('roomination') as Dexie & {
   projects: EntityTable<StoredProject, 'id'>;
-  assets: EntityTable<StoredAsset, 'id'>;
+  assets: EntityTable<StoredAssetRecord, 'id'>;
   library: EntityTable<StoredLibraryItem, 'id'>;
 };
 

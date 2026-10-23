@@ -375,6 +375,24 @@ function pegboard(k: Kit, b: Base, shelves: number) {
   }
 }
 
+/** An open shelving unit: two sides, a back and evenly spaced shelves (things rest on each). */
+function shelfUnit(k: Kit, b: Base, shelves: number) {
+  const { width: w, depth: d, height: h } = b;
+  const wood = { material: 'wood' as MaterialKind, color: b.color, radius: 0.3 };
+  for (const sx of [-1, 1]) k.span('support', 'Side', sx < 0 ? -w / 2 : w / 2 - 1.8, sx < 0 ? -w / 2 + 1.8 : w / 2, -d / 2, d / 2, 0, h, wood);
+  k.span('detail', 'Back', -w / 2 + 1.8, w / 2 - 1.8, -d / 2, -d / 2 + 0.6, 0, h, { ...wood, radius: 0 });
+  for (let i = 0; i < shelves; i++) {
+    const z = 4 + (i * (h - 6)) / (shelves - 1);
+    k.span('shelf', i === shelves - 1 ? 'Top' : 'Shelf', -w / 2 + 1.8, w / 2 - 1.8, -d / 2 + 0.6, d / 2, z - 1.8, z, wood);
+  }
+}
+
+/** A floating wall shelf. */
+function wallShelf(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('shelf', 'Shelf', -w / 2, w / 2, -d / 2, d / 2, 0, h, { material: 'wood', color: b.color, radius: 0.3 });
+}
+
 // ---------------------------------------------------------------------------
 // Accessories: small everyday things for worktops, shelves and tables (generic, no brands)
 // ---------------------------------------------------------------------------
@@ -907,6 +925,8 @@ export const CATALOGUE: CatalogueItem[] = [
   built('vanity-countertop-basin', 'Vanity, countertop basin', 'bathroom', 'basin sink vessel wash', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'countertop', { material: 'stone', color: MARBLE })),
   built('vanity-integrated', 'Vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'integrated', { material: 'ceramic', color: CERAMIC })),
   built('vanity-integrated-wide', 'Wide vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 120, depth: 50, height: 86, color: OAK }, (k, b) => vanityTop(k, b, 'integrated', { material: 'stone', color: MARBLE })),
+  built('shelf-unit', 'Open shelving unit', 'living', 'bookcase shelves storage etagere', { kind: 'bookshelf', width: 80, depth: 30, height: 150, color: OAK }, (k, b) => shelfUnit(k, b, 4)),
+  built('wall-shelf', 'Wall shelf', 'living', 'floating shelf ledge', { kind: 'storage', width: 60, depth: 20, height: 3, color: OAK, elevation: 120 }, wallShelf),
   built('pump-bottle', 'Pump bottle', 'accessories', 'soap dispenser hand wash lotion', { kind: 'decor', category: 'decoration', width: 7, depth: 7, height: 19, color: '#f2f0eb' }, (k, b) => bottle(k, b, 'pump')),
   built('tall-bottle', 'Tall bottle', 'accessories', 'shampoo toiletry bottle', { kind: 'decor', category: 'decoration', width: 6, depth: 6, height: 22, color: '#3d6fb4' }, (k, b) => bottle(k, b, 'cap')),
   built('small-bottle', 'Small bottle', 'accessories', 'serum toner toiletry bottle', { kind: 'decor', category: 'decoration', width: 4.5, depth: 4.5, height: 12, color: '#e9e6df' }, (k, b) => bottle(k, b, 'cap', '#c9a24a')),

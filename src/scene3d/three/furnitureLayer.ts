@@ -30,6 +30,7 @@ import type { SurfaceFinish } from '../../model/types';
 import type { Ring } from '../../model/shape';
 import type { SurfaceKind } from '../../render/materials';
 import { loadAssetImage } from '../../storage/assets';
+import { photoModelMesh } from '../../model/photoModel';
 import { CM_PER_SCENE_UNIT, type SceneFurniture } from '../model';
 import { lookKey, type FurnitureMaterials, type SurfaceLook } from './furnitureMaterials';
 import { lightHex } from '../../render/lightColour';
@@ -151,6 +152,7 @@ export class FurnitureLayer {
     for (const piece of furniture) {
       this.pieces.set(piece.id, { footprint: piece, batched: [], extruded: null, owned: [] });
       if (piece.extruded) this.addExtruded(piece, generation);
+      if (piece.photoModel) this.addPhotoModel(piece, generation);
       const placement = new Matrix4().compose(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
       for (const part of piece.parts) {
         if (part.photo) {
@@ -176,8 +178,8 @@ export class FurnitureLayer {
     }
     for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.look, group.casts, group.parts);
     this.addContactShadows(furniture);
-    this.partCount = parts + furniture.filter((f) => f.extruded).length;
-    this.batches = bySurface.size + furniture.filter((f) => f.extruded).length;
+    this.partCount = parts + furniture.filter((f) => f.extruded || f.photoModel).length;
+    this.batches = bySurface.size + furniture.filter((f) => f.extruded || f.photoModel).length;
     this.applySelection();
     // Free shapes and photos that nothing in this rebuild used. (Photos still loading are
     // claimed when they arrive, so they're kept until the following rebuild.)
@@ -343,6 +345,77 @@ export class FurnitureLayer {
         .finally(() => this.pendingPhotos--);
     }
     const mesh = new Mesh(geometry, surfaces);
+    mesh.position.copy(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)));
+    mesh.quaternion.setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.furnitureId = piece.id;
+    mesh.name = `furniture:${piece.id}`;
+    const record = this.pieces.get(piece.id)!;
+    record.extruded = mesh;
+    record.owned = owned;
+    this.group.add(mesh);
+  }
+
+  /**
+   * A piece rebuilt from photos (Reconstruct): its surface from the photos' outlines, inside the
+   * measured box, with each photo projected onto the surfaces that face its view.
+   */
+  private addPhotoModel(piece: SceneFurniture, generation: number) {
+    const model = piece.photoModel!;
+    const size = { width: piece.width, depth: piece.depth, height: piece.height };
+    const views = [model.front, model.side, model.top];
+    const key = `hull|${size.width}|${size.depth}|${size.height}|${views.map((v) => (v ? `${v.silhouette.cols}x${v.silhouette.rows}:${v.silhouette.bits}` : '-')).join('|')}`;
+    const geometry = this.cached(this.geometries, key, generation, () => {
+      const g = new BufferGeometry();
+      const hull = photoModelMesh(model, size);
+      if (!hull) return g;
+      // cm → scene units; the hull is already in the piece's frame (y up, z towards its front).
+      const positions = hull.positions.map((v) => m(v));
+      g.setAttribute('position', new BufferAttribute(positions, 3));
+      g.setAttribute('normal', new BufferAttribute(hull.normals, 3));
+      g.setAttribute('uv', new BufferAttribute(hull.uvs, 2));
+      g.setIndex(new BufferAttribute(hull.index, 1));
+      for (const group of hull.groups) g.addGroup(group.start, group.count, group.slot);
+      g.computeBoundingSphere();
+      return g;
+    });
+    // Surfaces no photo faces (curved shoulders, the back) are usually the side's material, so
+    // they take the side's colour, else the front's (a top is often a different part: a lid).
+    const plainColour = (model.side ?? model.front ?? model.top)!.color;
+    const surface = piece.material === 'glass' || piece.material === 'sheer' ? 'custom' : piece.material;
+    const plain = this.materials.create(surface, piece.finish, plainColour);
+    const owned = [plain];
+    const slots: MeshStandardMaterial[] = [plain, plain, plain, plain];
+    views.forEach((view, slot) => {
+      if (!view) return;
+      // Starts as the view's average colour; the photo replaces it once loaded.
+      const material = this.materials.create(surface, piece.finish, view.color);
+      material.map = null;
+      slots[slot] = material;
+      owned.push(material);
+      const photoKey = `${view.assetId}|${view.color}`;
+      const show = (texture: CanvasTexture) => {
+        material.map = texture;
+        material.color.set('#ffffff');
+        material.needsUpdate = true;
+      };
+      const ready = this.photos.get(photoKey);
+      if (ready) {
+        ready.generation = generation;
+        show(ready.value);
+        return;
+      }
+      this.pendingPhotos++;
+      loadAssetImage(view.assetId)
+        .then((image) => {
+          if (!image || generation !== this.generation) return;
+          show(this.cached(this.photos, photoKey, generation, () => photoTexture(image, view.color)));
+          this.onChange();
+        })
+        .finally(() => this.pendingPhotos--);
+    });
+    const mesh = new Mesh(geometry, slots);
     mesh.position.copy(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)));
     mesh.quaternion.setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180);
     mesh.castShadow = true;

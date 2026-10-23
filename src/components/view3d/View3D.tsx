@@ -37,6 +37,14 @@ export interface PhotoOverlay {
   aspect: number;
   /** 0–1. */
   opacity: number;
+  /**
+   * How the photo meets the render: laid over it (`blend`, at `opacity`), side by side across a
+   * movable divider (`wipe`: the photo left of `split`), or `difference`, where matching areas
+   * go dark and anything that doesn't line up or differs in colour stays bright.
+   */
+  compare?: 'blend' | 'wipe' | 'difference';
+  /** 0–1: where the wipe divider sits. */
+  split?: number;
 }
 
 export interface CameraApi {
@@ -225,7 +233,8 @@ export default function View3D(props: View3DProps) {
       <div className="view3d-body" ref={bodyRef}>
       <section className={`canvas-panel view3d-panel${overlay ? ' is-matching' : ''}`} aria-label="3D view" style={fitted ? { width: fitted.width, height: fitted.height } : undefined}>
         <div ref={containerRef} key={attempt} className="view3d-canvas" />
-        {overlay && <img className="view3d-overlay" src={overlay.url} alt="" style={{ opacity: overlay.opacity }} />}
+        {overlay && <img className={`view3d-overlay is-${overlay.compare ?? 'blend'}`} src={overlay.url} alt="" style={overlayStyle(overlay)} />}
+        {overlay?.compare === 'wipe' && <div className="view3d-wipe" style={{ left: `${(overlay.split ?? 0.5) * 100}%` }} aria-hidden="true" />}
 
         {/* While lining up with a photo, nothing covers it (the camera is placed by the panel). */}
         {status === 'ready' && !overlay && (
@@ -287,4 +296,10 @@ export default function View3D(props: View3DProps) {
       </div>
     </div>
   );
+}
+
+function overlayStyle(overlay: PhotoOverlay): React.CSSProperties {
+  if (overlay.compare === 'wipe') return { opacity: 1, clipPath: `inset(0 ${(1 - (overlay.split ?? 0.5)) * 100}% 0 0)` };
+  if (overlay.compare === 'difference') return { opacity: 1, mixBlendMode: 'difference' };
+  return { opacity: overlay.opacity };
 }

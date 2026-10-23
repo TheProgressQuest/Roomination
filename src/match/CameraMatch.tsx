@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type Dispatch } from 'react';
 import { NumberField } from '../components/NumberField';
+import { SegmentedControl } from '../components/SegmentedControl';
 import type { CameraApi, PhotoOverlay } from '../components/view3d/View3D';
 import { featureFrame, toRoom } from '../model/features';
 import { createId } from '../model/sample';
@@ -53,6 +54,8 @@ export function CameraMatch({ project, photoId, photoAspect, camera, dispatch, o
   const unit = inputUnitLabel(units);
   const [pose, setPose] = useState<CameraPose | null>(null);
   const [opacity, setOpacity] = useState(0.5);
+  const [compare, setCompare] = useState<NonNullable<PhotoOverlay['compare']>>('blend');
+  const [split, setSplit] = useState(0.5);
   const [url, setUrl] = useState<string | null>(null);
   const [name, setName] = useState('');
   const nameId = useId();
@@ -87,7 +90,7 @@ export function CameraMatch({ project, photoId, photoAspect, camera, dispatch, o
   useEffect(() => {
     if (pose) camera?.setManual(pose);
   }, [pose, camera]);
-  useEffect(() => onOverlay(url ? { url, aspect: photoAspect, opacity } : null), [url, photoAspect, opacity]);
+  useEffect(() => onOverlay(url ? { url, aspect: photoAspect, opacity, compare, split } : null), [url, photoAspect, opacity, compare, split]);
   // Leaving camera matching hands the camera back to orbiting and removes the overlay.
   useEffect(
     () => () => {
@@ -111,10 +114,31 @@ export function CameraMatch({ project, photoId, photoAspect, camera, dispatch, o
   return (
     <div className="stack camera-match">
       <p className="hint">The photo is laid over the 3D view. Move and turn the camera until the room’s corners, floor edges and furniture line up. This matches by eye; a single photo can’t say exactly where it was taken.</p>
-      <label className="range-label field">
-        <span className="field-label">Photo see-through {Math.round(opacity * 100)}%</span>
-        <input type="range" min={0} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
-      </label>
+      <SegmentedControl
+        label="Compare"
+        value={compare}
+        options={[
+          { value: 'blend', label: 'Overlay' },
+          { value: 'wipe', label: 'Side by side' },
+          { value: 'difference', label: 'Differences' },
+        ]}
+        onChange={setCompare}
+      />
+      {compare === 'blend' && (
+        <label className="range-label field">
+          <span className="field-label">Photo see-through {Math.round(opacity * 100)}%</span>
+          <input type="range" min={0} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
+        </label>
+      )}
+      {compare === 'wipe' && (
+        <label className="range-label field">
+          <span className="field-label">Divider (photo on the left) {Math.round(split * 100)}%</span>
+          <input type="range" min={0} max={1} step={0.01} value={split} onChange={(e) => setSplit(Number(e.target.value))} />
+        </label>
+      )}
+      {compare === 'difference' && (
+        <p className="hint">Where the photo and the 3D view agree, the picture goes dark. Bright outlines are edges that don’t line up (move the camera, or correct the object’s size or place); bright areas are colours that differ (correct the material). Shadows and reflections differ too, so judge by eye: this doesn’t decide anything for you.</p>
+      )}
       <div className="field">
         <span className="field-label">Lens (iPhone Pro, 35 mm equivalent)</span>
         <div className="button-row tight">
