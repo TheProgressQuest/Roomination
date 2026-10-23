@@ -204,6 +204,7 @@ test.describe('scanned rooms in the rest of the app', { tag: '@3d' }, () => {
 });
 
 for (const { width, height, label } of [
+  { width: 320, height: 640, label: 'small phone' },
   { width: 390, height: 844, label: 'phone' },
   { width: 820, height: 1180, label: 'tablet' },
 ]) {
@@ -219,6 +220,8 @@ for (const { width, height, label } of [
       // Nothing wider than the screen.
       const overflow = await page.evaluate(() => [...document.querySelectorAll('.scan-dialog *')].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1).length);
       expect(overflow).toBe(0);
+      // Every review tab is fully on screen.
+      for (const tab of await review.getByRole('radio').all()) await expect(tab).toBeInViewport({ ratio: 1 });
       await review.getByRole('radio', { name: /^Furniture/ }).click();
       await expect(review.locator('.scan-card').first()).toBeVisible();
       const create = review.getByRole('button', { name: 'Create new project' });
