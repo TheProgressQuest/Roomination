@@ -11,7 +11,7 @@ import { clampFurnitureToRoom, clampStairToRoom } from '../model/placement';
 import { normaliseShape, pieceToRoom, scaleShape, shapeProblem } from '../model/shape';
 import { scaleComponents, shiftComponents } from '../model/components';
 import { applyRoomChange } from '../model/roomChange';
-import type { FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, Placement, Point, Project, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
+import type { FengShuiSettings, FloorStyle, Furniture, OptimizerSettings, Partition, PhotoTexture, Placement, Point, Project, ReferencePhoto, Relationship, Room, RoomFeature, SavedLayout, Staircase, UnitSystem, WallNode } from '../model/types';
 import {
   MAX_ROOM_SPAN,
   deleteWall,
@@ -81,6 +81,13 @@ export type EditorAction =
   | { type: 'room/setHeight'; height: number }
   /** Wall colour in the 3D view (purely visual). */
   | { type: 'room/setWallColor'; color: string; mergeKey?: string }
+  /**
+   * Match My Room: a wall's own colour and/or photo texture (`wallId` null = every wall). A null
+   * value removes it; a missing one leaves it as it is.
+   */
+  | { type: 'room/setWallLook'; wallId: string | null; color?: string | null; texture?: PhotoTexture | null; mergeKey?: string }
+  /** The project's reference photos (Match My Room). */
+  | { type: 'photos/set'; photos: ReferencePhoto[] }
   | { type: 'walls/moveNode'; nodeId: string; to: Point }
   | { type: 'walls/setLength'; wallId: string; length: number }
   | { type: 'walls/setAngle'; wallId: string; angle: number }
@@ -268,6 +275,28 @@ function applyEdit(project: Project, action: EditAction): Project | string {
     case 'room/setHeight': {
       if (!Number.isFinite(action.height) || action.height < MIN_ROOM_SIZE || action.height > 2000) return `Ceiling height must be between ${MIN_ROOM_SIZE} cm and 20 m.`;
       return action.height === project.room.height ? project : { ...project, room: { ...project.room, height: roundLength(action.height) } };
+    }
+
+    case 'room/setWallLook': {
+      const room = project.room;
+      if (action.wallId === null) {
+        const { wallTexture: _old, ...rest } = room;
+        const texture = action.texture === undefined ? room.wallTexture : (action.texture ?? undefined);
+        return { ...project, room: { ...rest, ...(action.color ? { wallColor: action.color } : {}), ...(texture ? { wallTexture: texture } : {}) } };
+      }
+      if (!findSegment(room, action.wallId)) return 'That wall no longer exists.';
+      const current = room.wallFinishes?.[action.wallId] ?? {};
+      const color = action.color === undefined ? current.color : (action.color ?? undefined);
+      const texture = action.texture === undefined ? current.texture : (action.texture ?? undefined);
+      const { [action.wallId]: _gone, ...others } = room.wallFinishes ?? {};
+      const finishes = color || texture ? { ...others, [action.wallId]: { ...(color ? { color } : {}), ...(texture ? { texture } : {}) } } : others;
+      const { wallFinishes: _f, ...rest } = room;
+      return { ...project, room: { ...rest, ...(Object.keys(finishes).length ? { wallFinishes: finishes } : {}) } };
+    }
+
+    case 'photos/set': {
+      const { referencePhotos: _old, ...rest } = project;
+      return action.photos.length ? { ...rest, referencePhotos: action.photos } : rest;
     }
 
     case 'room/setWallColor':

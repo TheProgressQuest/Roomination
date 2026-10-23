@@ -30,6 +30,9 @@ import {
   type RelationshipType,
   type SavedLayout,
   type ScanItemRecord,
+  type PhotoTexture,
+  type ReferencePhoto,
+  type WallFinish,
   type ScanRecord,
   type Placement,
   type Project,
@@ -181,6 +184,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
   const ids = new Set(furniture.map((f) => f.id));
   const fengShui = parseFengShui(data.fengShui, features);
   const scan = parseScanRecord(data.scan);
+  const referencePhotos = parseReferencePhotos(data.referencePhotos);
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     name,
@@ -195,6 +199,7 @@ function buildProject(data: Record<string, unknown>, version: number): Project {
     acceptedOverlaps,
     ...(fengShui ? { fengShui } : {}),
     ...(scan ? { scan } : {}),
+    ...(referencePhotos.length ? { referencePhotos } : {}),
   };
 }
 
@@ -312,7 +317,49 @@ function parseRoom(raw: unknown, uniqueId: (id: unknown) => string): Room {
     floor: parseFloor(raw.floor),
     // The colour picker and the 3D renderer only understand #rrggbb.
     wallColor: typeof raw.wallColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.wallColor) ? raw.wallColor : DEFAULT_WALL_COLOR,
+    ...wallLooks(raw, new Set([...outline, ...partitions.flatMap((p) => p.nodes)].map((n) => n.id))),
   };
+}
+
+/** Optional Match My Room looks; anything damaged is dropped, never the project. */
+function wallLooks(raw: Record<string, unknown>, wallIds: Set<string>): Pick<Room, 'wallTexture' | 'wallFinishes'> {
+  const out: Pick<Room, 'wallTexture' | 'wallFinishes'> = {};
+  const texture = parsePhotoTexture(raw.wallTexture);
+  if (texture) out.wallTexture = texture;
+  if (isRecord(raw.wallFinishes)) {
+    const finishes: Record<string, WallFinish> = {};
+    for (const [id, f] of Object.entries(raw.wallFinishes)) {
+      if (!wallIds.has(id) || !isRecord(f)) continue;
+      const finish: WallFinish = {};
+      if (typeof f.color === 'string' && /^#[0-9a-f]{6}$/i.test(f.color)) finish.color = f.color;
+      const t = parsePhotoTexture(f.texture);
+      if (t) finish.texture = t;
+      if (finish.color || finish.texture) finishes[id] = finish;
+    }
+    if (Object.keys(finishes).length) out.wallFinishes = finishes;
+  }
+  return out;
+}
+
+export function parsePhotoTexture(raw: unknown): PhotoTexture | null {
+  if (!isRecord(raw) || typeof raw.assetId !== 'string' || !ASSET_ID.test(raw.assetId)) return null;
+  const size = (v: unknown) => (finite(v) && v >= 1 && v <= 2000 ? v : null);
+  const widthCm = size(raw.widthCm);
+  const heightCm = size(raw.heightCm);
+  if (widthCm === null || heightCm === null) return null;
+  const texture: PhotoTexture = { assetId: raw.assetId, widthCm, heightCm };
+  if (finite(raw.roughness) && raw.roughness >= 0 && raw.roughness <= 1) texture.roughness = raw.roughness;
+  return texture;
+}
+
+function parseReferencePhotos(raw: unknown): ReferencePhoto[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw
+    .slice(0, 50)
+    .filter(isRecord)
+    .filter((p) => typeof p.assetId === 'string' && ASSET_ID.test(p.assetId) && !seen.has(p.assetId) && seen.add(p.assetId))
+    .map((p) => ({ assetId: p.assetId as string, name: typeof p.name === 'string' ? p.name.slice(0, 80) : 'Photo', addedAt: finite(p.addedAt) ? p.addedAt : 0 }));
 }
 
 function parseNodes(raw: unknown[], uniqueId: (id: unknown) => string, what: string): WallNode[] {
@@ -333,6 +380,7 @@ function parseFloor(raw: unknown): FloorStyle {
     scale: finite(raw.scale) && raw.scale >= 0.25 && raw.scale <= 4 ? raw.scale : 1,
     angle: finite(raw.angle) ? normalizeRotation(raw.angle) : 0,
     intensity: finite(raw.intensity) && raw.intensity >= 0 && raw.intensity <= 1 ? raw.intensity : 0.5,
+    ...(parsePhotoTexture(raw.photo) ? { photo: parsePhotoTexture(raw.photo)! } : {}),
   };
 }
 
@@ -601,8 +649,15 @@ export function parseAppearance(raw: unknown): FurnitureAppearance | undefined {
 }
 
 /** Every photo a project refers to (textures and reference photos). */
-export function projectAssetIds(project: Pick<Project, 'furniture'>): string[] {
-  return [...new Set(project.furniture.flatMap(furnitureAssetIds))];
+/** Every photo a project refers to: furniture photos, Match My Room textures and reference photos. */
+export function projectAssetIds(project: Pick<Project, 'furniture'> & Partial<Pick<Project, 'room' | 'referencePhotos'>>): string[] {
+  const room = project.room;
+  const roomTextures = room
+    ? [room.floor.photo?.assetId, room.wallTexture?.assetId, ...Object.values(room.wallFinishes ?? {}).map((f) => f.texture?.assetId)]
+    : [];
+  return [
+    ...new Set([...project.furniture.flatMap(furnitureAssetIds), ...roomTextures, ...(project.referencePhotos ?? []).map((p) => p.assetId)].filter((v): v is string => typeof v === 'string')),
+  ];
 }
 
 export function furnitureAssetIds(item: Pick<Furniture, 'appearance'>): string[] {

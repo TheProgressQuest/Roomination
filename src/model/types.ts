@@ -23,6 +23,31 @@ export interface Point {
 
 export type FloorPreset = 'plain' | 'hardwood' | 'lightOak' | 'darkWalnut' | 'tile' | 'concrete' | 'carpet';
 
+/**
+ * A repeating texture cut from a reference photo (Match My Room): the corrected tile is stored
+ * as its own image on this device, and repeats every `widthCm` × `heightCm` of real surface.
+ */
+export interface PhotoTexture {
+  assetId: string;
+  widthCm: number;
+  heightCm: number;
+  /** 0 (glossy) – 1 (matte); missing = the surface's usual. */
+  roughness?: number;
+}
+
+/** One wall's own look, overriding the room's (Match My Room). */
+export interface WallFinish {
+  color?: string;
+  texture?: PhotoTexture;
+}
+
+/** A photo of the real room kept with the project, for matching colours, textures and views. */
+export interface ReferencePhoto {
+  assetId: string;
+  name: string;
+  addedAt: number;
+}
+
 /** How the room's floor surface looks. Purely visual — never affects geometry. */
 export interface FloorStyle {
   preset: FloorPreset;
@@ -33,6 +58,8 @@ export interface FloorStyle {
   angle: number;
   /** 0–1: how strongly grain, grout or fibres show. */
   intensity: number;
+  /** A texture from a photo of the real floor, replacing the preset pattern. */
+  photo?: PhotoTexture;
 }
 
 /**
@@ -67,6 +94,10 @@ export interface Room {
   floor: FloorStyle;
   /** Wall surface colour in the 3D view. Purely visual. */
   wallColor: string;
+  /** A photo texture for every wall (Match My Room). */
+  wallTexture?: PhotoTexture;
+  /** Walls with their own colour or texture, by wall id. */
+  wallFinishes?: Record<string, WallFinish>;
 }
 
 // ---------------------------------------------------------------------------
@@ -611,4 +642,6 @@ export interface Project {
   acceptedOverlaps: string[];
   /** Present when the project was created from a room scan. */
   scan?: ScanRecord;
+  /** Photos of the real room (Match My Room), stored on this device. */
+  referencePhotos?: ReferencePhoto[];
 }

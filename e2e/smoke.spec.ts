@@ -85,6 +85,40 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     expect(errors).toEqual([]);
   });
 
+  test('Match my room: a photo’s colour goes onto the walls, locally', async ({ page, baseURL }) => {
+    const errors = await openApp(page);
+    const origin = new URL(baseURL!).origin;
+    const outside: string[] = [];
+    page.on('request', (r) => {
+      const url = r.url();
+      if (!url.startsWith('data:') && !url.startsWith('blob:') && new URL(url).origin !== origin) outside.push(url);
+    });
+    // A synthetic photo: one flat colour.
+    const png = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 200;
+      c.height = 150;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#8ea393';
+      g.fillRect(0, 0, 200, 150);
+      return c.toDataURL('image/png').split(',')[1];
+    });
+    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
+    await page.getByRole('button', { name: 'Match my room' }).click();
+    const panel = page.getByRole('complementary', { name: 'Match my room' });
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), panel.getByRole('button', { name: /Add a photo/ }).click()]);
+    await chooser.setFiles({ name: 'room.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+    const photo = panel.locator('canvas.match-photo');
+    await photo.click({ position: { x: 40, y: 40 } });
+    await panel.getByLabel('Apply to').selectOption('walls');
+    await panel.getByRole('button', { name: 'Apply colour' }).click();
+    const project = await exportProject(page);
+    expect(project.room.wallColor).toBe('#8ea393');
+    expect(project.referencePhotos).toHaveLength(1);
+    expect(outside).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   test('the 3D view starts and draws', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();

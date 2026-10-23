@@ -27,14 +27,15 @@ import {
   Spherical,
   Vector2,
   Vector3,
+  Texture,
   WebGLRenderer,
-  type Texture,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { pointInPolygon, signedArea2, type Polygon } from '../../model/polygon';
-import type { Point } from '../../model/types';
+import type { PhotoTexture, Point } from '../../model/types';
 import { floorTexture } from '../../render/textures';
+import { loadAssetImage } from '../../storage/assets';
 import type { CameraPreset, WallMode } from '../../state/preferences';
 import { CM_PER_SCENE_UNIT, toScene, type Block, type Cylinder, type OpeningMaterial, type FloorHole, type RoomModel, type SceneFurniture, type SceneWall } from '../model';
 import type { ViewerStats } from '../diagnostics';
@@ -394,7 +395,7 @@ export class RoomViewer {
   // ---------------------------------------------------------------------------
 
   private buildRoom(room: RoomModel) {
-    const materials = new MaterialSet(room.wallColor);
+    const materials = new MaterialSet(room.wallColor, () => this.requestRender());
     this.roomMaterials = materials;
 
     // Floor, with holes where stairs go down.
@@ -412,7 +413,7 @@ export class RoomViewer {
     this.wallGroups = room.walls.map((wall) => {
       const group = new Group();
       group.name = `wall:${wall.wallId}`;
-      const mesh = new Mesh(wallGeometry(wall), materials.wall);
+      const mesh = new Mesh(wallGeometry(wall), materials.wallLook(wall.color, wall.texture));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.userData.blocksSelection = true;
@@ -680,7 +681,15 @@ class MaterialSet {
   private floorMaterial: MeshStandardMaterial | null = null;
   private texture: Texture | null = null;
 
-  constructor(wallColor: string) {
+  /** Walls with their own colour or photo texture (Match My Room), by look. */
+  private readonly looks = new Map<string, MeshStandardMaterial>();
+  private readonly photos: Texture[] = [];
+  private disposed = false;
+
+  constructor(
+    wallColor: string,
+    private readonly onChange: () => void = () => {},
+  ) {
     this.wall = new MeshStandardMaterial({ color: wallColor, roughness: 0.92 });
     this.shaft = new MeshStandardMaterial({ color: wallColor, roughness: 0.95, side: DoubleSide });
     this.openings = {
@@ -695,7 +704,43 @@ class MaterialSet {
     return this.openings[material];
   }
 
+  /** A wall's material: the shared one, or its own colour and photo texture. */
+  wallLook(color: string, texture?: PhotoTexture): MeshStandardMaterial {
+    if (!texture && color.toLowerCase() === `#${this.wall.color.getHexString()}`) return this.wall;
+    const key = `${color}|${texture?.assetId ?? ''}|${texture?.widthCm ?? ''}|${texture?.heightCm ?? ''}|${texture?.roughness ?? ''}`;
+    const hit = this.looks.get(key);
+    if (hit) return hit;
+    const material = new MeshStandardMaterial({ color, roughness: texture?.roughness ?? 0.92 });
+    this.looks.set(key, material);
+    if (texture) this.applyPhoto(material, texture);
+    return material;
+  }
+
+  /** Loads a photo texture from this device's storage and shows it once ready (UVs are in metres). */
+  private applyPhoto(material: MeshStandardMaterial, texture: PhotoTexture) {
+    void loadAssetImage(texture.assetId).then((image) => {
+      if (!image || this.disposed) return;
+      const map = new Texture(image);
+      map.wrapS = map.wrapT = RepeatWrapping;
+      map.colorSpace = SRGBColorSpace;
+      map.anisotropy = 4;
+      map.repeat.set(100 / texture.widthCm, 100 / texture.heightCm);
+      map.needsUpdate = true;
+      this.photos.push(map);
+      material.map = map;
+      material.color.set('#ffffff');
+      material.needsUpdate = true;
+      this.onChange();
+    });
+  }
+
   floor(style: RoomModel['floorStyle']): MeshStandardMaterial {
+    if (style.photo) {
+      // A photo of the real floor, repeating at its real size (floor UVs are in metres for photos).
+      this.floorMaterial = new MeshStandardMaterial({ color: style.color, roughness: style.photo.roughness ?? 0.6 });
+      this.applyPhoto(this.floorMaterial, style.photo);
+      return this.floorMaterial;
+    }
     const tile = floorTexture(style);
     if (tile) {
       // The 2D plan's own procedural tile, so 3D floors match the plan exactly.
@@ -712,8 +757,10 @@ class MaterialSet {
   }
 
   dispose() {
-    for (const material of [this.wall, this.shaft, this.stairs, this.fixture, ...Object.values(this.openings), this.floorMaterial]) material?.dispose();
+    this.disposed = true;
+    for (const material of [this.wall, this.shaft, this.stairs, this.fixture, ...Object.values(this.openings), this.floorMaterial, ...this.looks.values()]) material?.dispose();
     this.texture?.dispose();
+    for (const photo of this.photos) photo.dispose();
   }
 }
 
@@ -872,7 +919,16 @@ function wallGeometry(wall: SceneWall): BufferGeometry {
     sink.quad(v3(p0, 0), v3(p3, 0), v3(p3, height), v3(p0, height), along3.clone().negate());
     sink.quad(v3(p1, 0), v3(p2, 0), v3(p2, height), v3(p1, height), along3);
   }
-  return sink.geometry();
+  const geometry = sink.geometry();
+  // Texture coordinates in metres: along the wall and up it, so photo textures keep their real size.
+  const pos = geometry.getAttribute('position');
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    uv[i * 2] = pos.getX(i) * d.x + pos.getZ(i) * d.y;
+    uv[i * 2 + 1] = pos.getY(i);
+  }
+  geometry.setAttribute('uv', new BufferAttribute(uv, 2));
+  return geometry;
 }
 
 /** The floor polygon (with holes), facing up, with texture coordinates in real centimetres. */
@@ -883,7 +939,8 @@ function floorGeometry(outline: Polygon, holes: Polygon[], style: RoomModel['flo
     outline.map((p) => new Vector2(p.x, p.y)),
     holes.map((h) => h.map((p) => new Vector2(p.x, p.y))),
   );
-  const tile = floorTexture(style);
+  // Photo floors repeat by metres (the texture's own repeat sets its real size); patterns by tile.
+  const tile = style.photo ? { widthCm: 100, heightCm: 100 } : floorTexture(style);
   // Same mapping as the plan: the pattern is anchored at the room origin and rotated by `angle`.
   const rad = (-style.angle * Math.PI) / 180;
   const cos = Math.cos(rad);

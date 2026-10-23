@@ -66,6 +66,8 @@ const CatalogueBrowser = lazy(() => import('./catalogue/CatalogueBrowser'));
 const FurnitureBuilder = lazy(() => import('./builder/FurnitureBuilder'));
 // The room-scan importer (and the catalogue it maps furniture to) loads only when opened.
 const ScanImportDialog = lazy(() => import('./scan/ScanImportDialog'));
+// Match My Room (photos beside the 3D view) loads only when opened.
+const MatchMyRoom = lazy(() => import('./match/MatchMyRoom'));
 
 interface BuilderSession {
   /** The piece in the room being rebuilt, or none for a new piece. */
@@ -110,6 +112,7 @@ export function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [matchOpen, setMatchOpen] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [studio, setStudio] = useState<StudioSession | null>(null);
   const [builder, setBuilder] = useState<BuilderSession | null>(null);
@@ -806,6 +809,17 @@ export function App() {
                       onPreferences={(changes) => updatePreferences({ view3d: { ...preferences.view3d, ...changes } })}
                       onSelect={(id) => setSelection(id ? { kind: 'object', id } : null)}
                       onExit={() => setView('2d')}
+                      matchOpen={matchOpen}
+                      onToggleMatch={() => setMatchOpen((open) => !open)}
+                      sidePanel={
+                        matchOpen ? (
+                          <LoadBoundary title="Match my room" onClose={() => setMatchOpen(false)}>
+                            <Suspense fallback={<aside className="match-panel" aria-busy="true" />}>
+                              <MatchMyRoom project={project} selectedId={selectedId} dispatch={dispatch} onClose={() => setMatchOpen(false)} />
+                            </Suspense>
+                          </LoadBoundary>
+                        ) : null
+                      }
                     />
                   </Suspense>
                 </View3DBoundary>

@@ -17,6 +17,17 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Match My Room (M2.2):**
+  - wall colours and textures show in 3D only, not on the 2D plan; floor photo textures show in
+    both;
+  - photos carry their own lighting, so sampled colours and textures may be darker than the
+    real surface (a brightness slider is offered);
+  - perspective is corrected only from the four corners the person places;
+  - a photo texture on a component-built piece replaces its detailed parts with a plain
+    textured block (the existing photo-furniture behaviour);
+  - every applied texture is stored as a new image, and unused ones are removed only by
+    *Projects → Photos & storage*.
+
 - **Raised and wall-mounted pieces (M2.1):**
   - collisions use height ranges for furniture against furniture, but raised pieces skip the
     floor clearance zones in front of other furniture;
@@ -48,6 +59,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Match My Room panel (~400 lines) | Tested on desktop with synthetic photos; touch dragging of corners not yet tried on an iPhone |
 | New fixtures (vanities, mirrors, lights, curtain, towel bar) only checked in synthetic screenshots | Look at them on a real device and at eye level |
 | `custom.spec.ts` “draws a new outline corner by corner” is flaky on CI | It occasionally lands 2 cm off; it passes on retry |
 | GitHub Actions use Node 20 versions of `checkout` / `setup-node` | GitHub warns they're deprecated; update to newer action versions |

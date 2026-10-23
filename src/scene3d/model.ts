@@ -3,7 +3,7 @@ import { doorLeaves, featureFrame, toRoom, type Frame } from '../model/features'
 import { boundingBox, pointInPolygon, polygonArea, signedArea2, type Box, type Polygon } from '../model/polygon';
 import { layoutStair, stairToRoom, totalSteps } from '../model/stairs';
 import { localFootprint, type Ring } from '../model/shape';
-import type { FloorStyle, Furniture, MaterialKind, Point, Project, RoomFeature, Staircase, SurfaceFinish } from '../model/types';
+import type { FloorStyle, Furniture, MaterialKind, Point, Project, RoomFeature, Staircase, SurfaceFinish, PhotoTexture } from '../model/types';
 import { wallBodies, wallDirection, wallOutward } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
 import { shade } from '../render/palette';
@@ -84,6 +84,9 @@ export interface SceneWall {
   origin: Point;
   direction: Point;
   height: number;
+  /** The wall's colour and (Match My Room) photo texture: its own, or the room's. */
+  color: string;
+  texture?: PhotoTexture;
   /** Door and window openings cut right through the wall. */
   holes: WallHole[];
   openings: { material: OpeningMaterial; block: Block }[];
@@ -217,6 +220,8 @@ export function buildRoomModel(project: Pick<Project, 'room' | 'features' | 'sta
       origin: segment.start,
       direction: d,
       height: ceilingHeight,
+      color: room.wallFinishes?.[segment.id]?.color ?? room.wallColor,
+      ...((room.wallFinishes?.[segment.id]?.texture ?? room.wallTexture) ? { texture: room.wallFinishes?.[segment.id]?.texture ?? room.wallTexture } : {}),
       holes: [],
       openings: [],
       fixtures: [],

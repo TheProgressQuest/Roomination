@@ -5,7 +5,8 @@ import { formatLength, gridSpacing } from '../../model/units';
 import { wallBodies } from '../../model/wallGeometry';
 import { asRectangle, outlinePolygon, roomArea, wallSegments } from '../../model/walls';
 import type { CanvasPalette } from '../../render/palette';
-import { floorTexture, patternScale } from '../../render/textures';
+import { floorTexture } from '../../render/textures';
+import { useAssetImage } from '../useAssetImage';
 import { flatPx, flatScreen, toScreen, type Viewport } from './viewport';
 
 export const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -19,8 +20,12 @@ interface ShellProps {
 /** The floor surface (with its texture) and the real-world measurement grid, clipped to the room. */
 export function RoomFloor({ project, viewport, palette, showGrid, bounds }: ShellProps & { showGrid: boolean; bounds: Box }) {
   const { room } = project;
-  const texture = floorTexture(room.floor);
-  const ratio = texture ? patternScale(texture, viewport.scale) : 1;
+  // A photo of the real floor (Match My Room) replaces the preset pattern, repeating at its real size.
+  const photo = useAssetImage(room.floor.photo?.assetId);
+  const procedural = floorTexture(room.floor);
+  const texture = photo && room.floor.photo ? { image: photo, widthCm: room.floor.photo.widthCm, heightCm: room.floor.photo.heightCm } : procedural;
+  const ratio = texture ? (viewport.scale * texture.widthCm) / (photo && room.floor.photo ? photo.naturalWidth : (texture.image as HTMLCanvasElement).width) : 1;
+  const ratioY = texture ? (photo && room.floor.photo ? (viewport.scale * room.floor.photo.heightCm) / photo.naturalHeight : ratio) : 1;
   const outline = outlinePolygon(room);
 
   return (
@@ -34,7 +39,7 @@ export function RoomFloor({ project, viewport, palette, showGrid, bounds }: Shel
         fillPriority={texture ? 'pattern' : 'color'}
         fillPatternImage={texture?.image as unknown as HTMLImageElement | undefined}
         fillPatternRepeat="repeat"
-        fillPatternScale={{ x: ratio, y: ratio }}
+        fillPatternScale={{ x: ratio, y: ratioY }}
         fillPatternRotation={room.floor.angle}
         shadowColor={palette.shadow}
         shadowOpacity={0.14}

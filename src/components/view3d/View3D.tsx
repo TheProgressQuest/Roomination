@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Project } from '../../model/types';
 import { formatLength } from '../../model/units';
 import type {} from '../../scene3d/diagnostics';
@@ -21,6 +21,10 @@ export interface View3DProps {
   onPreferences: (changes: Partial<View3DPreferences>) => void;
   onSelect: (id: string | null) => void;
   onExit: () => void;
+  /** Match My Room: whether its panel is open, the toggle, and the panel itself (shown beside the view). */
+  matchOpen?: boolean;
+  onToggleMatch?: () => void;
+  sidePanel?: ReactNode;
 }
 
 const CAMERA_OPTIONS: { value: CameraPreset; label: string }[] = [
@@ -40,7 +44,7 @@ const QUALITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 
 export default function View3D(props: View3DProps) {
-  const { project, selectedId, theme, preferences, touch, onPreferences, onSelect, onExit } = props;
+  const { project, selectedId, theme, preferences, touch, onPreferences, onSelect, onExit, matchOpen, onToggleMatch, sidePanel } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<RoomViewer | null>(null);
   const [status, setStatus] = useState<Status>('ready');
@@ -123,7 +127,7 @@ export default function View3D(props: View3DProps) {
   }
 
   return (
-    <div className="view3d">
+    <div className={`view3d${sidePanel ? ' has-side-panel' : ''}`}>
       <div className="view3d-toolbar" role="toolbar" aria-label="3D view options">
         <div className="segmented" role="radiogroup" aria-label="Camera">
           {CAMERA_OPTIONS.map((option) => (
@@ -159,6 +163,11 @@ export default function View3D(props: View3DProps) {
           <input type="checkbox" checked={preferences.shadows} onChange={(e) => onPreferences({ shadows: e.target.checked })} disabled={status !== 'ready'} />
           <span>Shadows</span>
         </label>
+        {onToggleMatch && (
+          <button type="button" className={`secondary small${matchOpen ? ' is-active' : ''}`} aria-pressed={!!matchOpen} onClick={onToggleMatch}>
+            <Icon name="palette" size={16} /> Match my room
+          </button>
+        )}
         <label className="view3d-select">
           <span>Quality</span>
           <select value={preferences.quality} onChange={(e) => onPreferences({ quality: e.target.value as QualityPreference })} disabled={status !== 'ready'}>
@@ -170,6 +179,7 @@ export default function View3D(props: View3DProps) {
         </label>
       </div>
 
+      <div className="view3d-body">
       <section className="canvas-panel view3d-panel" aria-label="3D view">
         <div ref={containerRef} key={attempt} className="view3d-canvas" />
 
@@ -228,6 +238,8 @@ export default function View3D(props: View3DProps) {
           </div>
         )}
       </section>
+        {sidePanel}
+      </div>
     </div>
   );
 }

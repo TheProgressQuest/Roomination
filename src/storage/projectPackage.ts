@@ -131,7 +131,38 @@ function dropMissing(project: Project, available: Set<string>): Project {
 
 /** Rewrites (or, returning null, removes) every photo reference in a project. */
 export function withAssets(project: Project, map: (id: string) => string | null): Project {
-  return { ...project, furniture: project.furniture.map((f) => remapFurniture(f, map)) };
+  const texture = <T extends { assetId: string }>(t: T | undefined): T | undefined => {
+    if (!t) return undefined;
+    const id = map(t.assetId);
+    return id ? { ...t, assetId: id } : undefined;
+  };
+  const room = project.room;
+  const { photo, ...floor } = room.floor;
+  const { wallTexture, wallFinishes, ...walls } = room;
+  const floorPhoto = texture(photo);
+  const wallTex = texture(wallTexture);
+  const finishes = Object.fromEntries(
+    Object.entries(wallFinishes ?? {})
+      .map(([id, f]) => {
+        const t = texture(f.texture);
+        const next = { ...(f.color ? { color: f.color } : {}), ...(t ? { texture: t } : {}) };
+        return [id, next] as const;
+      })
+      .filter(([, f]) => f.color || f.texture),
+  );
+  const photos = (project.referencePhotos ?? []).map((p) => texture(p)).filter((p) => p !== undefined);
+  const { referencePhotos: _photos, ...rest } = project;
+  return {
+    ...rest,
+    room: {
+      ...walls,
+      floor: { ...floor, ...(floorPhoto ? { photo: floorPhoto } : {}) },
+      ...(wallTex ? { wallTexture: wallTex } : {}),
+      ...(Object.keys(finishes).length ? { wallFinishes: finishes } : {}),
+    },
+    furniture: project.furniture.map((f) => remapFurniture(f, map)),
+    ...(photos.length ? { referencePhotos: photos } : {}),
+  };
 }
 
 function remapFurniture(item: Furniture, map: (id: string) => string | null): Furniture {
