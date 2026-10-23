@@ -17,6 +17,14 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Reflections (M2.4):**
+  - Medium and High add a soft generic room environment (not the real room) to glossy surfaces;
+  - on High, mirrors reflect the actual room, captured from one point in front of the first
+    mirror, so reflections are approximate and every mirror shows the same capture;
+  - measured on this Mac's headless browser: CPU time per frame 0.3 ms (Low), 0.4 ms (Medium),
+    0.4 ms (High); the mirror capture costs about 75 ms, once, 200 ms after the room or
+    furniture last changed; GPU time and real-device frame rates are not measured yet.
+
 - **Camera matching (M2.3):**
   - lined up by eye, with no automatic calibration;
   - lens presets assume iPhone Pro focal lengths (13, 24 and 48 mm equivalent) and a photo that
@@ -67,6 +75,8 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Match My Room panel touch targets | Some panel buttons are the small (32 px) size; check on iPhone and iPad before release (44 px rule) |
+| Full regression not run for M2.1–M2.4 | Only targeted tests, the 3D suite and smoke tests; run `npm run test:full` before release |
 | Match My Room panel (~400 lines) | Tested on desktop with synthetic photos; touch dragging of corners not yet tried on an iPhone |
 | New fixtures (vanities, mirrors, lights, curtain, towel bar) only checked in synthetic screenshots | Look at them on a real device and at eye level |
 | `custom.spec.ts` “draws a new outline corner by corner” is flaky on CI | It occasionally lands 2 cm off; it passes on retry |

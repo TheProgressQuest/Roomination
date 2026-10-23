@@ -202,7 +202,7 @@ export default function View3D(props: View3DProps) {
           <span>Shadows</span>
         </label>
         {onToggleMatch && (
-          <button type="button" className={`secondary small${matchOpen ? ' is-active' : ''}`} aria-pressed={!!matchOpen} onClick={onToggleMatch}>
+          <button type="button" className={`secondary view3d-match${matchOpen ? ' is-active' : ''}`} aria-pressed={!!matchOpen} onClick={onToggleMatch}>
             <Icon name="palette" size={16} /> Match my room
           </button>
         )}

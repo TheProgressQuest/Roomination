@@ -6,6 +6,10 @@ import type { Point } from '../model/types';
  */
 
 export interface ViewerStats {
+  /** CPU time to draw the last frame, ms (GPU time isn't measured). */
+  frameMs: number;
+  /** Time spent on the last reflection update (High quality mirrors), ms. */
+  reflectionMs: number;
   /** Time to build the last room and furniture changes, in ms. */
   buildMs: number;
   drawCalls: number;

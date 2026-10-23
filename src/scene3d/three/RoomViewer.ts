@@ -4,6 +4,9 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  CubeCamera,
+  PMREMGenerator,
+  WebGLCubeRenderTarget,
   Color,
   CylinderGeometry,
   DirectionalLight,
@@ -31,6 +34,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { pointInPolygon, signedArea2, type Polygon } from '../../model/polygon';
 import type { CameraPose, PhotoTexture, Point } from '../../model/types';
@@ -114,6 +118,13 @@ export class RoomViewer {
 
   private frameRequest = 0;
   private transition: { frame: number } | null = null;
+  /** CPU time of the last frame and of the last reflection update, ms (diagnostics). */
+  private lastFrameMs = 0;
+  private reflectionMs = 0;
+  /** A soft, generic room environment for glossy surfaces (Medium and High quality). */
+  private environment: { texture: Texture; dispose(): void } | null = null;
+  /** What the mirrors reflect (High quality): the room, captured from the first mirror. */
+  private mirrorCapture: { camera: CubeCamera; target: WebGLCubeRenderTarget } | null = null;
   /** The orbiting camera, kept while a manual camera is in use. */
   private orbitBefore: { position: Vector3; target: Vector3; fov: number } | null = null;
   private roomBuildMs = 0;
@@ -180,6 +191,7 @@ export class RoomViewer {
     this.updateWallVisibility();
     this.roomBuildMs = performance.now() - started;
     if (first) this.setPreset(this.options.initialPreset, false);
+    this.updateReflections();
     this.requestRender();
   }
 
@@ -190,6 +202,7 @@ export class RoomViewer {
     this.furniture.build(furniture);
     this.updateShadows();
     this.furnitureBuildMs = performance.now() - started;
+    this.updateReflections();
     this.requestRender();
   }
 
@@ -215,6 +228,10 @@ export class RoomViewer {
     if (quality === this.quality) return;
     this.quality = quality;
     this.furnitureMaterials.setQuality(quality);
+    queueMicrotask(() => {
+      this.updateReflections();
+      this.requestRender();
+    });
     this.furniture.setDetail(quality);
     if (this.room) {
       // Room materials use the same quality-dependent floor and wall detail.
@@ -330,6 +347,8 @@ export class RoomViewer {
   stats(): ViewerStats {
     const info = this.renderer.info;
     return {
+      frameMs: Math.round(this.lastFrameMs * 10) / 10,
+      reflectionMs: Math.round(this.reflectionMs * 10) / 10,
       buildMs: this.roomBuildMs + this.furnitureBuildMs,
       drawCalls: info.render.calls,
       triangles: info.render.triangles,
@@ -339,6 +358,72 @@ export class RoomViewer {
       pixelRatio: this.renderer.getPixelRatio(),
       animating: this.transition !== null,
     };
+  }
+
+  /**
+   * Reflections, by quality:
+   *  - Low: none (plain lighting, as before).
+   *  - Medium and High: a soft generic room environment, so glossy ceramics, chrome and tiles
+   *    pick up believable highlights (one pre-filter when first needed, nothing per frame).
+   *  - High: mirrors reflect the actual room, captured once from the first mirror whenever
+   *    the room or furniture changes (six extra renders at rebuild time, not per frame). The
+   *    reflection's perspective is approximate: it's a capture from one point.
+   */
+  private updateReflections() {
+    const started = performance.now();
+    if (this.quality === 'low') {
+      this.scene.environment = null;
+    } else {
+      if (!this.environment) {
+        const pmrem = new PMREMGenerator(this.renderer);
+        const target = pmrem.fromScene(new RoomEnvironment(), 0.04);
+        pmrem.dispose();
+        this.environment = { texture: target.texture, dispose: () => target.dispose() };
+      }
+      this.scene.environment = this.environment.texture;
+      this.scene.environmentIntensity = 0.3;
+    }
+    this.reflectionMs = performance.now() - started;
+    // The mirror capture waits for a quiet moment, so a burst of edits pays for it once.
+    window.clearTimeout(this.mirrorTimer);
+    this.mirrorTimer = window.setTimeout(() => this.captureMirrors(), 200);
+  }
+
+  private mirrorTimer = 0;
+
+  private captureMirrors() {
+    if (this.disposed) return;
+    const started = performance.now();
+    const mirrors: Mesh[] = [];
+    this.furniture.group.traverse((o) => {
+      if ((o as Mesh).isMesh && o.name === 'furniture:mirror') mirrors.push(o as Mesh);
+    });
+    const piece = (this.lastFurniture ?? []).find((f) => f.parts.some((p) => p.surface === 'mirror'));
+    if (this.quality === 'high' && mirrors.length > 0 && piece) {
+      if (!this.mirrorCapture) {
+        const target = new WebGLCubeRenderTarget(256);
+        this.mirrorCapture = { camera: new CubeCamera(0.05, 60, target), target };
+      }
+      // Just in front of the mirror, at its middle height, facing out of it.
+      const turn = (piece.rotation * Math.PI) / 180;
+      const front = 12;
+      const at = toScene({ x: piece.x - Math.sin(turn) * front, y: piece.y + Math.cos(turn) * front }, piece.elevation + piece.height / 2);
+      const { camera, target } = this.mirrorCapture;
+      camera.position.set(at.x, at.y, at.z);
+      for (const m of mirrors) m.visible = false;
+      camera.update(this.renderer, this.scene);
+      for (const m of mirrors) {
+        m.visible = true;
+        for (const material of [m.material].flat() as MeshStandardMaterial[]) {
+          material.envMap = target.texture;
+          material.metalness = 1;
+          material.roughness = 0.02;
+          material.needsUpdate = true;
+        }
+      }
+      this.requestRender();
+    }
+    this.reflectionMs = performance.now() - started;
   }
 
   /** Where a piece's centre appears on screen (CSS px relative to the canvas), or null. */
@@ -425,6 +510,9 @@ export class RoomViewer {
     cancelAnimationFrame(this.frameRequest);
     this.cancelTransition();
     this.resizeObserver.disconnect();
+    window.clearTimeout(this.mirrorTimer);
+    this.environment?.dispose();
+    this.mirrorCapture?.target.dispose();
     const canvas = this.renderer.domElement;
     canvas.removeEventListener('pointerdown', this.onPointerDown);
     canvas.removeEventListener('pointerup', this.onPointerUp);
@@ -647,7 +735,9 @@ export class RoomViewer {
     if (this.frameRequest || this.disposed) return;
     this.frameRequest = requestAnimationFrame(() => {
       this.frameRequest = 0;
+      const started = performance.now();
       this.renderer.render(this.scene, this.camera);
+      this.lastFrameMs = performance.now() - started;
       this.framesRendered++;
     });
   }
