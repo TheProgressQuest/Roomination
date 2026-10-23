@@ -106,6 +106,8 @@ export interface SceneFurniture {
   depth: number;
   height: number;
   rotation: number;
+  /** Bottom above the floor, cm (wall-mounted and raised pieces). */
+  elevation: number;
   /**
    * The piece's parts in its own frame (see render/furnitureParts), colours and surfaces
    * resolved. Drawn and photo-textured pieces have only supporting parts (a table's pedestal).
@@ -392,6 +394,7 @@ function furnitureBlocks(item: Furniture): SceneFurniture {
     depth: item.depth,
     height,
     rotation: item.rotation,
+    elevation: item.elevation ?? 0,
     material: surface,
     finish: item.appearance?.finish ?? 'satin',
     textures,

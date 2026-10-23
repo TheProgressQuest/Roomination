@@ -167,6 +167,8 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
       const other = solids[j];
       if (onlyItemId && item.id !== onlyItemId && other.id !== onlyItemId) continue;
       const otherPrint = footprints.get(other.id)!;
+      // A mirror above a vanity, or a wall cabinet above a worktop, doesn't collide with it.
+      if (!overlapsVertically(item, other)) continue;
       const area = footprintOverlap(itemPrint.parts, otherPrint.parts);
       if (area > MIN_OVERLAP_AREA) {
         const smaller = Math.min(footprintArea(itemPrint), footprintArea(otherPrint));
@@ -177,6 +179,8 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
     // Furniture standing in the space another piece keeps clear in front of it.
     for (const { owner, zone } of onlyObstacleId ? [] : clearances) {
       if (owner.id === item.id || (onlyItemId && item.id !== onlyItemId && owner.id !== onlyItemId)) continue;
+      // The space kept clear in front of a piece is floor space to walk or sit in.
+      if ((item.elevation ?? 0) > 0) continue;
       const area = footprintOverlap(itemPrint.parts, [zone]);
       // Directional: "A in front of B" and "B in front of A" are different things to accept.
       if (area > MIN_OVERLAP_AREA) add(item.id, owner.id, 'furniture', 'clearance', area / polygonArea(zone), furnitureClearanceKey(item.id, owner.id));
@@ -199,7 +203,8 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
  */
 function worstIntrusion(item: Furniture, itemParts: Polygon[], zones: Zone[]): { type: ZoneType; coverage: number } | null {
   for (const type of SEVERITY) {
-    const ofType = zones.filter((z) => z.type === type && item.height >= z.minHeight);
+    // A raised piece reaches from its elevation to its top.
+    const ofType = zones.filter((z) => z.type === type && (item.elevation ?? 0) + item.height >= z.minHeight);
     if (ofType.length === 0) continue;
     const area = ofType.reduce((sum, z) => sum + footprintOverlap(itemParts, [z.polygon]), 0);
     if (area > MIN_OVERLAP_AREA) {
@@ -208,6 +213,13 @@ function worstIntrusion(item: Furniture, itemParts: Polygon[], zones: Zone[]): {
     }
   }
   return null;
+}
+
+/** Whether two pieces' height ranges (bottom to top) overlap. */
+export function overlapsVertically(a: Pick<Furniture, 'height' | 'elevation'>, b: Pick<Furniture, 'height' | 'elevation'>): boolean {
+  const a0 = a.elevation ?? 0;
+  const b0 = b.elevation ?? 0;
+  return a0 < b0 + b.height - 0.5 && b0 < a0 + a.height - 0.5;
 }
 
 /** "about 20%" — overlaps are approximate, so never claim false precision. */

@@ -265,4 +265,21 @@ export const SAMPLE_STUDIO: SampleRoom = {
   sections: [{ label: 'kitchen', x: 330, y: 60 }, { label: 'bedroom', x: 460, y: 300 }, { label: 'livingRoom', x: 150, y: 280 }],
 };
 
-export const SAMPLES = [SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO];
+/** A small bathroom as RoomPlan typically reports one: a basin above its vanity, a wall cabinet. */
+export const SAMPLE_BATHROOM: SampleRoom = {
+  name: 'Sample bathroom (synthetic)',
+  height: 244,
+  world: { turn: 8, dx: 0.6, dz: -1.4, floorY: -1.28 },
+  walls: { corners: [[0, 0], [250, 0], [250, 230], [0, 230]], shortfall: 1.5 },
+  openings: [{ kind: 'door', wall: 2, at: 200, width: 76, height: 203 }],
+  objects: [
+    { category: 'storage', x: 60, y: 27, width: 80, depth: 52, height: 82, rotation: 0, confidence: 'low' },
+    { category: 'sink', x: 60, y: 24, width: 50, depth: 40, height: 6, bottom: 80, rotation: 0, confidence: 'low' },
+    { category: 'toilet', x: 150, y: 35, width: 40, depth: 68, height: 76, rotation: 0, confidence: 'low' },
+    { category: 'bathtub', x: 212, y: 152, width: 152, depth: 76, height: 55, rotation: 270, confidence: 'medium' },
+    { category: 'storage', x: 150, y: 11, width: 60, depth: 22, height: 66, bottom: 140, rotation: 0, confidence: 'low' },
+  ],
+  sections: [{ label: 'bathroom', x: 125, y: 115 }],
+};
+
+export const SAMPLES = [SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, SAMPLE_BATHROOM];

@@ -69,6 +69,22 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     expect(errors).toEqual([]);
   });
 
+  test('a wall mirror hangs on a wall at its height, and keeps it when edited', async ({ page }) => {
+    const errors = await openApp(page);
+    await toolsTab(page, 'Furnish');
+    const cat = tools(page).locator('.catalogue');
+    await cat.getByLabel('Search the catalogue').fill('mirror');
+    await cat.getByRole('button', { name: /^Add Wall mirror\b/ }).click();
+    const props = page.locator('.properties-panel');
+    await props.getByLabel('From left', { exact: true }).fill('100');
+    await props.getByLabel('From left', { exact: true }).press('Enter');
+    await props.getByRole('button', { name: 'Mount on nearest wall' }).click();
+    const project = await exportProject(page);
+    const mirror = (project.furniture as { name: string; x: number; elevation?: number }[]).find((f) => f.name === 'Wall mirror')!;
+    expect(mirror).toMatchObject({ x: 100, elevation: 110 });
+    expect(errors).toEqual([]);
+  });
+
   test('the 3D view starts and draws', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();

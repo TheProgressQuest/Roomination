@@ -2,7 +2,7 @@ import { boundingBox, convexInsidePolygon, type Box } from './polygon';
 import { footprintInside, roomFootprint } from './shape';
 import { layoutStair, stairToRoom } from './stairs';
 import type { Furniture, Point, Room, Staircase } from './types';
-import { outlinePolygon, roomBounds } from './walls';
+import { nearestWall, outlinePolygon, roomBounds } from './walls';
 
 /**
  * Keeping things inside a (possibly concave) room.
@@ -140,4 +140,21 @@ export function clampStairToRoom(stair: Staircase, room: Pick<Room, 'outline'>, 
     from,
   });
   return centre ? { ...stair, x: centre.x, y: centre.y } : null;
+}
+
+/**
+ * Backs a piece onto the nearest wall, facing into the room (its front, +y, along the wall's
+ * inward side), keeping its height above the floor. For mirrors, wall cabinets, wall lights and
+ * shelves. Returns the new position and turn, or null when there is no wall.
+ */
+export function mountOnWall(item: Pick<Furniture, 'x' | 'y' | 'depth'>, room: Pick<Room, 'outline' | 'partitions'>): { x: number; y: number; rotation: number } | null {
+  const near = nearestWall(room, item, 10);
+  if (!near) return null;
+  const { segment, offset } = near;
+  const rad = (segment.angle * Math.PI) / 180;
+  const along = { x: segment.start.x + Math.cos(rad) * offset, y: segment.start.y + Math.sin(rad) * offset };
+  // A wall's inward side is to its right (outlines run clockwise): (−sin, cos) of its angle.
+  const inward = { x: -Math.sin(rad), y: Math.cos(rad) };
+  const r = (v: number) => Math.round(v * 10) / 10;
+  return { x: r(along.x + inward.x * (item.depth / 2)), y: r(along.y + inward.y * (item.depth / 2)), rotation: r(((segment.angle % 360) + 360) % 360) };
 }

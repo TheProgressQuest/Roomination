@@ -6,8 +6,8 @@ import type { Furniture } from './types';
  * that position, size and rotation always stay consistent with each other.
  */
 
-/** Smallest allowed furniture dimension, in cm. */
-export const MIN_FURNITURE_SIZE = 5;
+/** Smallest allowed furniture dimension, in cm (mirrors and wall art are only 1–3 cm deep). */
+export const MIN_FURNITURE_SIZE = 1;
 /** Smallest allowed width/length when resizing a rectangular room, in cm. */
 export const MIN_ROOM_SIZE = 50;
 

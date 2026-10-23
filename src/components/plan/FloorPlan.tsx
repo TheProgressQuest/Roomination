@@ -422,7 +422,9 @@ export function FloorPlan(props: FloorPlanProps) {
           {furniture.filter((f) => !isSolid(f)).map(renderFurniture)}
           {floorFeatures.map(renderFeature)}
           {stairs.map(renderStair)}
-          {furniture.filter(isSolid).map(renderFurniture)}
+          {furniture.filter((f) => isSolid(f) && !((f.elevation ?? 0) > 0)).map(renderFurniture)}
+          {/* Raised and wall-mounted pieces (mirrors, wall cabinets) are seen from above, so on top. */}
+          {furniture.filter((f) => isSolid(f) && (f.elevation ?? 0) > 0).map(renderFurniture)}
           <Walls
             project={shown}
             viewport={viewport}

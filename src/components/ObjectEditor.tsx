@@ -1,4 +1,4 @@
-import { useId, type Dispatch, type ReactNode } from 'react';
+import { Suspense, lazy, useId, useState, type Dispatch, type ReactNode } from 'react';
 import { describeConflict, type Conflict } from '../model/conflicts';
 import { FEATURE_LABELS } from '../model/features';
 import { FURNITURE_COLORS } from '../model/sample';
@@ -13,7 +13,11 @@ import { useOpenStudio } from './studio/studioContext';
 import { furnitureOrigin, ORIGIN_LABELS, saveToLibrary, toTemplate } from '../storage/library';
 import { NumberField } from './NumberField';
 import { ScanDetails } from './ScanDetails';
+import { mountOnWall } from '../model/placement';
 import { SegmentedControl } from './SegmentedControl';
+
+// The catalogue loads only when someone changes a piece's model.
+const ChangeModel = lazy(() => import('../catalogue/ChangeModel'));
 
 interface ObjectEditorProps {
   project: Project;
@@ -73,6 +77,25 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
           <NumberField label="Depth" suffix={unit} min={0} value={length(item.depth)} onCommit={(v) => change({ depth: toCm(v) })} />
           <NumberField label="Height" suffix={unit} min={0} value={length(item.height)} onCommit={(v) => change({ height: toCm(v) })} />
         </div>
+      </Section>
+
+      <ModelSection item={item} onApply={(changes) => change(changes)} />
+
+      <Section title="Height above floor" hint="For mirrors, wall cabinets, wall lights and shelves. Raised pieces are drawn dashed on the plan and only collide with things at the same height.">
+        <div className="field-grid two">
+          <NumberField label="Bottom above floor" suffix={unit} min={0} value={length(item.elevation ?? 0)} onCommit={(v) => change({ elevation: Math.max(0, toCm(v)) || undefined })} disabled={item.locked} />
+        </div>
+        <button
+          type="button"
+          className="secondary small"
+          disabled={item.locked}
+          onClick={() => {
+            const mounted = mountOnWall(item, project.room);
+            if (mounted) change(mounted);
+          }}
+        >
+          Mount on nearest wall
+        </button>
       </Section>
 
       <ShapeAndLook item={item} dispatch={dispatch} />
@@ -159,6 +182,31 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
           <Icon name="download" size={14} /> Save to my library
         </button>
       </div>
+    </Section>
+  );
+}
+
+/** "Change model": the same size and place, a different look. */
+function ModelSection({ item, onApply }: { item: Furniture; onApply: (changes: Partial<Furniture>) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Section title="Model">
+      {open ? (
+        <Suspense fallback={<p className="hint">Loading the catalogue…</p>}>
+          <ChangeModel
+            item={item}
+            onCancel={() => setOpen(false)}
+            onApply={(changes) => {
+              onApply(changes);
+              setOpen(false);
+            }}
+          />
+        </Suspense>
+      ) : (
+        <button type="button" className="secondary small" onClick={() => setOpen(true)}>
+          Change model…
+        </button>
+      )}
     </Section>
   );
 }

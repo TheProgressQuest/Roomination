@@ -33,6 +33,8 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
   const w = item.width * scale;
   const h = item.depth * scale;
   const isRug = item.category === 'floorCovering';
+  // Raised and wall-mounted pieces are drawn dashed, as plans show things above the floor.
+  const raised = (item.elevation ?? 0) > 0;
   const lifted = selected || hovered;
   const texture = isRug ? rugTexture(item.texture, item.color) : null;
   const patternScale = texture ? tileScale(texture, scale) : 1;
@@ -86,7 +88,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
             {...(illustrated ? null : photoFill(true))}
             stroke={showOutline ? stroke : undefined}
             strokeWidth={strokeWidth}
-            dash={status === 'accepted' ? [6, 4] : undefined}
+            dash={status === 'accepted' || raised ? [6, 4] : undefined}
             lineJoin="round"
             shadowEnabled={!illustrated}
             shadowColor={palette.shadow}
@@ -113,7 +115,7 @@ export const FurnitureShape = memo(function FurnitureShape(props: FurnitureShape
         fillPatternScale={{ x: patternScale, y: patternScale }}
         stroke={showOutline && !(presentation && isRug && !aids) ? stroke : undefined}
         strokeWidth={strokeWidth}
-        dash={status === 'accepted' ? [6, 4] : undefined}
+        dash={status === 'accepted' || raised ? [6, 4] : undefined}
         cornerRadius={isRug ? Math.min(3, w / 8, h / 8) : Math.min(6, w / 4, h / 4)}
         opacity={isRug ? 0.92 : 1}
         shadowEnabled={!isRug && !illustrated}

@@ -47,7 +47,8 @@ const MOUNTED_HEIGHT = 30;
  * (labelled as an assumption) instead of being left out like other raised objects.
  */
 const standsOnUnit = (o: Pick<ScanObject, 'category' | 'bottom'>) => o.category === 'sink' && o.bottom >= MOUNTED_HEIGHT;
-const startsIncluded = (o: Pick<ScanObject, 'category' | 'bottom'>) => o.bottom < MOUNTED_HEIGHT || standsOnUnit(o);
+/** Raised objects (a wall cabinet, a TV on its unit) keep their measured height above the floor. */
+const raisedBy = (o: Pick<ScanObject, 'category' | 'bottom'>) => (o.bottom >= MOUNTED_HEIGHT && !standsOnUnit(o) ? round1(o.bottom) : 0);
 
 // ---------------------------------------------------------------------------
 // Review state: the person's choices, kept apart from the measurements
@@ -108,11 +109,33 @@ export interface Review {
   addedPieces: AddedPiece[];
 }
 
+/**
+ * RoomPlan reports a vanity as two objects: a "storage" cabinet on the floor and a "sink" basin
+ * resting on it. Returns basin id → cabinet id for raised basins that sit on a floor cabinet.
+ */
+export function basinsOnCabinets(scan: Pick<ScanData, 'objects'>): Map<string, string> {
+  const pairs = new Map<string, string>();
+  for (const sink of scan.objects) {
+    if (sink.category !== 'sink' || sink.bottom < MOUNTED_HEIGHT) continue;
+    const under = scan.objects.find((o) => {
+      if (o === sink || o.bottom >= MOUNTED_HEIGHT || !['storage', 'table'].includes(o.category)) return false;
+      // The basin's centre over the cabinet (in its own frame), and the basin near its top.
+      const r = (-o.rotation * Math.PI) / 180;
+      const dx = sink.center.x - o.center.x;
+      const dy = sink.center.y - o.center.y;
+      const lx = dx * Math.cos(r) - dy * Math.sin(r);
+      const ly = dx * Math.sin(r) + dy * Math.cos(r);
+      return Math.abs(lx) <= o.width / 2 + 5 && Math.abs(ly) <= o.depth / 2 + 5 && sink.bottom <= o.bottom + o.height + 15;
+    });
+    if (under) pairs.set(sink.id, under.id);
+  }
+  return pairs;
+}
+
 export function initialReview(scan: ScanData): Review {
   const objects: Record<string, ObjectEdit> = {};
-  // Things on walls or on other furniture would sit on the floor in the plan, on top of
-  // whatever is below them, so they start unticked (but listed, never dropped).
-  for (const o of scan.objects) if (!startsIncluded(o)) objects[o.id] = { include: false };
+  // A basin that sits on its vanity cabinet is shown as part of that vanity (listed, never dropped).
+  for (const basin of basinsOnCabinets(scan).keys()) objects[basin] = { include: false };
   return { name: scan.name, straighten: true, quarterTurns: 0, ceiling: null, wallLengths: {}, openings: {}, objects, addedOpenings: [], addedPieces: [] };
 }
 
@@ -174,6 +197,8 @@ export interface BuiltObject {
   width: number;
   depth: number;
   height: number;
+  /** Bottom above the floor (raised objects keep their measured height). */
+  elevation: number;
   include: boolean;
   confidence: ScanConfidence;
   problem: string | null;
@@ -655,8 +680,9 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
       notes.push({ level: 'assumed', text: 'Stairs: the scan doesn’t say which end is the bottom, so the staircase goes up from its front. Turn it if needed.', itemId: b.id });
       return null;
     }
-    const t = pieceFor(b.as, b.category, b);
-    const item: Furniture = { ...t, id: b.id, x: round1(at.x), y: round1(at.y), rotation: round1(((rotation % 360) + 360) % 360), locked: false, preferences: [] };
+    // Height above the floor comes from the scan, never from the catalogue piece's default.
+    const { elevation: _templateElevation, ...t } = pieceFor(b.as, b.category, b);
+    const item: Furniture = { ...t, id: b.id, x: round1(at.x), y: round1(at.y), rotation: round1(((rotation % 360) + 360) % 360), locked: false, preferences: [], ...(b.elevation > 0 ? { elevation: b.elevation } : {}) };
     const placed = clampFurnitureToRoom(item, room);
     if (!placed) return 'It doesn’t fit inside the room at this size and angle.';
     const moved = dist(placed, item);
@@ -665,15 +691,21 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
     return null;
   };
 
+  const merged = basinsOnCabinets(scan);
+  const vanities = new Set(merged.values());
   for (const o of scan.objects) {
     const edit = review.objects[o.id] ?? {};
     const category = edit.category ?? o.category;
     const section = nearestSection(scan, o.center);
-    const unit = standsOnUnit({ category, bottom: o.bottom });
+    const onCabinet = merged.has(o.id);
+    const isVanity = vanities.has(o.id) && edit.category === undefined;
+    const unit = !onCabinet && standsOnUnit({ category, bottom: o.bottom });
     // A basin on a unit: the unit is as wide and deep as measured and reaches the basin's top.
     const measured = { width: round1(o.width), depth: round1(o.depth), height: round1(unit ? o.bottom + o.height : o.height) };
     const size = { width: edit.width ?? measured.width, depth: edit.depth ?? measured.depth, height: edit.height ?? measured.height };
-    const suggestion = suggestPiece(category, measured, section);
+    const suggestion = isVanity
+      ? { ...suggestPiece('sink', measured, section ?? 'bathroom'), reason: 'A basin sits on this cabinet (the scan measured them separately), so it’s shown as one vanity at the cabinet’s measured size.' }
+      : suggestPiece(category, measured, section);
     const as = edit.as ?? suggestion.as;
     const b: BuiltObject = {
       id: o.id,
@@ -684,6 +716,7 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
       as,
       name: as === BOX || as === STAIRS ? (as === STAIRS ? 'Stairs' : `Scanned ${categoryLabel(category).toLowerCase()}`) : (catalogueName(as) ?? categoryLabel(category)),
       ...size,
+      elevation: raisedBy({ category, bottom: o.bottom }),
       include: edit.include ?? true,
       confidence: o.confidence,
       problem: null,
@@ -695,12 +728,13 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
       const turned = turn(o.center);
       b.problem = placePiece(b, { x: turned.x - box.minX, y: turned.y - box.minY }, o.rotation + turnedBy);
     }
-    if (unit) notes.push({ level: 'assumed', text: `The sink was measured as a basin ${round1(o.bottom)} cm off the floor, so it’s shown as a unit from the floor to the basin’s top (${round1(o.bottom + o.height)} cm). If it hangs on the wall, choose a plain box or change its height.`, itemId: o.id });
-    else if (o.bottom >= MOUNTED_HEIGHT) notes.push({ level: 'check', text: `${categoryLabel(o.category)} is ${round1(o.bottom)} cm above the floor (on a wall, or standing on other furniture). Roomination places furniture on the floor, so it starts unticked; tick it to add it anyway.`, itemId: o.id });
+    if (onCabinet) notes.push({ level: 'assumed', text: 'The basin sits on the cabinet below it, so the two are shown together as one vanity. Tick the basin to show it separately.', itemId: o.id });
+    else if (unit) notes.push({ level: 'assumed', text: `The sink was measured as a basin ${round1(o.bottom)} cm off the floor, so it’s shown as a unit from the floor to the basin’s top (${round1(o.bottom + o.height)} cm). If it hangs on the wall, choose a plain box or change its height.`, itemId: o.id });
+    else if (b.elevation > 0) notes.push({ level: 'info', text: `${categoryLabel(o.category)} is placed ${b.elevation} cm above the floor, as measured (on a wall, or standing on other furniture). It’s drawn dashed on the plan.`, itemId: o.id });
     builtObjects.push(b);
   }
   for (const a of review.addedPieces) {
-    const b: BuiltObject = { id: a.id, measured: null, category: a.category, section: null, suggestion: { as: a.as, reason: 'Added by you.' }, as: a.as, name: a.as === BOX ? `${categoryLabel(a.category)}` : (catalogueName(a.as) ?? categoryLabel(a.category)), width: a.width, depth: a.depth, height: a.height, include: true, confidence: 'unknown', problem: null, added: true };
+    const b: BuiltObject = { id: a.id, measured: null, category: a.category, section: null, suggestion: { as: a.as, reason: 'Added by you.' }, as: a.as, name: a.as === BOX ? `${categoryLabel(a.category)}` : (catalogueName(a.as) ?? categoryLabel(a.category)), width: a.width, depth: a.depth, height: a.height, elevation: 0, include: true, confidence: 'unknown', problem: null, added: true };
     b.problem = b.width >= MIN_FURNITURE_SIZE && b.depth >= MIN_FURNITURE_SIZE && b.height > 0 ? placePiece(b, centre, 0) : `It must be at least ${MIN_FURNITURE_SIZE} cm wide and deep, and more than 0 high.`;
     builtObjects.push(b);
   }
@@ -716,7 +750,7 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
     importedAt,
     transform: { rotation: Math.round(turnedBy * 1e4) / 1e4, offsetX: Math.round(box.minX * 100) / 100, offsetY: Math.round(box.minY * 100) / 100, straightened: review.straighten, quarterTurns: ((review.quarterTurns % 4) + 4) % 4 },
     ceiling: { measured: heights.length ? round1(measuredCeiling) : null, corrected: review.ceiling },
-    items: [...wallRecords(builtWalls, wallById, review), ...openingRecords(builtOpenings, review), ...objectRecords(builtObjects, review)],
+    items: [...wallRecords(builtWalls, wallById, review), ...openingRecords(builtOpenings, review), ...objectRecords(builtObjects, review, merged)],
     notes: notes.filter((n) => n.level !== 'info').map(({ level, text }) => ({ level, text })),
   };
   const draft: Project = { ...createEmptyProject(room, name), furniture, features, stairs, scan: record };
@@ -767,12 +801,10 @@ function openingRecords(openings: BuiltOpening[], review: Review): ScanItemRecor
   });
 }
 
-function objectRecords(objects: BuiltObject[], review: Review): ScanItemRecord[] {
+function objectRecords(objects: BuiltObject[], review: Review, merged: Map<string, string>): ScanItemRecord[] {
   return objects.map((o) => {
     const edit = review.objects[o.id] ?? {};
     const m = o.measured;
-    // Unticking something that started unticked (it hangs or stands on something) isn't a correction.
-    const included = !m || startsIncluded(m);
     return {
       id: o.id,
       type: 'object',
@@ -783,7 +815,7 @@ function objectRecords(objects: BuiltObject[], review: Review): ScanItemRecord[]
       ...(o.added ? {} : { inferred: o.suggestion.as, inferredName: pieceName(o.suggestion.as, m?.category ?? o.category) }),
       corrections: o.added
         ? defined({ category: o.category, as: o.as, width: o.width, depth: o.depth, height: o.height })
-        : defined({ category: edit.category, as: edit.as, width: edit.width, depth: edit.depth, height: edit.height, include: edit.include !== undefined && edit.include !== included ? edit.include : undefined }),
+        : defined({ category: edit.category, as: edit.as, width: edit.width, depth: edit.depth, height: edit.height, include: edit.include !== undefined && edit.include !== !merged.has(o.id) ? edit.include : undefined }),
       excluded: !o.include || !!o.problem,
     };
   });

@@ -359,6 +359,8 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   };
   const clearance = finite(raw.clearance) && raw.clearance > 0 && raw.clearance <= MAX_CLEARANCE ? raw.clearance : undefined;
   if (clearance) item.clearance = clearance;
+  // Older apps ignore it (the piece then stands on the floor); nothing else changes.
+  if (finite(raw.elevation) && raw.elevation > 0 && raw.elevation <= MAX_ROOM_SPAN) item.elevation = raw.elevation;
   const appearance = parseAppearance(raw.appearance);
   if (appearance) item.appearance = appearance;
   const components = parseComponents(raw.components);
@@ -571,7 +573,7 @@ export function parseComponents(raw: unknown): FurnitureComponent[] | undefined 
   return out.length > 0 ? out : undefined;
 }
 
-const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'water', 'custom'];
+const MATERIALS: MaterialKind[] = ['fabric', 'cotton', 'linen', 'velvet', 'leather', 'wood', 'metal', 'glass', 'stone', 'ceramic', 'plastic', 'water', 'mirror', 'custom'];
 const FINISHES: SurfaceFinish[] = ['matte', 'satin', 'gloss'];
 /** Photos are referenced by the SHA-256 of their bytes. */
 const ASSET_ID = /^[0-9a-f]{64}$/;

@@ -100,7 +100,10 @@ function profiles(settings: OptimizerSettings, fengShui: boolean): Profile[] {
 export type ProgressCallback = (done: number, total: number) => void;
 
 export function optimize(input: OptimizeInput, onProgress: ProgressCallback = () => {}, shouldStop: () => boolean = () => false): OptimizeResult {
-  const { project, settings } = input;
+  const { settings } = input;
+  // Raised and wall-mounted pieces (mirrors, wall cabinets) don't take up floor space, so the
+  // optimizer neither moves them nor arranges around them.
+  const project = { ...input.project, furniture: input.project.furniture.filter((f) => !((f.elevation ?? 0) > 0)) };
   const movableIds = new Set(input.movableIds.filter((id) => project.furniture.some((f) => f.id === id && !f.locked && f.kind !== 'fixture')));
   const context = createContext(project, movableIds, settings);
   const userWeights = weightsFor(settings, context.fengShui);

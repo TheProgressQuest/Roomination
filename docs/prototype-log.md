@@ -17,6 +17,16 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Raised and wall-mounted pieces (M2.1):**
+  - collisions use height ranges for furniture against furniture, but raised pieces skip the
+    floor clearance zones in front of other furniture;
+  - door swings and other feature zones still apply up to the piece's top;
+  - the optimizer ignores raised pieces entirely.
+- **Mirrors:** they look like polished glass but don't reflect yet (true reflections are planned
+  for the renderer milestone and need performance measurement).
+- **Vanity merge:** a raised basin sitting on a floor cabinet is shown as one vanity (the basin is
+  listed, unticked). A basin on a table or shelf would be treated the same.
+
 - **Sinks:** RoomPlan measures only the basin. A raised sink is shown as a unit from the floor to
   the basin's top (labelled assumed); a wall-hung basin needs changing by hand.
 - **Guesses in bathrooms:** low storage can come out as a dresser; change it in the review.
@@ -38,6 +48,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| New fixtures (vanities, mirrors, lights, curtain, towel bar) only checked in synthetic screenshots | Look at them on a real device and at eye level |
 | `custom.spec.ts` “draws a new outline corner by corner” is flaky on CI | It occasionally lands 2 cm off; it passes on retry |
 | GitHub Actions use Node 20 versions of `checkout` / `setup-node` | GitHub warns they're deprecated; update to newer action versions |
 | `src/scan/ScanImportDialog.tsx` is large (~700 lines) | Split the tabs into files if it grows |

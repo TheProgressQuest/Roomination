@@ -138,6 +138,11 @@ export interface Furniture {
   depth: number;
   /** Height off the floor, in cm. Used to decide whether a piece blocks wall switches etc. */
   height: number;
+  /**
+   * How far its bottom is above the floor, in cm (missing or 0 = standing on the floor). Mirrors,
+   * wall cabinets, wall lights and shelves hang on walls; a TV may stand on another piece.
+   */
+  elevation?: number;
   /** Clockwise rotation in degrees, normalised to [0, 360). */
   rotation: number;
   color: string;
@@ -325,7 +330,7 @@ export type BuilderNode =
     }
   | { id: string; type: 'union' | 'subtract' | 'intersect' | 'group'; children: BuilderNode[] };
 
-export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'water' | 'custom';
+export type MaterialKind = 'fabric' | 'cotton' | 'linen' | 'velvet' | 'leather' | 'wood' | 'metal' | 'glass' | 'stone' | 'ceramic' | 'plastic' | 'water' | 'mirror' | 'custom';
 export type SurfaceFinish = 'matte' | 'satin' | 'gloss';
 
 /** How a piece looks. Photos are referenced by asset id (stored on this device). */

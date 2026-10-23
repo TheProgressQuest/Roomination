@@ -41,6 +41,9 @@ export const SURFACES: Record<SurfaceKind, SurfacePreset> = {
   ceramic: { roughness: 0.35, metalness: 0, tileCm: 30, pattern: glaze },
   plastic: { roughness: 0.42, metalness: 0, tileCm: 100, pattern: null },
   water: { roughness: 0.05, metalness: 0, tileCm: 60, pattern: ripples, opacity: 0.82 },
+  // Silvered glass. Without real reflections (a later, measured option) it reads as a bright,
+  // polished, slightly blue-grey surface.
+  mirror: { roughness: 0.06, metalness: 0.15, tileCm: 100, pattern: null },
   custom: { roughness: 0.8, metalness: 0, tileCm: 100, pattern: null },
   paper: { roughness: 0.85, metalness: 0, tileCm: 20, pattern: null },
   foliage: { roughness: 0.65, metalness: 0, tileCm: 15, pattern: leafVeins },

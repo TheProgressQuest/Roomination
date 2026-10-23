@@ -61,7 +61,7 @@ const TEAK = '#a87a52';
 const BRASS = '#b08d57';
 const WATER = '#6fb3bf';
 
-type Base = { kind: FurnitureKind; width: number; depth: number; height: number; color: string; material?: MaterialKind; finish?: SurfaceFinish; category?: FurnitureTemplate['category']; texture?: FurnitureTexture; shape?: FurnitureShape };
+type Base = { kind: FurnitureKind; width: number; depth: number; height: number; color: string; /** Mounted this far above the floor (cm). */ elevation?: number; material?: MaterialKind; finish?: SurfaceFinish; category?: FurnitureTemplate['category']; texture?: FurnitureTexture; shape?: FurnitureShape };
 
 function template(name: string, b: Base, components?: Kit): FurnitureTemplate {
   let shape = b.shape;
@@ -81,6 +81,7 @@ function template(name: string, b: Base, components?: Kit): FurnitureTemplate {
     height: b.height,
     color: b.color,
     texture: b.texture ?? 'plain',
+    ...(b.elevation ? { elevation: b.elevation } : {}),
     ...(shape ? { shape } : {}),
     ...(b.material ? { appearance: { material: b.material, finish: b.finish ?? 'satin' } } : {}),
   };
@@ -258,6 +259,101 @@ function vanity(k: Kit, b: Base, basins: 1 | 2) {
     k.cyl('detail', 'Tap', x, -d / 2 + 6, 85, 3.5, 3.5, 18, { material: 'metal', color: STEEL, finish: 'gloss' });
     k.box('detail', 'Spout', x, -d / 2 + 10, 100, 2, 9, 2, { material: 'metal', color: STEEL, finish: 'gloss', radius: 0.8 });
   }
+}
+
+/**
+ * A vanity: a cabinet with doors on a recessed plinth, a worktop at the piece's height, and an
+ * integrated basin (set into the top) or a countertop basin (sitting on it), with a tap.
+ */
+function vanityTop(k: Kit, b: Base, basin: 'integrated' | 'countertop', worktop: { material: MaterialKind; color: string }) {
+  const { width: w, depth: d, height: top } = b;
+  k.span('base', 'Plinth', -w / 2 + 2, w / 2 - 2, -d / 2, d / 2 - 7, 0, 9, { color: shadeHex(b.color), radius: 0.3 });
+  k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, d / 2 - 4.3, 9, top - 3, { color: b.color, radius: 0.4 });
+  k.fronts('door', w, d, 9.5, top - 3.5, w > 70 ? 2 : 1, { color: b.color, handle: 'bar', handleColor: STEEL });
+  k.span('tabletop', 'Worktop', -w / 2, w / 2, -d / 2, d / 2, top - 3, top, { material: worktop.material, color: worktop.color, finish: 'gloss', radius: 0.6, edge: 'rounded' });
+  const bw = Math.min(46, w - 14);
+  const bd = Math.min(36, d - 14);
+  if (basin === 'integrated') {
+    k.box('detail', 'Basin', 0, 1.5, top - 0.3, bw, bd, 0.4, { material: 'ceramic', color: '#e4e2de', finish: 'gloss', radius: 9 });
+    k.cyl('detail', 'Drain', 0, 2.5, top - 0.1, 3.2, 3.2, 0.3, { material: 'metal', color: '#8d9196' });
+  } else {
+    k.cyl('detail', 'Basin', 0, 2, top, bw * 0.92, bd, 13, { material: 'ceramic', color: CERAMIC, finish: 'gloss', taper: 1.18 });
+    k.cyl('detail', 'Bowl', 0, 2, top + 12.7, bw * 0.8, bd - 5, 0.4, { material: 'ceramic', color: '#e4e2de', finish: 'gloss' });
+  }
+  const tapHeight = basin === 'countertop' ? 30 : 20;
+  k.cyl('detail', 'Tap', 0, -d / 2 + 5, top, 3.4, 3.4, tapHeight, { material: 'metal', color: STEEL, finish: 'gloss' });
+  k.box('detail', 'Spout', 0, -d / 2 + 9.5, top + tapHeight - 2.4, 2.2, 9, 2.2, { material: 'metal', color: STEEL, finish: 'gloss', radius: 1 });
+  k.box('detail', 'Lever', 0, -d / 2 + 3, top + tapHeight - 1, 1.4, 5, 1.2, { material: 'metal', color: STEEL, finish: 'gloss', radius: 0.5 });
+}
+
+/** A wall mirror: a frame with a silvered pane on its front (rectangular or round). Back at −y, against the wall. */
+function mirror(k: Kit, b: Base, round: boolean, frame: { material: MaterialKind; color: string } | null) {
+  const { width: w, depth: d, height: h } = b;
+  const inset = frame ? 2.5 : 0;
+  // The glass stands proud of the frame at the front, so the two faces never fight for the same depth.
+  const glassBack = frame ? d / 2 - 1 : -d / 2;
+  if (round) {
+    if (frame) k.soft('base', 'Frame', 0, -0.4, 0, w, d - 0.8, h, { material: frame.material, color: frame.color, finish: 'satin' });
+    k.soft('detail', 'Mirror', 0, (glassBack + d / 2) / 2, inset, w - inset * 2, d / 2 - glassBack, h - inset * 2, { material: 'mirror', color: '#dfe6ea', finish: 'gloss' });
+  } else {
+    if (frame) k.span('base', 'Frame', -w / 2, w / 2, -d / 2, d / 2 - 0.6, 0, h, { material: frame.material, color: frame.color, finish: 'satin', radius: 0.3 });
+    k.span('detail', 'Mirror', -w / 2 + inset, w / 2 - inset, glassBack, d / 2, inset, h - inset, { material: 'mirror', color: '#dfe6ea', finish: 'gloss', radius: frame ? 0 : 0.6 });
+  }
+}
+
+/** A mirrored wall cabinet: a shallow box with a mirror door. */
+function mirrorCabinet(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, d / 2 - 1.6, 0, h, { color: b.color, radius: 0.4 });
+  k.span('door', 'Mirror door', -w / 2 + 0.3, w / 2 - 0.3, d / 2 - 1.6, d / 2, 0.3, h - 0.3, { material: 'mirror', color: '#dfe6ea', finish: 'gloss', radius: 0.3 });
+}
+
+/** A wall cabinet with doors (hung above a toilet or a worktop). */
+function wallCabinet(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, d / 2 - 4.3, 0, h, { color: b.color, radius: 0.4 });
+  k.fronts('door', w, d, 0.5, h - 0.5, w > 45 ? 2 : 1, { color: b.color, handle: 'knob', handleColor: STEEL });
+}
+
+/** Wall lights: a long bar over a mirror, or a sconce with a small shade. */
+function wallLight(k: Kit, b: Base, style: 'bar' | 'sconce') {
+  const { width: w, depth: d, height: h } = b;
+  if (style === 'bar') {
+    k.span('base', 'Backplate', -w / 2 + 2, w / 2 - 2, -d / 2, -d / 2 + 1.5, 0, h, { material: 'metal', color: STEEL, finish: 'satin', radius: 0.4 });
+    k.span('detail', 'Diffuser', -w / 2, w / 2, -d / 2 + 1.5, d / 2, h * 0.15, h * 0.85, { material: 'plastic', color: '#fbf7ec', finish: 'satin', radius: Math.min(2.5, h * 0.3) });
+  } else {
+    k.span('base', 'Backplate', -w / 4, w / 4, -d / 2, -d / 2 + 1.5, h * 0.25, h * 0.75, { material: 'metal', color: BRASS, finish: 'satin', radius: 0.4 });
+    k.span('support', 'Arm', -0.8, 0.8, -d / 2 + 1.5, d / 2 - w / 2, h * 0.45, h * 0.52, { material: 'metal', color: BRASS, finish: 'satin' });
+    k.cyl('detail', 'Shade', 0, d / 2 - w / 2, h * 0.3, w, w, h * 0.7, { material: 'linen', color: '#f3ead8', taper: 0.75 });
+  }
+}
+
+/** A shower curtain on a rod: pleated fabric hanging from rings. */
+function showerCurtain(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('support', 'Rod', -w / 2, w / 2, -1.2, 1.2, h - 2.4, h, { material: 'metal', color: STEEL, finish: 'gloss', radius: 1.1 });
+  const pleats = Math.max(4, Math.round(w / 9));
+  const pw = w / pleats;
+  for (let i = 0; i < pleats; i++) {
+    const x = -w / 2 + pw / 2 + i * pw;
+    // Folds alternate towards the front and the back of the curtain's depth.
+    // Folds overlap their neighbours, except at the ends where they stop at the curtain's edge.
+    const fw = Math.min(pw * 1.35, (w / 2 - Math.abs(x)) * 2);
+    // Upright, elliptical pleats read as soft folds of hanging fabric.
+    k.cyl('cushion', 'Fold', x, (i % 2 ? 1 : -1) * (d / 2 - 1.6), 0, fw, 3.2, h - 4, { material: 'cotton', color: b.color });
+  }
+}
+
+/** A towel bar on two brackets, with a towel hanging over it. */
+function towelBar(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  for (const sx of [-1, 1]) k.span('support', 'Bracket', sx * (w / 2) - (sx > 0 ? 3 : 0), sx * (w / 2) + (sx < 0 ? 3 : 0), -d / 2, d / 2, h - 5, h - 2, { material: 'metal', color: STEEL, finish: 'gloss', radius: 0.8 });
+  k.span('detail', 'Bar', -w / 2 + 1, w / 2 - 1, d / 2 - 3, d / 2 - 0.6, h - 4.6, h - 2.4, { material: 'metal', color: STEEL, finish: 'gloss', radius: 1 });
+  k.span('cushion', 'Towel', -w * 0.32, w * 0.32, d / 2 - 4.5, d / 2 - 0.2, 0, h - 2.4, { material: 'cotton', color: '#f4f1ea', radius: 1.2 });
+}
+
+function shadeHex(color: string): string {
+  return color.toLowerCase() === WHITE ? '#d9d6cf' : '#2e2f33';
 }
 
 function bathtub(k: Kit, b: Base, freestanding: boolean) {
@@ -661,8 +757,20 @@ export const CATALOGUE: CatalogueItem[] = [
   built('bathtub-freestanding', 'Freestanding bath', 'bathroom', 'bath tub oval', { kind: 'fixture', width: 170, depth: 80, height: 60, color: CERAMIC, material: 'ceramic', shape: ellipse(170, 80) }, (k, b) => bathtub(k, b, true)),
   built('shower-90', 'Shower 90 × 90', 'bathroom', 'shower tray enclosure', { kind: 'fixture', width: 90, depth: 90, height: 200, color: CERAMIC, material: 'ceramic' }, (k, b) => shower(k, b, 'corner')),
   built('shower-walk-in', 'Walk-in shower', 'bathroom', 'shower wet room', { kind: 'fixture', width: 140, depth: 90, height: 200, color: CERAMIC, material: 'ceramic' }, (k, b) => shower(k, b, 'walkIn')),
+  built('wall-sconce', 'Wall sconce', 'lighting', 'wall light lamp', { kind: 'decor', width: 16, depth: 22, height: 30, color: BRASS, elevation: 160 }, (k, b) => wallLight(k, b, 'sconce')),
   built('towel-rail', 'Towel radiator', 'bathroom', 'heated towel rail', { kind: 'fixture', width: 50, depth: 10, height: 120, color: STEEL, material: 'metal' }, towelRail),
   simple('bathroom-cabinet', 'Bathroom cabinet', 'bathroom', 'tall storage', { kind: 'cabinet', width: 40, depth: 30, height: 170, color: WHITE, material: 'wood' }),
+  built('vanity-countertop-basin', 'Vanity, countertop basin', 'bathroom', 'basin sink vessel wash', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'countertop', { material: 'stone', color: MARBLE })),
+  built('vanity-integrated', 'Vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'integrated', { material: 'ceramic', color: CERAMIC })),
+  built('vanity-integrated-wide', 'Wide vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 120, depth: 50, height: 86, color: OAK }, (k, b) => vanityTop(k, b, 'integrated', { material: 'stone', color: MARBLE })),
+  built('mirror-wall', 'Wall mirror', 'bathroom', 'mirror looking glass', { kind: 'decor', width: 60, depth: 3, height: 80, color: '#c9cdd1', elevation: 110 }, (k, b) => mirror(k, b, false, { material: 'metal', color: '#2b2d31' })),
+  built('mirror-frameless', 'Frameless mirror', 'bathroom', 'mirror looking glass', { kind: 'decor', width: 70, depth: 1.5, height: 90, color: '#c9cdd1', elevation: 105 }, (k, b) => mirror(k, b, false, null)),
+  built('mirror-round', 'Round mirror', 'bathroom', 'mirror looking glass circle', { kind: 'decor', width: 60, depth: 3, height: 60, color: '#c9cdd1', elevation: 125 }, (k, b) => mirror(k, b, true, { material: 'metal', color: BRASS })),
+  built('mirror-cabinet', 'Mirror cabinet', 'bathroom', 'medicine cabinet mirror', { kind: 'fixture', width: 60, depth: 14, height: 70, color: WHITE, elevation: 120 }, mirrorCabinet),
+  built('wall-cabinet-bath', 'Bathroom wall cabinet', 'bathroom', 'over toilet storage cupboard', { kind: 'fixture', width: 60, depth: 22, height: 70, color: WHITE, elevation: 140 }, wallCabinet),
+  built('vanity-light', 'Vanity light bar', 'bathroom', 'wall light lamp over mirror', { kind: 'fixture', width: 60, depth: 9, height: 10, color: STEEL, elevation: 195 }, (k, b) => wallLight(k, b, 'bar')),
+  built('shower-curtain', 'Shower curtain and rod', 'bathroom', 'bath curtain', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#f2f0ea', elevation: 25 }, showerCurtain),
+  built('towel-bar', 'Towel bar', 'bathroom', 'towel rail rack holder', { kind: 'fixture', width: 60, depth: 9, height: 45, color: STEEL, elevation: 80 }, towelBar),
   // Laundry ----------------------------------------------------------------------
   built('washer', 'Washing machine', 'laundry', 'washer appliance', { kind: 'fixture', width: 60, depth: 60, height: 85, color: WHITE }, (k, b) => laundry(k, b, false)),
   built('dryer', 'Tumble dryer', 'laundry', 'dryer appliance', { kind: 'fixture', width: 60, depth: 60, height: 85, color: WHITE }, (k, b) => laundry(k, b, false, true)),

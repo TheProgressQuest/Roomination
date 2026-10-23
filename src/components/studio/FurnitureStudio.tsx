@@ -82,6 +82,7 @@ const MATERIALS: { value: MaterialKind | 'none'; label: string }[] = [
   { value: 'stone', label: 'Stone' },
   { value: 'ceramic', label: 'Ceramic' },
   { value: 'plastic', label: 'Plastic' },
+  { value: 'mirror', label: 'Mirror' },
   { value: 'custom', label: 'Custom' },
 ];
 const FINISHES: { value: SurfaceFinish; label: string }[] = [

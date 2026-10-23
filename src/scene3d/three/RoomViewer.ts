@@ -341,7 +341,7 @@ export class RoomViewer {
   /** Where a piece's centre appears on screen (CSS px relative to the canvas), or null. */
   pointOnScreen(id: string): { x: number; y: number } | null {
     const piece = this.furniture.footprintOf(id);
-    return piece ? this.projectPoint(piece, piece.height / 2) : null;
+    return piece ? this.projectPoint(piece, piece.elevation + piece.height / 2) : null;
   }
 
   /** Where a plan point (cm) at a height (cm) appears on screen, in CSS px relative to the canvas. */

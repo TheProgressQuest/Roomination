@@ -1,7 +1,6 @@
+import { fitTemplate } from '../catalogue/fit';
 import { CATALOGUE } from '../catalogue/items';
 import { MIN_FURNITURE_SIZE } from '../model/geometry';
-import { scaleComponents } from '../model/components';
-import { scaleShape } from '../model/shape';
 import type { FurnitureKind } from '../model/types';
 import type { FurnitureTemplate } from '../storage/projectFile';
 
@@ -43,8 +42,8 @@ export const SCAN_CATEGORIES: Record<string, ScanCategory> = {
   refrigerator: { label: 'Fridge', candidates: ['fridge', 'fridge-american'], kind: 'fixture' },
   sink: {
     label: 'Sink',
-    candidates: ['sink-60', 'sink-double', 'vanity-60', 'vanity-80', 'vanity-double', 'laundry-sink'],
-    bySection: { kitchen: ['sink-60', 'sink-double'], bathroom: ['vanity-60', 'vanity-80', 'vanity-double'] },
+    candidates: ['sink-60', 'sink-double', 'vanity-integrated', 'vanity-countertop-basin', 'vanity-60', 'vanity-80', 'vanity-double', 'laundry-sink'],
+    bySection: { kitchen: ['sink-60', 'sink-double'], bathroom: ['vanity-integrated', 'vanity-countertop-basin', 'vanity-integrated-wide', 'vanity-60', 'vanity-80', 'vanity-double'] },
     kind: 'fixture',
   },
   sofa: { label: 'Sofa', candidates: ['loveseat', 'sofa-2', 'sofa-3', 'sofa-4', 'corner-sofa', 'sectional', 'chaise'], kind: 'sofa' },
@@ -52,7 +51,7 @@ export const SCAN_CATEGORIES: Record<string, ScanCategory> = {
   storage: {
     label: 'Storage',
     candidates: ['wardrobe-1', 'wardrobe-2', 'wardrobe-3', 'wardrobe-4', 'bookshelf', 'bookshelf-wide', 'low-shelf', 'dresser', 'dresser-wide', 'sideboard', 'tv-unit', 'bedside', 'filing-cabinet'],
-    bySection: { kitchen: ['base-40', 'base-60', 'base-80', 'drawers-60', 'pantry'], bathroom: ['bathroom-cabinet', 'vanity-60'] },
+    bySection: { kitchen: ['base-40', 'base-60', 'base-80', 'drawers-60', 'pantry'], bathroom: ['bathroom-cabinet', 'wall-cabinet-bath', 'mirror-cabinet', 'vanity-integrated'] },
     kind: 'storage',
   },
   stove: { label: 'Stove or hob', candidates: ['hob-induction', 'hob-gas', 'oven'], kind: 'fixture' },
@@ -162,15 +161,5 @@ export function pieceFor(as: string, category: string, size: Measured): Furnitur
       texture: 'plain',
     };
   }
-  const sx = width / t.width;
-  const sy = depth / t.depth;
-  const sz = height / t.height;
-  return {
-    ...t,
-    width,
-    depth,
-    height,
-    ...(t.shape ? { shape: scaleShape(t.shape, sx, sy) } : {}),
-    ...(t.components?.length ? { components: scaleComponents(t.components, sx, sy, sz) } : {}),
-  };
+  return fitTemplate(t, { width, depth, height });
 }

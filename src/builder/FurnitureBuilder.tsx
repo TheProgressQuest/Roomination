@@ -104,6 +104,7 @@ const MATERIALS: { value: MaterialKind | 'piece'; label: string }[] = [
   { value: 'glass', label: 'Glass' },
   { value: 'plastic', label: 'Plastic' },
   { value: 'water', label: 'Water (baths, hot tubs)' },
+  { value: 'mirror', label: 'Mirror' },
   { value: 'custom', label: 'Custom (plain)' },
 ];
 const PATTERNS: { value: UpholsteryPattern; label: string }[] = [

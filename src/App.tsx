@@ -11,6 +11,7 @@ import { OptimizerDialog } from './components/OptimizerDialog';
 import { PreviewBar } from './components/PreviewBar';
 import { ProjectsDialog } from './components/ProjectsDialog';
 import { scanSummary } from './components/ScanDetails';
+import { mountOnWall } from './model/placement';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SelectionBar } from './components/SelectionBar';
 import { SelectionEditor } from './components/StructureEditors';
@@ -309,7 +310,7 @@ export function App() {
     const { CATALOGUE } = await import('./catalogue/items');
     const item = CATALOGUE.find((i) => i.id === id);
     if (!item) return;
-    const furniture = createFurniture({ ...item.make(), x: point.x, y: point.y });
+    const furniture = onWallIfRaised(createFurniture({ ...item.make(), x: point.x, y: point.y }));
     dispatch({ type: 'furniture/add', furniture });
     setSelection({ kind: 'object', id: furniture.id });
   }
@@ -318,10 +319,17 @@ export function App() {
   function placeTemplate(template: FurnitureTemplate) {
     const cascade = (project.furniture.length % 5) * 15;
     const centre = roomCentre(project);
-    const furniture = createFurniture({ ...template, x: centre.x + cascade, y: centre.y + cascade });
+    const furniture = onWallIfRaised(createFurniture({ ...template, x: centre.x + cascade, y: centre.y + cascade }));
     dispatch({ type: 'furniture/add', furniture });
     setSelection({ kind: 'object', id: furniture.id });
     setAddOpen(false);
+  }
+
+  /** Wall-mounted pieces (mirrors, wall lights, cabinets) go onto the wall nearest where they were placed. */
+  function onWallIfRaised(furniture: Furniture): Furniture {
+    if (!((furniture.elevation ?? 0) > 0)) return furniture;
+    const mounted = mountOnWall(furniture, project.room);
+    return mounted ? { ...furniture, ...mounted } : furniture;
   }
 
   // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import { parseProjectFile, serializeProject } from '../storage/projectFile';
 import { buildFromScan, initialReview, traceOutline, wallSkew, type Review } from './convert';
 import { readScanFile } from './readScan';
 import { parseRoomPlan } from './roomPlan';
-import { SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, sampleToRoomPlan, type SampleRoom } from './samples';
+import { SAMPLE_BATHROOM, SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, sampleToRoomPlan, type SampleRoom } from './samples';
 import { parseScanFile } from './scanFormat';
 import type { ScanData } from './types';
 import { crc32, listZip } from './zip';
@@ -157,12 +157,15 @@ describe('building a project from a scan', () => {
     expect(build(desk).result.objects[0].as).toBe('desk-160');
   });
 
-  it('starts things standing on other furniture (a TV on its unit) unticked, with a note', () => {
+  it('places things standing on other furniture (a TV on its unit) at their measured height, without a collision', async () => {
     const { result } = build(SAMPLE_LIVING);
     const tv = result.objects.find((o) => o.category === 'television')!;
-    expect(tv.include).toBe(false);
+    expect(tv.include).toBe(true);
     expect(result.notes.some((n) => n.itemId === tv.id && /standing on other furniture/.test(n.text))).toBe(true);
-    expect(result.project!.furniture.some((f) => f.id === tv.id)).toBe(false);
+    const p = result.project!;
+    expect(p.furniture.find((f) => f.id === tv.id)!.elevation).toBe(52);
+    const { findConflicts } = await import('../model/conflicts');
+    expect(findConflicts(p).filter((c) => c.itemId === tv.id || c.otherId === tv.id)).toEqual([]);
   });
 
   it('straightens an angled scan without changing its shape', () => {
@@ -267,12 +270,14 @@ describe('building a project from a scan', () => {
     expect(tooShort.notes.some((n) => n.level === 'check' && /at least 10 cm/.test(n.text))).toBe(true);
   });
 
-  it('leaves things that hang on walls unticked, but listed', () => {
+  it('hangs things that are on walls at their measured height, and saves it', () => {
     const room: SampleRoom = { ...SAMPLE_BEDROOM, objects: [...SAMPLE_BEDROOM.objects, { category: 'storage', x: 300, y: 340, width: 80, depth: 30, height: 70, bottom: 150 }] };
     const { result } = build(room);
     const shelf = result.objects[result.objects.length - 1];
-    expect(shelf.include).toBe(false);
-    expect(result.notes.some((n) => n.itemId === shelf.id && /above the floor/.test(n.text))).toBe(true);
+    expect(shelf.include).toBe(true);
+    expect(result.notes.some((n) => n.itemId === shelf.id && /150 cm above the floor/.test(n.text))).toBe(true);
+    const again = parseProjectFile(serializeProject(result.project!));
+    expect(again.ok && again.project.furniture.find((f) => f.id === shelf.id)!.elevation).toBe(150);
   });
 
   it('turns unknown categories and stairs into boxes and staircases', () => {
@@ -526,11 +531,10 @@ describe('the scan record kept with the project', () => {
     expect(p.scan!.items.find((i) => i.id === 'mine')).toMatchObject({ origin: 'added', measured: null });
   });
 
-  it('doesn’t count a raised object starting unticked as a correction', () => {
+  it('keeps a raised object’s measured height in the record, with no corrections', () => {
     const p = build(SAMPLE_LIVING).result.project!;
     const tv = p.scan!.items.find((i) => i.category === 'television')!;
-    expect(tv.excluded).toBe(true);
-    expect(tv.corrections).toEqual({});
+    expect(tv).toMatchObject({ excluded: false, corrections: {}, measured: { bottom: 52 } });
   });
 
   it('drops a damaged scan record without losing the project', () => {
@@ -622,7 +626,8 @@ describe('scanning apps', () => {
     expect(sink.as).toMatch(/^vanity-/);
     expect(sink.measured!.height).toBeCloseTo(15, 3);
     expect(result.notes.some((n) => n.level === 'assumed' && n.itemId === sink.id && /basin/.test(n.text))).toBe(true);
-    expect(cabinet.include).toBe(false);
+    expect(cabinet.include).toBe(true);
+    expect(cabinet.elevation).toBe(120);
     expect(result.project!.scan!.items.find((i) => i.id === sink.id)).toMatchObject({ measured: { height: 15, bottom: 70 }, corrections: {}, excluded: false });
   });
 
@@ -630,5 +635,25 @@ describe('scanning apps', () => {
     const index = { nameLetter: 'A', capturedAt: 'x', referencePhotoCount: 0, origin: 'x', firstExportedAt: 'x', scanRecordSchemaVersion: 1, displayName: 'x', id: 'x' };
     const result = await readScanFile(new File([JSON.stringify(index)], 'scan.json'), 'scan.json');
     expect(!result.ok && result.error).toMatch(/index file.*captured-room\.json/);
+  });
+});
+
+describe('a typical bathroom scan', () => {
+  it('shows the basin and its cabinet as one vanity, hangs the wall cabinet at its height, and has no false collisions', async () => {
+    const { result } = build(SAMPLE_BATHROOM);
+    const [cabinet, basin, toilet, , wallCabinet] = result.objects;
+    expect(cabinet.as).toMatch(/^vanity-/);
+    expect(cabinet.suggestion.reason).toMatch(/one vanity/);
+    expect([cabinet.width, cabinet.depth, cabinet.height]).toEqual([80, 52, 82]);
+    expect(basin.include).toBe(false);
+    expect(result.notes.some((n) => n.itemId === basin.id && n.level === 'assumed')).toBe(true);
+    expect(toilet.as).toBe('toilet');
+    expect(wallCabinet).toMatchObject({ include: true, elevation: 140 });
+    expect(wallCabinet.as).toBe('wall-cabinet-bath');
+    const p = result.project!;
+    const { findConflicts } = await import('../model/conflicts');
+    expect(findConflicts(p).filter((c) => c.otherKind === 'furniture')).toEqual([]);
+    // The basin is still in the record, measured, and leaving it out isn't counted as a correction.
+    expect(p.scan!.items.find((i) => i.id === basin.id)).toMatchObject({ excluded: true, corrections: {}, measured: { bottom: 80 } });
   });
 });

@@ -144,7 +144,7 @@ export class FurnitureLayer {
     for (const piece of furniture) {
       this.pieces.set(piece.id, { footprint: piece, batched: [], extruded: null, owned: [] });
       if (piece.extruded) this.addExtruded(piece, generation);
-      const placement = new Matrix4().compose(new Vector3(m(piece.x), 0, m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
+      const placement = new Matrix4().compose(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
       for (const part of piece.parts) {
         const geometry = partGeometry(part, this.detail);
         this.cached(this.geometries, geometry.key, generation, geometry.make);
@@ -263,7 +263,8 @@ export class FurnitureLayer {
 
   /** A soft, blurred shadow under every solid piece, the size of its footprint. */
   private addContactShadows(furniture: SceneFurniture[]) {
-    const solid = furniture.filter((f) => f.height > 2);
+    // Raised and wall-mounted pieces don't touch the floor, so they get no contact shadow there.
+    const solid = furniture.filter((f) => f.height > 2 && f.elevation < 1);
     if (solid.length === 0) return;
     const mesh = new InstancedMesh(this.contactPlane, this.contactMaterial, solid.length);
     solid.forEach((f, i) => {
@@ -325,7 +326,7 @@ export class FurnitureLayer {
         .finally(() => this.pendingPhotos--);
     }
     const mesh = new Mesh(geometry, surfaces);
-    mesh.position.copy(new Vector3(m(piece.x), 0, m(piece.y)));
+    mesh.position.copy(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)));
     mesh.quaternion.setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -366,7 +367,7 @@ export class FurnitureLayer {
     solid.dispose();
     const outline = new LineSegments(edges, new LineBasicMaterial({ color: HIGHLIGHT, depthTest: false, transparent: true, opacity: 0.9 }));
     outline.renderOrder = 10;
-    outline.position.set(m(f.x), 0, m(f.y));
+    outline.position.set(m(f.x), m(f.elevation), m(f.y));
     outline.quaternion.setFromAxisAngle(UP, (-f.rotation * Math.PI) / 180);
     this.outline = outline;
     this.group.add(outline);
