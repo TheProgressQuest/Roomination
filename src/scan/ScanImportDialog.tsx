@@ -35,6 +35,7 @@ type Tab = 'room' | 'openings' | 'furniture' | 'notes';
 export default function ScanImportDialog({ open, units, onClose, onCreate }: Props) {
   const [stage, setStage] = useState<Stage>({ step: 'choose' });
   const [error, setError] = useState<string | null>(null);
+  const [shape, setShape] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Start afresh each time the dialog opens.
@@ -42,16 +43,19 @@ export default function ScanImportDialog({ open, units, onClose, onCreate }: Pro
     if (open) {
       setStage({ step: 'choose' });
       setError(null);
+      setShape(null);
     }
   }, [open]);
 
   async function readFile(file: File) {
     setBusy(true);
     setError(null);
+    setShape(null);
     const result = await readScanFile(file, file.name);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
+      setShape(result.shape ?? null);
       return;
     }
     if (result.choices.length === 1) setStage({ step: 'review', scan: result.choices[0].scan, skipped: result.skipped });
@@ -67,7 +71,7 @@ export default function ScanImportDialog({ open, units, onClose, onCreate }: Pro
   const title = stage.step === 'review' ? 'Review the scanned room' : 'Import a room scan';
   return (
     <Dialog open={open} title={title} onClose={onClose} className={`scan-dialog${stage.step === 'review' ? ' is-review' : ''}`}>
-      {stage.step === 'choose' && <ChooseStep busy={busy} error={error} onFile={readFile} onSample={trySample} />}
+      {stage.step === 'choose' && <ChooseStep busy={busy} error={error} shape={shape} onFile={readFile} onSample={trySample} />}
       {stage.step === 'pick' && <PickStep choices={stage.choices} onPick={(scan) => setStage({ step: 'review', scan, skipped: stage.skipped })} onBack={() => setStage({ step: 'choose' })} />}
       {stage.step === 'review' && <ReviewStep key={stage.scan.source + stage.scan.name} scan={stage.scan} skipped={stage.skipped} units={units} onBack={() => setStage({ step: 'choose' })} onCancel={onClose} onCreate={onCreate} />}
     </Dialog>
@@ -86,7 +90,7 @@ export function BetaNotice() {
 // Step 1: choose a file
 // ---------------------------------------------------------------------------
 
-function ChooseStep({ busy, error, onFile, onSample }: { busy: boolean; error: string | null; onFile: (file: File) => void; onSample: (index: number) => void }) {
+function ChooseStep({ busy, error, shape, onFile, onSample }: { busy: boolean; error: string | null; shape: string | null; onFile: (file: File) => void; onSample: (index: number) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   return (
@@ -133,6 +137,7 @@ function ChooseStep({ busy, error, onFile, onSample }: { busy: boolean; error: s
             {error}
           </p>
         )}
+        {shape && <ShapeHelp shape={shape} />}
         <p className="hint scan-privacy">
           <Icon name="lock" size={14} /> The scan is read on this device only. Nothing is uploaded, and photos, 3D meshes, depth recordings and AR maps inside a .zip are never opened.
         </p>
@@ -157,6 +162,32 @@ function ChooseStep({ busy, error, onFile, onSample }: { busy: boolean; error: s
         </details>
       </section>
     </>
+  );
+}
+
+/** The unrecognised file's layout (field names and types, no values), to share for help. */
+function ShapeHelp({ shape }: { shape: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <details className="scan-help scan-shape">
+      <summary>Show the file’s structure (no measurements or names)</summary>
+      <p className="hint">
+        This lists only how the file is laid out: field names and whether each value is a number, text or a list. It has no sizes, positions, identifiers or names, so you can share it to get support for this app added without sharing your scan.
+      </p>
+      <pre tabIndex={0}>{shape}</pre>
+      <button
+        type="button"
+        className="secondary small"
+        onClick={() => {
+          navigator.clipboard?.writeText(shape).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          );
+        }}
+      >
+        {copied ? 'Copied' : 'Copy structure'}
+      </button>
+    </details>
   );
 }
 

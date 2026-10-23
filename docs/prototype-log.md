@@ -8,13 +8,19 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
-| Room scan import | A real LiDAR scan (iPhone 17 Pro) end to end; real exports from 3D Model Anything and from App Store scanning apps | 8A |
+| Room scan import | A real RoomSheet scan (iPhone 17 Pro) end to end; see [real-scan-test.md](real-scan-test.md) | M1 |
+| Room scan import | A real LiDAR Room Scanner "RoomPlan JSON" export (its structure isn't documented) | M1 |
+| Room scan import | A real LiDAR scan end to end; real exports from 3D Model Anything | 8A |
 | Room scan import | Safari on iPhone and iPad (file picker from Files, the review on touch) | 8A |
 | Whole app | Safari and Firefox browser runs (only Chromium is automated) | earlier |
 | Whole app | Screen readers (VoiceOver) with real assistive software | earlier |
 
 ## Known limitations
 
+- **RoomSheet packages:** only `captured-room.json` (the original capture) is read. Edits made in
+  RoomSheet (`model-edits.json`) aren't applied, because their format isn't documented.
+- **Real scans on the live site:** until Milestone 1 is released, choose the unzipped
+  `captured-room.json` (the live importer doesn't recognise the RoomSheet .zip yet).
 - **Room scan import (beta):**
   - validated with synthetic scans only;
   - Safari can't use the iPhone's LiDAR, so a separate scanning app is needed;

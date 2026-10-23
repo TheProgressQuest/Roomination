@@ -541,3 +541,68 @@ describe('the scan record kept with the project', () => {
     expect(again.ok && again.project.scan).toBeUndefined();
   });
 });
+
+describe('scanning apps', () => {
+  /** RoomSheet's "Export Package…" ZIP, laid out as its developer documents it. */
+  function roomSheetPackage(folder = 'Bedroom 2026-10-23/') {
+    const bytes = (n: number, v: number) => new Uint8Array(n).fill(v);
+    return zipSync({
+      [`${folder}captured-room.json`]: strToU8(JSON.stringify(sampleToRoomPlan(SAMPLE_BEDROOM))),
+      [`${folder}model-edits.json`]: strToU8('{"edits": []}'),
+      [`${folder}metadata.json`]: strToU8(JSON.stringify({ created: '2026-10-23T10:00:00Z', device: 'iPhone18,1', files: [] })),
+      [`${folder}room-parametric.usdz`]: bytes(3000, 1),
+      [`${folder}room-mesh.usdz`]: bytes(3000, 2),
+      [`${folder}plan.pdf`]: bytes(500, 3),
+      [`${folder}plan.png`]: bytes(500, 4),
+      [`${folder}plan.svg`]: strToU8('<svg/>'),
+      [`${folder}plan.csv`]: strToU8('wall,length'),
+      [`${folder}room.sh3d`]: bytes(800, 5),
+      [`${folder}photos/0001.jpg`]: bytes(2000, 6),
+    });
+  }
+
+  it('reads a RoomSheet package’s captured-room.json without opening its metadata, edits, models or photos', async () => {
+    const zip = roomSheetPackage();
+    const blob = new Blob([new Uint8Array(zip)]);
+    const reads: [number, number][] = [];
+    const tracked = { size: blob.size, type: 'application/zip', slice: (a?: number, b?: number) => (reads.push([a ?? 0, b ?? blob.size]), blob.slice(a, b)) } as unknown as Blob;
+    const result = await readScanFile(tracked);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.choices).toHaveLength(1);
+    const scan = result.choices[0].scan;
+    expect(scan.source).toMatch(/^RoomSheet package/);
+    expect(scan.walls).toHaveLength(4);
+    expect(scan.notes.join(' ')).toMatch(/Edits made in RoomSheet aren’t included/);
+    expect(result.skipped).toBe('1 photo, 2 3D models, 5 floor-plan exports and the scanning app’s metadata and edits');
+    const entries = await listZip(blob);
+    for (const e of entries.filter((x) => !x.name.endsWith('captured-room.json'))) {
+      const start = e.offset;
+      const end = e.offset + 30 + new TextEncoder().encode(e.name).length + e.compressedSize;
+      expect(reads.some(([a, b]) => a < end && b > start), e.name).toBe(false);
+    }
+    // And it builds the same room as the plain RoomPlan JSON.
+    const p = buildFromScan(scan, initialReview(scan)).project!;
+    expect(sortedLengths(outlineSegments(p.room).map((x) => x.length))).toEqual([360, 360, 420, 420]);
+  });
+
+  it('reads captured-room.json on its own, or at the top of a ZIP', async () => {
+    const alone = await readScanFile(new File([JSON.stringify(sampleToRoomPlan(SAMPLE_LIVING))], 'captured-room.json'), 'captured-room.json');
+    expect(alone.ok && alone.choices[0].scan.walls.length).toBe(6);
+    const top = await readScanFile(new Blob([new Uint8Array(roomSheetPackage(''))]));
+    expect(top.ok && top.choices[0].scan.source).toMatch(/RoomSheet/);
+  });
+
+  it('describes an unrecognised file’s structure without any of its values', async () => {
+    const secret = { rooms: [{ name: 'Hari’s bedroom', size: [3.217, 4.05], owner: 'hello@example.com', items: [{ id: '3F2A9C1B-0000', kind: 'bed' }] }], version: 9 };
+    const result = await readScanFile(new File([JSON.stringify(secret)], 'other.json'), 'other.json');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const shape = result.shape!;
+    expect(shape).toContain('rooms: list(1), first item:');
+    expect(shape).toContain('name: text');
+    expect(shape).toContain('size: list(2) of numbers');
+    expect(shape).toContain('version: number');
+    for (const value of ['Hari', '3.217', '4.05', 'example.com', '3F2A9C1B', 'bed']) expect(shape).not.toContain(value);
+  });
+});

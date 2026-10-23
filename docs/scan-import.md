@@ -27,6 +27,8 @@ and how a future Roomination iPhone app could fit in.
 | `*.json`: RoomPlan `CapturedRoom` | Any app that saves RoomPlan's result with `JSONEncoder` (Apple's sample code does) | Walls, doors, windows, openings, objects, floor outline and room labels (sections) |
 | `structure.json`: RoomPlan `CapturedStructure` | Merged multi-room scans (iOS 17+) | The same; for a building with several floors, the floor with the most walls |
 | `*.zip`: 3D Model Anything room or session export (`house-capture/5`) | [3D Model Anything](https://github.com/wesbos/3d-model-anything) by Wes Bos | `rooms/room-N.json` (and `structure.json`). With several rooms, you choose one |
+| `captured-room.json`, or a RoomSheet *Export Package…* `.zip` | [RoomSheet](https://apps.apple.com/ca/app/roomsheet/id6812923220) (free). Its [documentation](https://github.com/kni927/roomsheet-support) describes the file as "RoomPlan's CapturedRoom as JSON: the original capture data" | The room. In a package, only `captured-room.json` is opened; `metadata.json` (device, times), `model-edits.json`, the USDZ models, plans and photos aren't. Edits made in RoomSheet aren't applied (their format isn't documented), so correct things in the review |
+| RoomPlan JSON from [LiDAR Room Scanner](https://www.lidarscanneriphone.com/) | Its site says it exports "the raw RoomPlan JSON" (free) | Expected to work as RoomPlan JSON; **not yet tried** with a real export |
 | `*.roomination-scan.json` | A future Roomination scanner app, or written by hand | Everything in it (format below) |
 
 **What's never opened in a ZIP:** photos, LiDAR meshes (`.ply`, `.usdz`), depth recordings
@@ -34,6 +36,10 @@ and how a future Roomination iPhone app could fit in.
 The importer reads only the ZIP's table of contents and the geometry JSON. The review screen
 lists what it left unopened, e.g. "Not opened: 412 photos, 1,830 depth frames, a 3D model and an
 AR world map".
+
+**When a file isn't recognised:** the importer offers *Show the file's structure*. That shows
+field names and value types only, with no measurements, positions, identifiers or text, so the
+layout can be shared to add support for another app without sharing the scan.
 
 ## How the conversion works
 

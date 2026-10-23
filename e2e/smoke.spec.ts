@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type {} from '../src/scene3d/diagnostics';
+import { strToU8, zipSync } from 'fflate';
+import { SAMPLE_STUDIO, sampleToRoomPlan } from '../src/scan/samples';
 import { exportProject, lightweight3D, openApp, toolsTab, tools } from './helpers';
 
 /**
@@ -46,6 +48,24 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     const project = await exportProject(page);
     const xs = (project.room.outline as { x: number; y: number }[]).map((n) => n.x);
     expect(Math.max(...xs) - Math.min(...xs)).toBe(420);
+    expect(errors).toEqual([]);
+  });
+
+  test('a RoomSheet package (synthetic) imports through the file picker', async ({ page }) => {
+    const errors = await openApp(page);
+    const zip = zipSync({
+      'Studio/captured-room.json': strToU8(JSON.stringify(sampleToRoomPlan(SAMPLE_STUDIO))),
+      'Studio/metadata.json': strToU8('{}'),
+      'Studio/room-mesh.usdz': new Uint8Array(100),
+    });
+    await page.getByRole('button', { name: /^Projects/ }).click();
+    await page.getByRole('button', { name: /^Import room scan…/ }).click();
+    const dialog = page.getByRole('dialog', { name: /room scan|scanned room/i });
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), dialog.getByRole('button', { name: 'Choose scan file…' }).click()]);
+    await chooser.setFiles({ name: 'Studio.zip', mimeType: 'application/zip', buffer: Buffer.from(zip) });
+    await expect(dialog.getByText(/RoomSheet package/)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Create new project' }).click();
+    await expect(dialog).toBeHidden();
     expect(errors).toEqual([]);
   });
 

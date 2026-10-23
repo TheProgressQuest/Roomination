@@ -17,3 +17,8 @@ private-scans/
 *.conf
 *.heic
 **/rooms/room-*-data.json
+# Files inside scanning apps' exports (RoomSheet, 3D Model Anything, …)
+captured-room.json
+model-edits.json
+*.sh3d
+**/roomsheet*/

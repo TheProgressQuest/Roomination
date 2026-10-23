@@ -2231,6 +2231,21 @@ select {
   margin-top: 6px;
 }
 
+.scan-shape {
+  margin-top: 12px;
+}
+
+.scan-shape pre {
+  margin: 8px 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunk);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
 .scan-room-list {
   display: grid;
   gap: 8px;

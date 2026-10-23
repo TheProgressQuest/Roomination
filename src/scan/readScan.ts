@@ -1,4 +1,5 @@
 import { parseRoomPlan, ScanFormatError, looksLikeRoomPlan } from './roomPlan';
+import { describeShape } from './shape';
 import { looksLikeScanFile, parseScanFile } from './scanFormat';
 import type { ScanData } from './types';
 import { listZip, readZipEntry, ZipError, type ZipEntry } from './zip';
@@ -30,12 +31,20 @@ export interface ScanChoice {
 
 export type ReadScanResult =
   | { ok: true; choices: ScanChoice[]; /** Plain-words list of what was skipped unread. */ skipped: string | null }
-  | { ok: false; error: string };
+  | { ok: false; error: string; /** The unrecognised JSON's structure (no values), when there was one. */ shape?: string };
 
 const ROOM_FILE = /(?:^|\/)rooms\/room-(\d+)\.json$/;
 const STRUCTURE_FILE = /(?:^|\/)structure\.json$/;
 const MANIFEST_FILE = /(?:^|\/)manifest\.json$/;
 const SCAN_FILE = /\.roomination-scan\.json$/i;
+/**
+ * RoomSheet's "Export Package…" ZIP, as documented by its developer
+ * (github.com/kni927/roomsheet-support): `captured-room.json` is "RoomPlan's CapturedRoom as
+ * JSON: the original capture data". Its other files (metadata.json with the device and times,
+ * model-edits.json, USDZ models, plans, photos/) are never opened.
+ */
+const ROOMSHEET_FILE = /(?:^|\/)captured-room\.json$/;
+const ROOMSHEET_EDITS = /(?:^|\/)model-edits\.json$/;
 
 export async function readScanFile(file: Blob, fileName = ''): Promise<ReadScanResult> {
   try {
@@ -74,8 +83,13 @@ async function readJson(file: Blob, fileName: string): Promise<ReadScanResult> {
   const data = parseJsonText(await file.text());
   const base = fileName.replace(/\.json$/i, '').replace(/[_-]+/g, ' ').trim();
   const source = looksLikeScanFile(data) ? 'Roomination scan file' : 'Apple RoomPlan JSON';
-  const scan = interpret(data, source, /^room \d+$/i.test(base) || !base ? 'Scanned room' : base.slice(0, 60));
-  return { ok: true, choices: [{ label: scan.name, scan }], skipped: null };
+  try {
+    const scan = interpret(data, source, /^room \d+$/i.test(base) || !base ? 'Scanned room' : base.slice(0, 60));
+    return { ok: true, choices: [{ label: scan.name, scan }], skipped: null };
+  } catch (error) {
+    if (error instanceof ScanFormatError) return { ok: false, error: error.message, shape: describeShape(data) };
+    throw error;
+  }
 }
 
 async function readZip(file: Blob): Promise<ReadScanResult> {
@@ -109,18 +123,21 @@ async function readZip(file: Blob): Promise<ReadScanResult> {
     .sort((a, b) => a.e.name.localeCompare(b.e.name, 'en', { numeric: true }));
   const structures = entries.filter((e) => STRUCTURE_FILE.test(e.name) && !/(?:^|\/)zones\//.test(e.name));
   const scanFiles = entries.filter((e) => SCAN_FILE.test(e.name));
+  const roomSheet = entries.filter((e) => ROOMSHEET_FILE.test(e.name));
   // A ZIP made by hand may just hold a RoomPlan JSON at its top level.
-  const loose = rooms.length + structures.length + scanFiles.length === 0 ? entries.filter((e) => /^[^/]+\.json$/.test(e.name) && !MANIFEST_FILE.test(e.name)) : [];
+  const loose = rooms.length + structures.length + scanFiles.length + roomSheet.length === 0 ? entries.filter((e) => /^[^/]+\.json$/.test(e.name) && !MANIFEST_FILE.test(e.name)) : [];
   const folders = new Set(rooms.map((r) => r.e.name.slice(0, r.e.name.length - r.m[0].length)));
 
   const choices: ScanChoice[] = [];
   const problems: string[] = [];
+  let shape: string | undefined;
   const source = bundle ? '3D Model Anything scan (house-capture)' : 'Apple RoomPlan JSON (in a ZIP)';
-  const add = async (entry: ZipEntry, label: string) => {
+  const add = async (entry: ZipEntry, label: string, from = source) => {
     if (choices.length >= MAX_ROOMS) return;
     try {
       const data = parseJsonText(await readText(entry));
-      const scan = interpret(data, `${source}, ${entry.name.split('/').slice(-2).join('/')}`, label);
+      shape ??= describeShape(data);
+      const scan = interpret(data, `${from}, ${entry.name.split('/').slice(-2).join('/')}`, label);
       choices.push({ label, scan: { ...scan, format: bundle ? 'house-capture' : scan.format } });
     } catch (error) {
       if (error instanceof ZipError && /too large|ZIP bomb/.test(error.message)) throw error;
@@ -132,10 +149,17 @@ async function readZip(file: Blob): Promise<ReadScanResult> {
     await add(e, `Room ${m[1]}${folders.size > 1 && folder ? ` (${folder.split('/').pop()})` : ''}`);
   }
   for (const e of structures) await add(e, structures.length > 1 ? `All rooms merged (${e.name.split('/').slice(-2, -1)[0] ?? ''})` : 'All rooms merged');
+  for (const e of roomSheet) {
+    const folder = e.name.split('/').slice(-2, -1)[0];
+    await add(e, roomSheet.length > 1 && folder ? folder : 'Scanned room', 'RoomSheet package (RoomPlan CapturedRoom)');
+  }
   for (const e of [...scanFiles, ...loose]) await add(e, e.name.split('/').pop()!.replace(/\.(roomination-scan\.)?json$/i, ''));
+  if (roomSheet.length && entries.some((e) => ROOMSHEET_EDITS.test(e.name))) {
+    for (const c of choices) c.scan.notes.push('Edits made in RoomSheet aren’t included: Roomination imports the original capture, exactly as scanned. Make any corrections here in the review.');
+  }
 
   if (choices.length === 0) {
-    if (problems.length) return { ok: false, error: `No room in that ZIP could be read. ${problems[0]}` };
+    if (problems.length) return { ok: false, error: `No room in that ZIP could be read. ${problems[0]}`, shape };
     return { ok: false, error: 'That ZIP file doesn’t contain a room scan (no rooms/room-N.json, structure.json or RoomPlan JSON).' };
   }
   for (const p of problems) choices[0].scan.notes.push(`Skipped ${p}`);
@@ -145,7 +169,10 @@ async function readZip(file: Blob): Promise<ReadScanResult> {
 /** "412 photos, 1,830 depth frames, a 3D mesh and an AR world map" — what stays unopened. */
 function describeSkipped(entries: ZipEntry[]): string | null {
   const count = (re: RegExp) => entries.filter((e) => re.test(e.name)).length;
-  const photos = count(/\.(jpe?g|heic|png)$/i) - count(/(?:^|\/)depth\/[^/]+\.jpe?g$/i);
+  const photos = count(/\.(jpe?g|heic|png)$/i) - count(/(?:^|\/)depth\/[^/]+\.jpe?g$/i) - count(/(?:^|\/)plan\.png$/i);
+  const plans = count(/(?:^|\/)plan\.(pdf|png|svg|csv)$|\.sh3d$/i);
+  const metadata = count(/(?:^|\/)metadata\.json$/i) > 0;
+  const edits = count(/(?:^|\/)model-edits\.json$/i) > 0;
   const depth = count(/\.f16z$/i);
   const meshes = count(/\.(ply|usdz|obj|glb)$/i);
   const maps = count(/\.arworldmap$/i);
@@ -156,6 +183,8 @@ function describeSkipped(entries: ZipEntry[]): string | null {
     meshes > 0 && `${meshes} 3D model${meshes === 1 ? '' : 's'}`,
     maps > 0 && `${maps === 1 ? 'an AR world map' : `${maps} AR world maps`}`,
     raw > 0 && `${raw} raw capture file${raw === 1 ? '' : 's'}`,
+    plans > 0 && `${plans} floor-plan export${plans === 1 ? '' : 's'}`,
+    (metadata || edits) && `the scanning app’s ${metadata && edits ? 'metadata and edits' : metadata ? 'metadata' : 'edits'}`,
   ].filter((p): p is string => typeof p === 'string');
   if (parts.length === 0) return null;
   const last = parts.pop()!;
