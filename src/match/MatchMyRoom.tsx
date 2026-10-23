@@ -34,10 +34,22 @@ interface Props {
 }
 
 type Mode = 'colour' | 'texture' | 'camera';
-type Target = { kind: 'piece' } | { kind: 'walls' } | { kind: 'wall'; id: string } | { kind: 'floor' };
+type Target = { kind: 'piece' } | { kind: 'part'; name: string } | { kind: 'walls' } | { kind: 'wall'; id: string } | { kind: 'floor' };
 type Surface = 'front' | 'top' | 'side';
 
-const targetKey = (t: Target) => (t.kind === 'wall' ? `wall:${t.id}` : t.kind);
+const targetKey = (t: Target) => (t.kind === 'wall' ? `wall:${t.id}` : t.kind === 'part' ? `part:${t.name}` : t.kind);
+
+/** A piece's parts by name (both doors are "Door"), ignoring invisible groups. */
+function partNames(piece: Furniture | null): { name: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const c of piece?.components ?? []) if (c.type !== 'group' && !c.hidden) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+  return [...counts.entries()].map(([name, count]) => ({ name, count }));
+}
+
+/** The piece's components with every part of that name changed. */
+function withPart(piece: Furniture, name: string, change: (c: NonNullable<Furniture['components']>[number]) => NonNullable<Furniture['components']>[number]) {
+  return (piece.components ?? []).map((c) => (c.name === name && c.type !== 'group' ? change(c) : c));
+}
 
 async function loadPhoto(assetId: string): Promise<RGBAImage | null> {
   const asset = await getAsset(assetId);
@@ -76,7 +88,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   // Follow the selection: picking a piece in the 3D view makes it the target.
   useEffect(() => {
     if (piece) setTarget({ kind: 'piece' });
-    else setTarget((t) => (t.kind === 'piece' ? { kind: 'walls' } : t));
+    else setTarget((t) => (t.kind === 'piece' || t.kind === 'part' ? { kind: 'walls' } : t));
   }, [piece?.id]);
 
   useEffect(() => {
@@ -121,6 +133,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   function applyColour() {
     if (!colour) return;
     if (target.kind === 'piece' && piece) dispatch({ type: 'furniture/update', id: piece.id, changes: { color: colour } });
+    if (target.kind === 'part' && piece) dispatch({ type: 'furniture/update', id: piece.id, changes: { components: withPart(piece, target.name, (c) => ({ ...c, color: colour })) } });
     if (target.kind === 'walls') dispatch({ type: 'room/setWallLook', wallId: null, color: colour });
     if (target.kind === 'wall') dispatch({ type: 'room/setWallLook', wallId: target.id, color: colour });
     if (target.kind === 'floor') dispatch({ type: 'floor/set', floor: { color: colour } });
@@ -137,6 +150,8 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
       const assetId = await putAsset(blob, { width: tile.width, height: tile.height });
       const texture: PhotoTexture = { assetId, widthCm: Math.round(size.widthCm * 10) / 10, heightCm: Math.round(size.heightCm * 10) / 10, roughness };
       if (target.kind === 'piece' && piece) dispatch({ type: 'furniture/update', id: piece.id, changes: { appearance: withPhoto(piece, surface, assetId) } });
+      // A part keeps its shape and detail; only its surface takes the texture, at real size.
+      if (target.kind === 'part' && piece) dispatch({ type: 'furniture/update', id: piece.id, changes: { components: withPart(piece, target.name, (c) => ({ ...c, texture })) } });
       if (target.kind === 'walls') dispatch({ type: 'room/setWallLook', wallId: null, texture });
       if (target.kind === 'wall') dispatch({ type: 'room/setWallLook', wallId: target.id, texture });
       if (target.kind === 'floor') dispatch({ type: 'floor/set', floor: { photo: texture } });
@@ -149,6 +164,10 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   }
 
   function removeTexture() {
+    if (target.kind === 'part' && piece) {
+      dispatch({ type: 'furniture/update', id: piece.id, changes: { components: withPart(piece, target.name, ({ texture: _t, ...c }) => c) } });
+      return;
+    }
     if (target.kind === 'piece' && piece?.appearance?.textures?.[surface]) {
       const { [surface]: _gone, ...textures } = piece.appearance.textures;
       dispatch({ type: 'furniture/update', id: piece.id, changes: { appearance: { ...piece.appearance, textures } } });
@@ -160,13 +179,15 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
 
   const walls = wallSegments(project.room);
   const targets: { value: string; label: string; target: Target }[] = [
-    ...(piece ? [{ value: 'piece', label: `Selected: ${piece.name}`, target: { kind: 'piece' } as Target }] : []),
+    ...(piece ? [{ value: 'piece', label: `Selected: ${piece.name} (whole piece)`, target: { kind: 'piece' } as Target }] : []),
+    ...partNames(piece).map(({ name, count }) => ({ value: `part:${name}`, label: `   Part: ${name}${count > 1 ? ` (${count})` : ''}`, target: { kind: 'part', name } as Target })),
     { value: 'walls', label: 'All walls', target: { kind: 'walls' } },
     ...walls.map((w) => ({ value: `wall:${w.id}`, label: wallLabel(project.room, w.id), target: { kind: 'wall', id: w.id } as Target })),
     { value: 'floor', label: 'Floor', target: { kind: 'floor' } },
   ];
   const hasTexture =
     (target.kind === 'piece' && !!piece?.appearance?.textures?.[surface]) ||
+    (target.kind === 'part' && !!piece?.components?.some((c) => c.name === target.name && c.texture)) ||
     (target.kind === 'walls' && !!project.room.wallTexture) ||
     (target.kind === 'wall' && !!project.room.wallFinishes?.[target.id]) ||
     (target.kind === 'floor' && !!project.room.floor.photo);
@@ -296,7 +317,8 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
               onChange={setSurface}
             />
           )}
-          {target.kind === 'piece' && mode === 'texture' && <p className="hint">On furniture, the patch is stretched over that whole surface (photograph the front straight on).</p>}
+          {target.kind === 'piece' && mode === 'texture' && <p className="hint">On a whole piece, the patch is stretched over that surface and detailed parts become a plain block. To keep the detail, choose one of its parts instead.</p>}
+          {target.kind === 'part' && mode === 'texture' && <p className="hint">The part keeps its shape; its surfaces take the texture, repeating at the patch’s real size.</p>}
           <div className="button-row">
             {mode === 'colour' ? (
               <button type="button" className="primary small" disabled={!colour} onClick={applyColour}>

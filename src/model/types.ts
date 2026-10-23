@@ -329,6 +329,8 @@ export interface FurnitureComponent {
   seams?: SeamStyle;
   locked?: boolean;
   hidden?: boolean;
+  /** A photo texture on this part only (Match My Room), repeating at its real size. */
+  texture?: PhotoTexture;
 }
 
 /**

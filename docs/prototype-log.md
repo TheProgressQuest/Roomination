@@ -17,6 +17,13 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Real-room comparison (bathroom, M2.5):** see the visual differences in the owner's report.
+  Not modelled yet:
+  - ceilings (the sky shows above the walls at eye level);
+  - how far a door is open (always drawn 30% ajar);
+  - part-height wall finishes (backsplash, tiled lower walls).
+  Lights don't emit light.
+
 - **Reflections (M2.4):**
   - Medium and High add a soft generic room environment (not the real room) to glossy surfaces;
   - on High, mirrors reflect the actual room, captured from one point in front of the first
@@ -75,6 +82,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Part textures (M2.5) draw each textured part as its own mesh (not batched) | Fine for a few parts; measure if a room gets dozens |
 | Match My Room panel touch targets | Some panel buttons are the small (32 px) size; check on iPhone and iPad before release (44 px rule) |
 | Full regression not run for M2.1–M2.4 | Only targeted tests, the 3D suite and smoke tests; run `npm run test:full` before release |
 | Match My Room panel (~400 lines) | Tested on desktop with synthetic photos; touch dragging of corners not yet tried on an iPhone |

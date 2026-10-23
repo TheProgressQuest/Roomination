@@ -29,10 +29,10 @@ test('searches and filters by room, and adds a fixture with a click', async ({ p
 
   await cat.getByRole('radio', { name: 'All', exact: true }).click();
   await cat.getByLabel('Search the catalogue').fill('toilet');
-  await expect(cat.locator('.catalogue-card')).toHaveCount(2);
+  await expect(cat.locator('.catalogue-card')).toHaveCount(4); // toilet, wall-hung toilet, roll holder, over-toilet wall cabinet
   // Pictures are drawn on this device.
   await expect(cat.locator('.catalogue-card img').first()).toHaveAttribute('src', /^data:image\/png/);
-  await cat.getByRole('button', { name: /^Add Toilet\b/ }).click();
+  await cat.getByRole('button', { name: /^Add Toilet,/ }).click();
   const toilet = ((await exportProject(page)).furniture as Piece[]).find((f) => f.name === 'Toilet')!;
   expect(toilet).toMatchObject({ kind: 'fixture', width: 38, depth: 68 });
   expect(toilet.components!.length).toBeGreaterThan(3);

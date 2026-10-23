@@ -31,7 +31,7 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     await toolsTab(page, 'Furnish');
     const cat = tools(page).locator('.catalogue');
     await cat.getByLabel('Search the catalogue').fill('toilet');
-    await cat.getByRole('button', { name: /^Add Toilet\b/ }).click();
+    await cat.getByRole('button', { name: /^Add Toilet,/ }).click();
     const project = await exportProject(page);
     expect((project.furniture as { name: string }[]).some((f) => f.name === 'Toilet')).toBe(true);
     expect(errors).toEqual([]);

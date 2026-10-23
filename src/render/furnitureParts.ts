@@ -1,5 +1,5 @@
 import { placeComponents } from '../model/components';
-import type { ComponentType, Furniture, FurnitureComponent, MaterialKind, Point, SeamStyle, SurfaceFinish, UpholsteryPattern } from '../model/types';
+import type { ComponentType, Furniture, FurnitureComponent, MaterialKind, Point, SeamStyle, SurfaceFinish, UpholsteryPattern, PhotoTexture } from '../model/types';
 import { seededRandom } from '../model/random';
 import { luminance, shade } from './palette';
 import type { SurfaceKind } from './materials';
@@ -91,6 +91,8 @@ export interface FurniturePart {
   textureScale?: number;
   pattern?: UpholsteryPattern;
   seams?: SeamStyle;
+  /** A photo texture on just this part (Match My Room), repeating at its real size. */
+  photo?: PhotoTexture;
 }
 
 /** What a piece looks like: its kind, plus a refinement from its name for décor and chairs. */
@@ -602,6 +604,7 @@ export function componentParts(components: readonly FurnitureComponent[]): Furni
       ...(c.textureScale !== undefined && c.textureScale !== 1 ? { textureScale: c.textureScale } : {}),
       ...(c.pattern && c.pattern !== 'plain' ? { pattern: c.pattern } : {}),
       ...(c.seams && c.seams !== 'none' ? { seams: c.seams } : {}),
+      ...(c.texture ? { photo: c.texture } : {}),
       ...(c.tilt ? { tilt: c.tilt } : {}),
       ...(placed.yaw ? { yaw: placed.yaw } : {}),
     };

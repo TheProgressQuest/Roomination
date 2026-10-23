@@ -18,6 +18,9 @@ import {
   ShapeUtils,
   Vector2,
   Vector3,
+  BoxGeometry,
+  RepeatWrapping,
+  Texture,
   type Intersection,
   type MeshStandardMaterial,
   type Object3D,
@@ -29,7 +32,7 @@ import type { SurfaceKind } from '../../render/materials';
 import { loadAssetImage } from '../../storage/assets';
 import { CM_PER_SCENE_UNIT, type SceneFurniture } from '../model';
 import { lookKey, type FurnitureMaterials, type SurfaceLook } from './furnitureMaterials';
-import { partGeometry, partMatrix, type PartDetail } from './partGeometry';
+import { partGeometry, partMatrix, withMetreUVs, type PartDetail } from './partGeometry';
 
 /**
  * All furniture in the 3D view.
@@ -76,6 +79,7 @@ interface PieceRecord {
   owned: MeshStandardMaterial[];
 }
 
+
 /** Something kept between rebuilds, and the rebuild that last used it. */
 interface Cached<T> {
   value: T;
@@ -114,6 +118,8 @@ export class FurnitureLayer {
    */
   private readonly geometries = new Map<string, Cached<BufferGeometry>>();
   private readonly photos = new Map<string, Cached<CanvasTexture>>();
+  /** Repeating photo textures on individual parts. */
+  private readonly repeats = new Map<string, Cached<Texture>>();
 
   constructor(
     private readonly materials: FurnitureMaterials,
@@ -146,6 +152,13 @@ export class FurnitureLayer {
       if (piece.extruded) this.addExtruded(piece, generation);
       const placement = new Matrix4().compose(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
       for (const part of piece.parts) {
+        if (part.photo) {
+          // A part with its own photo texture (a worktop, cabinet doors): drawn on its own, at its
+          // exact size, so the texture keeps its real scale and the piece keeps its detail.
+          this.addPhotoPart(piece, part, placement, generation);
+          parts++;
+          continue;
+        }
         const geometry = partGeometry(part, this.detail);
         this.cached(this.geometries, geometry.key, generation, geometry.make);
         // Small details don't cast shadow-map shadows (their contact shadow is enough), which
@@ -167,7 +180,7 @@ export class FurnitureLayer {
     this.applySelection();
     // Free shapes and photos that nothing in this rebuild used. (Photos still loading are
     // claimed when they arrive, so they're kept until the following rebuild.)
-    for (const cache of [this.geometries, this.photos] as Map<string, Cached<{ dispose(): void }>>[]) {
+    for (const cache of [this.geometries, this.photos, this.repeats] as Map<string, Cached<{ dispose(): void }>>[]) {
       for (const [key, entry] of cache) {
         if (entry.generation < generation) {
           entry.value.dispose();
@@ -215,7 +228,7 @@ export class FurnitureLayer {
 
   dispose() {
     this.clear();
-    for (const cache of [this.geometries, this.photos] as Map<string, Cached<{ dispose(): void }>>[]) {
+    for (const cache of [this.geometries, this.photos, this.repeats] as Map<string, Cached<{ dispose(): void }>>[]) {
       for (const entry of cache.values()) entry.value.dispose();
       cache.clear();
     }
@@ -336,6 +349,54 @@ export class FurnitureLayer {
     record.extruded = mesh;
     record.owned = owned;
     this.group.add(mesh);
+  }
+
+  private addPhotoPart(piece: SceneFurniture, part: SceneFurniture['parts'][number], placement: Matrix4, generation: number) {
+    const photo = part.photo!;
+    const exact = part.shape === 'rounded';
+    const key = exact ? `photo-box|${part.width}|${part.height}|${part.depth}` : partGeometry(part, this.detail).key;
+    const scale = exact ? new Vector3(1, 1, 1) : partGeometry(part, this.detail).scale;
+    const geometry = this.cached(this.geometries, key, generation, exact ? () => withMetreUVs(new BoxGeometry(m(part.width), m(part.height), m(part.depth))) : partGeometry(part, this.detail).make);
+    const surface = part.surface;
+    const material = this.materials.create(surface, part.finish ?? piece.finish, part.color, { roughness: photo.roughness ?? part.roughness });
+    const record = this.pieces.get(piece.id)!;
+    record.owned.push(material);
+    const mesh = new Mesh(geometry, material);
+    mesh.applyMatrix4(placement.clone().multiply(partMatrix(part, scale)));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.furnitureId = piece.id;
+    mesh.name = `furniture:${piece.id}:photo-part`;
+    this.group.add(mesh);
+    const textureKey = `${photo.assetId}|${photo.widthCm}|${photo.heightCm}`;
+    const show = (texture: Texture) => {
+      material.map = texture;
+      material.color.set('#ffffff');
+      material.needsUpdate = true;
+    };
+    const ready = this.repeats.get(textureKey);
+    if (ready) {
+      ready.generation = generation;
+      show(ready.value);
+      return;
+    }
+    this.pendingPhotos++;
+    loadAssetImage(photo.assetId)
+      .then((image) => {
+        if (!image || generation !== this.generation) return;
+        show(
+          this.cached(this.repeats, textureKey, generation, () => {
+            const t = new Texture(image);
+            t.wrapS = t.wrapT = RepeatWrapping;
+            t.colorSpace = SRGBColorSpace;
+            t.repeat.set(100 / photo.widthCm, 100 / photo.heightCm);
+            t.needsUpdate = true;
+            return t;
+          }),
+        );
+        this.onChange();
+      })
+      .finally(() => this.pendingPhotos--);
   }
 
   /** A value from a cache (made if missing), marked as used by this rebuild. */

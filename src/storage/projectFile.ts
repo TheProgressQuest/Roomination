@@ -635,6 +635,8 @@ export function parseComponents(raw: unknown): FurnitureComponent[] | undefined 
     if (seams) c.seams = seams;
     if (r.locked === true) c.locked = true;
     if (r.hidden === true) c.hidden = true;
+    const texture = parsePhotoTexture(r.texture);
+    if (texture) c.texture = texture;
     seen.add(c.id);
     out.push(c);
   }
@@ -682,10 +684,10 @@ export function projectAssetIds(project: Pick<Project, 'furniture'> & Partial<Pi
   ];
 }
 
-export function furnitureAssetIds(item: Pick<Furniture, 'appearance'>): string[] {
+export function furnitureAssetIds(item: Pick<Furniture, 'appearance'> & Partial<Pick<Furniture, 'components'>>): string[] {
   const a = item.appearance;
-  if (!a) return [];
-  return [...Object.values(a.textures ?? {}), ...(a.photos ?? [])].filter((v): v is string => typeof v === 'string');
+  const parts = (item.components ?? []).map((c) => c.texture?.assetId);
+  return [...Object.values(a?.textures ?? {}), ...(a?.photos ?? []), ...parts].filter((v): v is string => typeof v === 'string');
 }
 
 function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => string, room: Room, version: number): RoomFeature {

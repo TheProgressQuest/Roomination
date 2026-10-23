@@ -43,7 +43,7 @@ export const SCAN_CATEGORIES: Record<string, ScanCategory> = {
   sink: {
     label: 'Sink',
     candidates: ['sink-60', 'sink-double', 'vanity-integrated', 'vanity-countertop-basin', 'vanity-60', 'vanity-80', 'vanity-double', 'laundry-sink'],
-    bySection: { kitchen: ['sink-60', 'sink-double'], bathroom: ['vanity-integrated', 'vanity-countertop-basin', 'vanity-integrated-wide', 'vanity-60', 'vanity-80', 'vanity-double'] },
+    bySection: { kitchen: ['sink-60', 'sink-double'], bathroom: ['vanity-drop-in', 'vanity-integrated', 'vanity-countertop-basin', 'vanity-integrated-wide', 'vanity-60', 'vanity-80', 'vanity-double'] },
     kind: 'fixture',
   },
   sofa: { label: 'Sofa', candidates: ['loveseat', 'sofa-2', 'sofa-3', 'sofa-4', 'corner-sofa', 'sectional', 'chaise'], kind: 'sofa' },

@@ -115,7 +115,7 @@ export function partMatrix(part: FurniturePart, scale: Vector3): Matrix4 {
 }
 
 /** Replaces a geometry's UVs with a box projection in metres (so textures keep their real scale). */
-function withMetreUVs(geometry: BufferGeometry): BufferGeometry {
+export function withMetreUVs(geometry: BufferGeometry): BufferGeometry {
   const indexed = geometry.index ? geometry : indexify(geometry);
   const pos = indexed.getAttribute('position');
   const normal = indexed.getAttribute('normal');

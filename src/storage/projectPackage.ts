@@ -172,7 +172,16 @@ export function withAssets(project: Project, map: (id: string) => string | null)
 }
 
 function remapFurniture(item: Furniture, map: (id: string) => string | null): Furniture {
-  if (furnitureAssetIds(item).length === 0 || !item.appearance) return item;
+  if (furnitureAssetIds(item).length === 0) return item;
+  // Part textures (Match My Room): remapped, or removed when the photo isn't available.
+  const components = item.components?.map((c) => {
+    if (!c.texture) return c;
+    const { texture, ...rest } = c;
+    const id = map(texture.assetId);
+    return id ? { ...rest, texture: { ...texture, assetId: id } } : rest;
+  });
+  item = components ? { ...item, components } : item;
+  if (!item.appearance) return item;
   const { textures, photos, ...rest } = item.appearance;
   const nextTextures = Object.fromEntries(
     Object.entries(textures ?? {})

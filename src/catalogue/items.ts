@@ -265,15 +265,20 @@ function vanity(k: Kit, b: Base, basins: 1 | 2) {
  * A vanity: a cabinet with doors on a recessed plinth, a worktop at the piece's height, and an
  * integrated basin (set into the top) or a countertop basin (sitting on it), with a tap.
  */
-function vanityTop(k: Kit, b: Base, basin: 'integrated' | 'countertop', worktop: { material: MaterialKind; color: string }) {
+function vanityTop(k: Kit, b: Base, basin: 'integrated' | 'countertop' | 'dropIn', worktop: { material: MaterialKind; color: string }, handle: 'bar' | 'knob' = 'bar') {
   const { width: w, depth: d, height: top } = b;
   k.span('base', 'Plinth', -w / 2 + 2, w / 2 - 2, -d / 2, d / 2 - 7, 0, 9, { color: shadeHex(b.color), radius: 0.3 });
   k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, d / 2 - 4.3, 9, top - 3, { color: b.color, radius: 0.4 });
-  k.fronts('door', w, d, 9.5, top - 3.5, w > 70 ? 2 : 1, { color: b.color, handle: 'bar', handleColor: STEEL });
+  k.fronts('door', w, d, 9.5, top - 3.5, w > 70 ? 2 : 1, { color: b.color, handle, handleColor: STEEL });
   k.span('tabletop', 'Worktop', -w / 2, w / 2, -d / 2, d / 2, top - 3, top, { material: worktop.material, color: worktop.color, finish: 'gloss', radius: 0.6, edge: 'rounded' });
   const bw = Math.min(46, w - 14);
   const bd = Math.min(36, d - 14);
-  if (basin === 'integrated') {
+  if (basin === 'dropIn') {
+    // An oval bowl set into the worktop: its glazed rim sits just proud of the top.
+    k.cyl('detail', 'Basin rim', 0, 2, top - 0.2, bw + 6, bd + 6, 1.4, { material: 'ceramic', color: CERAMIC, finish: 'gloss' });
+    k.cyl('detail', 'Basin', 0, 2, top + 1, bw, bd, 0.3, { material: 'ceramic', color: '#e4e2de', finish: 'gloss' });
+    k.cyl('detail', 'Drain', 0, 3, top + 1.2, 3.2, 3.2, 0.2, { material: 'metal', color: '#8d9196' });
+  } else if (basin === 'integrated') {
     k.box('detail', 'Basin', 0, 1.5, top - 0.3, bw, bd, 0.4, { material: 'ceramic', color: '#e4e2de', finish: 'gloss', radius: 9 });
     k.cyl('detail', 'Drain', 0, 2.5, top - 0.1, 3.2, 3.2, 0.3, { material: 'metal', color: '#8d9196' });
   } else {
@@ -328,8 +333,41 @@ function wallLight(k: Kit, b: Base, style: 'bar' | 'sconce') {
   }
 }
 
+/** A row of wall lights on a bar: shades on short arms (a vanity light). */
+function lightBar(k: Kit, b: Base, count: number) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Backplate', -6, 6, -d / 2, -d / 2 + 1.5, h * 0.25, h * 0.6, { material: 'metal', color: STEEL, finish: 'satin', radius: 0.4 });
+  k.span('support', 'Bar', -w / 2, w / 2, -d / 2 + 1.5, -d / 2 + 4, h * 0.3, h * 0.42, { material: 'metal', color: STEEL, finish: 'gloss', radius: 0.8 });
+  const shade = Math.min(12, (w / count) * 0.8);
+  for (let i = 0; i < count; i++) {
+    const x = -w / 2 + shade / 2 + (i * (w - shade)) / Math.max(1, count - 1);
+    k.span('support', 'Arm', x - 0.8, x + 0.8, -d / 2 + 2, d / 2 - shade / 2, h * 0.36, h * 0.42, { material: 'metal', color: STEEL, finish: 'gloss' });
+    k.cyl('support', 'Cup', x, d / 2 - shade / 2, h * 0.36, 5, 5, 3, { material: 'metal', color: STEEL, finish: 'gloss' });
+    k.cyl('detail', 'Shade', x, d / 2 - shade / 2, h * 0.42, shade, shade, h * 0.58, { material: 'plastic', color: '#f7f6f1', finish: 'satin' });
+  }
+}
+
+/** A toilet roll on a holder mounted to a wall or cabinet side. */
+function rollHolder(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Mount', -2, 2, -d / 2, -d / 2 + 1.5, h * 0.3, h * 0.7, { material: 'metal', color: STEEL, finish: 'satin', radius: 0.6 });
+  k.span('support', 'Arm', -w / 2, w / 2, -d / 2 + 1.5, -d / 2 + 3, h * 0.45, h * 0.55, { material: 'metal', color: STEEL, finish: 'gloss', radius: 0.5 });
+  k.soft('cushion', 'Roll', 0, d / 2 - 5.5, 0, w - 1, 11, h, { material: 'cotton', color: '#f6f5f2' });
+}
+
+/** A wall pegboard with small shelves (for toiletries, tools or a desk). */
+function pegboard(k: Kit, b: Base, shelves: number) {
+  const { width: w, depth: d, height: h } = b;
+  k.span('base', 'Board', -w / 2, w / 2, -d / 2, -d / 2 + 1.5, 0, h, { color: b.color, finish: 'matte', radius: 0.3 });
+  for (let i = 0; i < shelves; i++) {
+    const z = h * ((i + 0.6) / (shelves + 0.2));
+    k.span('tabletop', 'Shelf', -w / 2 + 2, w / 2 - 2, -d / 2 + 1.5, d / 2, z, z + 1, { material: 'metal', color: '#222326', finish: 'satin' });
+    k.span('detail', 'Lip', -w / 2 + 2, w / 2 - 2, d / 2 - 0.6, d / 2, z + 1, z + 3, { material: 'metal', color: '#222326', finish: 'satin' });
+  }
+}
+
 /** A shower curtain on a rod: pleated fabric hanging from rings. */
-function showerCurtain(k: Kit, b: Base) {
+function showerCurtain(k: Kit, b: Base, material: MaterialKind = 'cotton') {
   const { width: w, depth: d, height: h } = b;
   k.span('support', 'Rod', -w / 2, w / 2, -1.2, 1.2, h - 2.4, h, { material: 'metal', color: STEEL, finish: 'gloss', radius: 1.1 });
   const pleats = Math.max(4, Math.round(w / 9));
@@ -340,7 +378,7 @@ function showerCurtain(k: Kit, b: Base) {
     // Folds overlap their neighbours, except at the ends where they stop at the curtain's edge.
     const fw = Math.min(pw * 1.35, (w / 2 - Math.abs(x)) * 2);
     // Upright, elliptical pleats read as soft folds of hanging fabric.
-    k.cyl('cushion', 'Fold', x, (i % 2 ? 1 : -1) * (d / 2 - 1.6), 0, fw, 3.2, h - 4, { material: 'cotton', color: b.color });
+    k.cyl('cushion', 'Fold', x, (i % 2 ? 1 : -1) * (d / 2 - 1.6), 0, fw, 3.2, h - 4, { material, color: b.color });
   }
 }
 
@@ -763,6 +801,11 @@ export const CATALOGUE: CatalogueItem[] = [
   built('vanity-countertop-basin', 'Vanity, countertop basin', 'bathroom', 'basin sink vessel wash', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'countertop', { material: 'stone', color: MARBLE })),
   built('vanity-integrated', 'Vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 80, depth: 48, height: 86, color: WHITE }, (k, b) => vanityTop(k, b, 'integrated', { material: 'ceramic', color: CERAMIC })),
   built('vanity-integrated-wide', 'Wide vanity, integrated basin', 'bathroom', 'basin sink wash top', { kind: 'fixture', width: 120, depth: 50, height: 86, color: OAK }, (k, b) => vanityTop(k, b, 'integrated', { material: 'stone', color: MARBLE })),
+  built('vanity-drop-in', 'Vanity, drop-in basin', 'bathroom', 'basin sink oval laminate shaker', { kind: 'fixture', width: 90, depth: 53, height: 81, color: WHITE }, (k, b) => vanityTop(k, b, 'dropIn', { material: 'stone', color: '#3a3b3e' }, 'knob')),
+  built('vanity-light-3', 'Three-light vanity bar', 'bathroom', 'wall light lamp over mirror shades', { kind: 'fixture', width: 62, depth: 20, height: 22, color: STEEL, elevation: 195 }, (k, b) => lightBar(k, b, 3)),
+  built('shower-curtain-clear', 'Clear shower curtain', 'bathroom', 'bath curtain plastic liner', { kind: 'fixture', width: 150, depth: 8, height: 175, color: '#eef1f3', elevation: 25 }, (k, b) => showerCurtain(k, b, 'glass')),
+  built('toilet-roll-holder', 'Toilet roll holder', 'bathroom', 'paper tissue', { kind: 'fixture', width: 16, depth: 14, height: 12, color: STEEL, elevation: 65 }, rollHolder),
+  built('pegboard', 'Pegboard with shelves', 'office', 'wall organiser shelf storage', { kind: 'storage', width: 36, depth: 12, height: 56, color: WHITE, elevation: 120 }, (k, b) => pegboard(k, b, 3)),
   built('mirror-wall', 'Wall mirror', 'bathroom', 'mirror looking glass', { kind: 'decor', width: 60, depth: 3, height: 80, color: '#c9cdd1', elevation: 110 }, (k, b) => mirror(k, b, false, { material: 'metal', color: '#2b2d31' })),
   built('mirror-frameless', 'Frameless mirror', 'bathroom', 'mirror looking glass', { kind: 'decor', width: 70, depth: 1.5, height: 90, color: '#c9cdd1', elevation: 105 }, (k, b) => mirror(k, b, false, null)),
   built('mirror-round', 'Round mirror', 'bathroom', 'mirror looking glass circle', { kind: 'decor', width: 60, depth: 3, height: 60, color: '#c9cdd1', elevation: 125 }, (k, b) => mirror(k, b, true, { material: 'metal', color: BRASS })),
