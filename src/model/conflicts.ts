@@ -257,7 +257,7 @@ export function describeConflict(conflict: Conflict, project: Project, perspecti
 function clearanceMessage(itemName: string, feature: RoomFeature | undefined, featureName: string, coverage: string): string {
   switch (feature?.kind) {
     case 'door':
-      return feature.swing === 'out' || feature.doorType === 'sliding'
+      return feature.swing === 'out' || feature.doorType === 'sliding' || feature.doorType === 'opening'
         ? `${itemName} is in the walkway of ${featureName}.`
         : `${itemName} is in the swing path of ${featureName} (${coverage} of it).`;
     case 'outlet':

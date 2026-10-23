@@ -1,6 +1,6 @@
 # ADR-0008: A built-in furniture catalogue
 
-**Status:** Proposed (awaiting review)
+**Status:** Accepted (released 2026-10-15)
 **Date:** 2026-10-15
 **Deciders:** The Progress Quest
 

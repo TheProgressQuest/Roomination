@@ -18,6 +18,8 @@ interface ProjectsDialogProps {
   onDuplicate: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
+  /** Opens the room-scan importer (LiDAR scans from an iPhone or iPad). */
+  onImportScan: () => void;
   onDelete: (id: string) => void;
   /** Photos the open project (including its undo history) still refers to. */
   photosInUse: () => string[];
@@ -129,6 +131,9 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
           <button type="button" className="secondary" onClick={() => fileInput.current?.click()}>
             <Icon name="upload" size={16} /> Import file…
           </button>
+          <button type="button" className="secondary" onClick={props.onImportScan}>
+            <Icon name="floorPlan" size={16} /> Import room scan…
+          </button>
           <input
             ref={fileInput}
             type="file"
@@ -146,7 +151,7 @@ export function ProjectsDialog(props: ProjectsDialogProps) {
             {props.importMessage.text}
           </p>
         )}
-        <p className="hint">Imports are always added as a new project — nothing existing is overwritten.</p>
+        <p className="hint">Imports are always added as a new project — nothing existing is overwritten. A room scan from an iPhone or iPad with LiDAR is read on this device and reviewed before anything is created.</p>
       </section>
 
       <StorageSection inUse={props.photosInUse} />

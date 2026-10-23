@@ -148,6 +148,18 @@ function presentationSymbol(feature: RoomFeature, s: number, w: number, band: Wa
   }
   if (feature.kind === 'door') {
     const leafT = Math.max(2.5, 4 * s);
+    if (feature.doorType === 'opening') {
+      // A doorway with no door: just the cased sides of the opening.
+      return {
+        shapes: (
+          <Group listening={false}>
+            <Line points={[-w / 2 + 0.5, y0, -w / 2 + 0.5, y0 + t]} stroke={stroke} strokeWidth={1.2} />
+            <Line points={[w / 2 - 0.5, y0, w / 2 - 0.5, y0 + t]} stroke={stroke} strokeWidth={1.2} />
+          </Group>
+        ),
+        hit: hitBox(-w / 2, y0, w / 2, Math.max(8, y0 + t)),
+      };
+    }
     if (feature.doorType === 'sliding') {
       return {
         shapes: (
@@ -206,6 +218,18 @@ function drawSymbol(
           <Line points={[w / 2, band.top, w / 2, band.top + band.height]} stroke={palette.wall} strokeWidth={2} listening={false} />
         </>
       );
+      if (feature.doorType === 'opening') {
+        // A doorway with no door: the jambs, and a dashed line where the head is overhead.
+        return {
+          shapes: (
+            <>
+              {jambs}
+              <Line points={[-w / 2, band.top + band.height / 2, w / 2, band.top + band.height / 2]} stroke={line} strokeWidth={1} dash={[4, 4]} listening={false} />
+            </>
+          ),
+          hit: hitBox(-w / 2, band.top, w / 2, Math.max(8, band.top + band.height)),
+        };
+      }
       if (feature.doorType === 'sliding') {
         return {
           shapes: (

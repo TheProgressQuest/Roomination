@@ -308,6 +308,7 @@ function addWallFeature(wall: SceneWall, segment: WallSegment, feature: RoomFeat
 /** Door leaves: hinged leaves shown a little open on their swing side; sliding panels in the wall. */
 function doorPanels(door: RoomFeature, frame: Frame, faces: { inner: number; outer: number }, f: number, top: number): Block[] {
   const half = door.width / 2 - f;
+  if (door.doorType === 'opening') return [];
   if (door.doorType === 'sliding') {
     const panel = half + 2;
     const mid = (faces.inner + faces.outer) / 2;

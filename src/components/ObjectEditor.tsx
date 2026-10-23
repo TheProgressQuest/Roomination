@@ -221,10 +221,11 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
               { value: 'hinged', label: 'Hinged' },
               { value: 'double', label: 'Double' },
               { value: 'sliding', label: 'Sliding' },
+              { value: 'opening', label: 'No door' },
             ]}
             onChange={(doorType) => change({ doorType })}
           />
-          {feature.doorType !== 'sliding' && (
+          {feature.doorType !== 'sliding' && feature.doorType !== 'opening' && (
             <SegmentedControl
               label="Opens"
               value={feature.swing ?? 'in'}
@@ -250,7 +251,7 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
             {lengthField('Width', 'width')}
             {lengthField('Height', 'height')}
           </div>
-          {(feature.doorType === 'sliding' || feature.swing === 'out') && (
+          {(feature.doorType === 'sliding' || feature.doorType === 'opening' || feature.swing === 'out') && (
             <div className="field-grid two">{lengthField('Walkway to keep clear', 'clearance')}</div>
           )}
         </Section>

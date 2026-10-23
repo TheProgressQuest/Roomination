@@ -62,6 +62,8 @@ const FurnitureStudio = lazy(() => import('./components/studio/FurnitureStudio')
 const CatalogueBrowser = lazy(() => import('./catalogue/CatalogueBrowser'));
 /** And the Advanced Furniture Builder (components). */
 const FurnitureBuilder = lazy(() => import('./builder/FurnitureBuilder'));
+// The room-scan importer (and the catalogue it maps furniture to) loads only when opened.
+const ScanImportDialog = lazy(() => import('./scan/ScanImportDialog'));
 
 interface BuilderSession {
   /** The piece in the room being rebuilt, or none for a new piece. */
@@ -105,6 +107,7 @@ export function App() {
   const [addOpen, setAddOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [studio, setStudio] = useState<StudioSession | null>(null);
   const [builder, setBuilder] = useState<BuilderSession | null>(null);
@@ -942,6 +945,27 @@ export function App() {
           </LoadBoundary>
         )}
 
+        {scanOpen && (
+          <LoadBoundary title="Import a room scan" onClose={() => setScanOpen(false)}>
+            <Suspense fallback={null}>
+              <ScanImportDialog
+                open
+                units={project.units}
+                onClose={() => setScanOpen(false)}
+                onCreate={async (scanned) => {
+                  try {
+                    const name = await startProject(scanned);
+                    setScanOpen(false);
+                    dispatch({ type: 'notice/show', message: `Created “${name}” from your scan. Your other projects are unchanged.` });
+                  } catch (error) {
+                    dispatch({ type: 'notice/show', message: error instanceof StorageFullError ? error.message : 'The project couldn’t be saved. Browser storage may be blocked.' });
+                  }
+                }}
+              />
+            </Suspense>
+          </LoadBoundary>
+        )}
+
         {activeId && (
           <ProjectsDialog
             open={projectsOpen}
@@ -956,6 +980,10 @@ export function App() {
             onDuplicate={() => void startProject({ ...project, name: `${project.name} (copy)` })}
             onExport={exportProject}
             onImport={(file) => void importProject(file)}
+            onImportScan={() => {
+              setProjectsOpen(false);
+              setScanOpen(true);
+            }}
             onDelete={(id) => void removeProject(id)}
           photosInUse={() => [state.present, ...state.past, ...state.future].flatMap(projectAssetIds)}
           />

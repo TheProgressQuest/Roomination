@@ -624,7 +624,7 @@ function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => st
   };
   // Kind-specific options: keep only valid values for the right kind.
   if (kind === 'door') {
-    feature.doorType = oneOf(raw.doorType, ['hinged', 'double', 'sliding'] as const, 'hinged');
+    feature.doorType = oneOf(raw.doorType, ['hinged', 'double', 'sliding', 'opening'] as const, 'hinged');
     feature.swing = oneOf(raw.swing, ['in', 'out'] as const, 'in');
     feature.hinge = oneOf(raw.hinge, ['left', 'right'] as const, 'left');
   }

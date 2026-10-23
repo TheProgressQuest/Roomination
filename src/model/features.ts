@@ -105,7 +105,7 @@ export interface DoorLeaf {
 export function doorLeaves(door: Pick<RoomFeature, 'width' | 'doorType' | 'swing' | 'hinge'>): DoorLeaf[] {
   const half = door.width / 2;
   const open = door.swing === 'out' ? -90 : 90;
-  if (door.doorType === 'sliding') return [];
+  if (door.doorType === 'sliding' || door.doorType === 'opening') return [];
   if (door.doorType === 'double') {
     return [
       { hinge: { x: -half, y: 0 }, radius: half, closedDeg: 0, openDeg: open },

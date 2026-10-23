@@ -8,6 +8,36 @@ anywhere. There are no accounts, no analytics, no ads and no servers.
 
 ## Features
 
+### Room scan import (Phase 8A)
+Turn a room scanned with an iPhone or iPad into a plan you can edit. See
+[docs/scan-import.md](docs/scan-import.md) for the details.
+
+- **Where:** Projects → *Import room scan…*
+- **What it reads:**
+  - Apple RoomPlan JSON;
+  - a [3D Model Anything](https://github.com/wesbos/3d-model-anything) room or session .zip;
+  - or a documented `roomination-scan` file.
+- **No scan to hand?** Try one of the made-up samples in the dialog.
+- **Scanning itself** needs a LiDAR iPhone or iPad (iPhone 12 Pro or a later Pro model, iPad Pro
+  2020 or later) and an app that uses Apple's RoomPlan. Browsers can't use the LiDAR Scanner, so
+  the website can't scan.
+- **Review before anything is created:**
+  - a live preview of the plan;
+  - wall lengths with the scanner's confidence;
+  - orientation (line up with the grid, quarter turns) and ceiling height;
+  - doors, windows and doorways to keep, retype, resize or add;
+  - furniture to keep, reclassify, resize or add.
+  - Each object shows what the scanner measured separately from Roomination's guess. Measurements
+    can always be reset.
+- **Accurate:** sizes and positions are kept to 0.1 cm. Turning the plan never changes a length.
+- **Editable:**
+  - objects become catalogue pieces stretched to the measured size (or plain boxes);
+  - kitchen and bathroom fixtures stay put when you optimise;
+  - RoomPlan's open doorways become a new *No door* door style.
+- **Always a new project:** importing never overwrites or changes an existing one.
+- **Private:** the scan is read on your device. Photos, meshes, depth data and AR maps in a .zip
+  are never opened, and nothing is uploaded.
+
 ### Furniture catalogue (Phase 7)
 A catalogue of 144 ready-made pieces, so you rarely need to build anything yourself.
 
@@ -426,7 +456,11 @@ library**.
   - Crop, rotate, and straighten a photo taken at an angle by dragging its four corners.
   - Remove the background:
     - **by colour**, instantly, for plain walls and floors;
-    - with **Smart remove**, a small AI model that runs on your device;
+    - with **Room scans** are read in your browser and only their geometry is used. Photos, LiDAR meshes,
+depth recordings and AR world maps inside a scan's .zip are never opened. Nothing is uploaded,
+and the browser tests check that importing makes no outside requests.
+
+**Smart remove**, a small AI model that runs on your device;
     - **by hand**, with erase and restore brushes, then shrink, grow or soften the edges.
   - Photos can be shown on the top, front and sides of the 3D model.
 - **Tracing:** show a photo under the drawing, set its scale by marking a known length (for
@@ -531,6 +565,7 @@ configuration. GitHub Pages is free for public repositories.
 | `src/optimizer/` | The layout optimizer. Main modules: walking-space grid and walking distances (`circulation.ts`); practical checks (`practical.ts`); assumed pairings and room purpose (`semantics.ts`); Feng Shui scoring (`fengShui.ts`); scoring (`scoring.ts`); search (`search.ts`); orchestration (`optimize.ts`); explanations and before/after tables (`explain.ts`); realistic test rooms (`scenarios.ts`); the Web Worker. Pure TypeScript, reusing the model's geometry. |
 | `src/builder/` | Lazy-loaded builders: the Shape Builder (recipe maths in `recipe.ts`) and the Advanced Furniture Builder (`FurnitureBuilder.tsx`; edge bands, insets and cut seats in `componentGeometry.ts`; templates in `furniturePresets.ts`), using polygon-clipping. `model/components.ts` holds the lightweight part every view needs (nesting, overflow checks, editing helpers). |
 | `src/storage/` | IndexedDB persistence (Dexie: projects, photos, furniture library), import/export validation and migration (schema v1–v7), and ZIP packaging for projects with photos. |
+| `src/scan/` | Room-scan import (lazy-loaded): a bounded ZIP reader that opens only geometry (`zip.ts`), readers for RoomPlan JSON and `roomination-scan` files (`roomPlan.ts`, `scanFormat.ts`), the scan-to-project conversion (`convert.ts`, pure and unit-tested), catalogue matching (`furnitureMap.ts`), synthetic sample scans (`samples.ts`) and the review dialog. |
 | `src/photo/` | Photo tools (lazy-loaded): image operations (pure, unit-tested), the photo workers, on-device "Smart remove", and outline tracing. |
 | `src/components/studio/` | The furniture studio: drawing and editing custom outlines (lazy-loaded). |
 | `src/scene3d/` | The 3D view. `model.ts` turns a project into plain shapes (pure, unit-tested, in cm, using the same wall and stair geometry as the plan); `furnitureParts.ts` gives each furniture type its shape; `three/RoomViewer.ts` draws them with Three.js. |
@@ -595,6 +630,15 @@ polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only 
   - from above you only see tops, so a desk's drawers or a wardrobe's doors appear only in 3D;
   - names refine some designs ("desk chair" gets an office chair, "lamp" a floor lamp), so an
     oddly named piece may get a plainer design.
+- **Room scans:**
+  - furniture is measured as boxes in RoomPlan's 16 categories; looks are catalogue guesses;
+  - wall thickness, door swing and which end of a stair is the bottom aren't measured;
+  - one ceiling height per room, so soffits and slopes are reported, not modelled;
+  - raised objects (a TV on its unit, wall cabinets) start unticked;
+  - one room or one floor at a time;
+  - LiDAR meshes, photos and USDZ files aren't imported;
+  - tested with synthetic scans only so far.
+  See [docs/scan-import.md](docs/scan-import.md).
 - **Image export:** very large images depend on the device's graphics and memory limits; 4K is
   disabled where the browser can't allocate it. 3D export uses a preset camera, not the exact
   orbit position on screen.

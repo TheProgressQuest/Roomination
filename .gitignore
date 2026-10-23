@@ -5,3 +5,15 @@ dist
 test-results
 playwright-report
 blob-report
+
+# Private room scans: never commit real scans, photos, meshes, depth data or AR maps.
+# (Test scans are synthetic and generated in src/scan/samples.ts.)
+scans/
+private-scans/
+*.ply
+*.usdz
+*.arworldmap
+*.f16z
+*.conf
+*.heic
+**/rooms/room-*-data.json

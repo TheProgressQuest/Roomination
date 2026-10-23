@@ -389,7 +389,8 @@ export type FeatureKind =
   | 'radiator'
   | 'column';
 
-export type DoorType = 'hinged' | 'double' | 'sliding';
+/** `opening`: a doorway with no door in it (an archway or open passage). */
+export type DoorType = 'hinged' | 'double' | 'sliding' | 'opening';
 export type VentMount = 'wall' | 'floor' | 'ceiling';
 export type OutletType = 'standard' | 'usb' | 'gfci' | 'highVoltage';
 export type LightType = 'pendant' | 'flush' | 'recessed' | 'chandelier';
