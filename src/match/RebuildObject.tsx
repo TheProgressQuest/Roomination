@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { SHOWN_LOOK_LABELS, shownLook } from '../model/shownLook';
 import { mirrorImage, prepareView, smoothMask, symmetricMask, traceOutline, type Point2 } from '../model/photoModel';
 import type { Furniture, PhotoModel, Point, UnitSystem } from '../model/types';
 import { formatLength } from '../model/units';
@@ -60,8 +61,10 @@ export function RebuildObject({ piece, image, corners, units, dispatch }: Props)
       const assetId = await putAsset(blob, { width: ready.image.width, height: ready.image.height });
       const next: PhotoModel = { ...(model ?? {}), [view]: { assetId, silhouette: ready.silhouette, color: ready.color } };
       delete next.off;
-      dispatch({ type: 'furniture/update', id: piece.id, changes: { photoModel: next } });
-      setMessage(`${VIEW_LABELS[view]} view used, at the measured ${formatLength(size.widthCm, units)} × ${formatLength(size.heightCm, units)}. Undo takes it back.`);
+      // Making a rebuild shows it (a 3D scan shown instead is kept, just not shown).
+      const scanShown = !!piece.mesh && !piece.mesh.off;
+      dispatch({ type: 'furniture/update', id: piece.id, changes: { photoModel: next, ...(scanShown ? { mesh: { ...piece.mesh!, off: true } } : {}) } });
+      setMessage(`${VIEW_LABELS[view]} view used, at the measured ${formatLength(size.widthCm, units)} × ${formatLength(size.heightCm, units)}.${scanShown ? ' The 3D view now shows the photo rebuild instead of the 3D scan (Shown in 3D, under Photos & scans).' : ''} Undo takes it back.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'That view couldn’t be made.');
     } finally {
@@ -124,14 +127,13 @@ export function RebuildObject({ piece, image, corners, units, dispatch }: Props)
               </li>
             ))}
           </ul>
-          <label className="toggle">
-            <input type="checkbox" checked={!model.off} onChange={(e) => dispatch({ type: 'furniture/update', id: piece.id, changes: { photoModel: { ...model, off: e.target.checked ? undefined : true } } })} />
-            Show the rebuilt look
-          </label>
-          <p className="hint">The rebuilt look is only how it appears. Moving it, collisions and measurements still use its measured box. To use it in other rooms, save it to your library from its properties.</p>
+          <p className="hint">
+            Shown in 3D: <strong>{SHOWN_LOOK_LABELS[shownLook(piece)]}</strong>. Choose which look shows under the piece’s Photos &amp; scans.
+          </p>
+          <p className="hint">The photo rebuild is only how it appears. Moving it, collisions and measurements still use its measured box. To use it in other rooms, save it to your library from its properties.</p>
           <div className="button-row">
             <button type="button" className="secondary" onClick={() => dispatch({ type: 'furniture/update', id: piece.id, changes: { photoModel: undefined } })}>
-              Remove the rebuilt look
+              Remove photo rebuild
             </button>
           </div>
         </div>

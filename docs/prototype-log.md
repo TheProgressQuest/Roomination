@@ -8,6 +8,7 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| Photos & scans, Create furniture | Real iPhone and Safari: the two choosers, the *Shown in 3D* selector's disabled choices (VoiceOver reads them as dimmed), and *Photos for <piece>* in the stacked phone layout | UX |
 | Real-object test | The radio test in [real-object-test.md](real-object-test.md) on a real iPhone: import time, memory peak, frame rate, budget fallback, persistence and transfer. Prepared, not yet run | M8 |
 | Real-object test | iPhone file picker: whether .glb files are selectable with the importer's file-type filter (iOS may not know the GLB type and grey it out) | M8 |
 | 3D model import | A real phone scan end to end (Reality Composer USDZ, Scaniverse GLB): only CC0 models (Poly Haven) and synthetic files were tested; the USDZ was packaged from Poly Haven's USD files | M7 |
@@ -181,10 +182,10 @@ dark, normal and large text. Layout bugs were fixed (see git log); these need a 
 | Issue | Notes |
 | --- | --- |
 | ~~Optimize appears three times~~ | Done: the Optimize tab is its only entry point (the header and bottom-bar buttons are gone). Tests open it via the tab |
-| **Four ways to give a piece a photo or scan look** | Approved in principle; mock-ups shown (a *Photos & scans* section per piece with three actions and a *Shown in 3D* choice, plus *From photos or a 3D scan…* for new pieces). Awaiting approval before building |
-| **Three ways to build custom furniture** | Approved in principle; mock-ups shown (one *Create furniture…* chooser: Draw its outline / Combine shapes / Build from parts, last-used preselected; editing stays direct). Awaiting approval |
+| ~~Four ways to give a piece a photo or scan look~~ | Done: each piece has one *Photos & scans* section (Apply photos to surfaces / Rebuild shape from photos / Import a 3D scan) and one *Shown in 3D* choice (Standard model / Photo rebuild / 3D scan; looks it doesn't have are disabled with a reason). It uses the existing on/off flags, so saved projects, Undo, My Library and exports are unchanged and older projects read the same. New pieces: Furnish → *From photos or a 3D scan…*. Match my room keeps the room tools; for a piece it opens as *Photos for <piece>* |
+| ~~Three ways to build custom furniture~~ | Done: one *Create furniture…* chooser (Draw its outline / Combine shapes / Build from parts), the last-used method preselected (remembered in this browser only). Editing a piece still opens its tool directly. Saved formats unchanged |
 | ~~Plan style twice~~ | Done: only under Design → *Presentation plan* (saved preference unchanged). The toolbar keeps the quick *Editing aids* switch while Presentation is on |
-| **Edits hidden by a model** | Fixed with a note: on pieces showing a 3D model or rebuilt look, edits to the ordinary look don't show until it's switched off. A bigger fix would hide or merge those controls |
+| **Edits hidden by a model** | Improved: the note now points to *Shown in 3D → Standard model*. A bigger fix would hide or merge those controls |
 | **Match my room on phones** | Stacks below the 3D view; selecting an object to rebuild means leaving the panel |
 | **Phone 3D view** | Improved: the camera choice stays; walls, shadows, ceiling, quality and Match my room fold behind *Options*; the scene fills the screen height (it starts ~160px higher); zoom/fit and the tip moved to the top, clear of the bottom bar. Still open: a full bottom sheet for properties (today: the bottom bar's *Edit* opens a modal), and the two-row phone header |
 

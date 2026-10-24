@@ -11,6 +11,7 @@ import type { RGBAImage } from '../photo/imageOps';
 import type { EditorAction } from '../state/editor';
 import { getAsset, putAsset } from '../storage/assets';
 import { CameraMatch } from './CameraMatch';
+import type { PieceTool } from '../components/studio/studioContext';
 import { RebuildObject } from './RebuildObject';
 import { NO_CORRECTION, correctImage, cutTexture, sampleColour, suggestPalette, whiteBalanceFrom, type PhotoCorrection, type TextureCut } from './photoTools';
 import type { CameraApi, PhotoOverlay } from '../components/view3d/View3D';
@@ -32,7 +33,13 @@ interface Props {
   /** The 3D view's camera, for lining it up with a photo (null until the 3D view is ready). */
   camera: CameraApi | null;
   onOverlay: (overlay: PhotoOverlay | null) => void;
+  /** The room (colours, walls, floor, camera, comparing), or one piece's photo tools. */
+  focus: MatchFocus;
+  onFocus: (focus: MatchFocus) => void;
 }
+
+/** What the panel works on: the room, or the selected piece (from its Photos & scans). */
+export type MatchFocus = 'room' | PieceTool;
 
 type Mode = 'correct' | 'colour' | 'texture' | 'rebuild' | 'camera';
 type Target = { kind: 'piece' } | { kind: 'part'; name: string } | { kind: 'walls' } | { kind: 'wall'; id: string } | { kind: 'floor' };
@@ -65,14 +72,16 @@ async function loadPhoto(assetId: string): Promise<RGBAImage | null> {
   return { width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
 }
 
-export default function MatchMyRoom({ project, selectedId, dispatch, onClose, camera, onOverlay }: Props) {
+export default function MatchMyRoom({ project, selectedId, dispatch, onClose, camera, onOverlay, focus, onFocus }: Props) {
   const photos = project.referencePhotos ?? [];
   const units = project.units;
   const unit = inputUnitLabel(units);
   const piece = project.furniture.find((f) => f.id === selectedId) ?? null;
+  /** Working on one piece (opened from its Photos & scans, and it's still selected). */
+  const forPiece = focus !== 'room' && piece !== null;
   const [active, setActive] = useState<string | null>(photos[0]?.assetId ?? null);
   const [image, setImage] = useState<RGBAImage | null>(null);
-  const [mode, setMode] = useState<Mode>('colour');
+  const [mode, setMode] = useState<Mode>(focus === 'rebuild' ? 'rebuild' : focus === 'surfaces' ? 'texture' : 'colour');
   const [colour, setColour] = useState<string | null>(null);
   /** Where the last colour was sampled, to compare the photo as taken with the corrected one. */
   const [samplePoint, setSamplePoint] = useState<Point | null>(null);
@@ -82,18 +91,28 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   const [brightness, setBrightness] = useState(1.15);
   const [roughness, setRoughness] = useState(0.6);
   const [seamless, setSeamless] = useState(true);
-  const [target, setTarget] = useState<Target>(piece ? { kind: 'piece' } : { kind: 'walls' });
+  const [target, setTarget] = useState<Target>(forPiece ? { kind: 'piece' } : { kind: 'walls' });
   const [surface, setSurface] = useState<Surface>('front');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const targetId = useId();
 
-  // Follow the selection: picking a piece in the 3D view makes it the target.
+  // The room's tools target the room; a piece's tools target that piece (and follow the
+  // selection to another piece). The rebuild tool exists only for a piece.
+  const panelRef = useRef<HTMLElement>(null);
+  // Opening a piece's tool picks it; back on the room, the piece-only tools give way.
   useEffect(() => {
-    if (piece) setTarget({ kind: 'piece' });
+    if (focus === 'rebuild') setMode('rebuild');
+    else if (focus === 'surfaces') setMode('texture');
+    else setMode((m) => (m === 'rebuild' ? 'colour' : m));
+    // On phones the panel sits under the 3D view: bring it into sight.
+    if (focus !== 'room') panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [focus]);
+  useEffect(() => {
+    if (forPiece) setTarget((t) => (t.kind === 'part' && piece?.components?.some((c) => c.name === t.name) ? t : { kind: 'piece' }));
     else setTarget((t) => (t.kind === 'piece' || t.kind === 'part' ? { kind: 'walls' } : t));
-  }, [piece?.id]);
+  }, [forPiece, piece?.id]);
 
   useEffect(() => {
     if (!active && photos[0]) setActive(photos[0].assetId);
@@ -192,13 +211,31 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   }
 
   const walls = wallSegments(project.room);
-  const targets: { value: string; label: string; target: Target }[] = [
-    ...(piece ? [{ value: 'piece', label: `Selected: ${piece.name} (whole piece)`, target: { kind: 'piece' } as Target }] : []),
-    ...partNames(piece).map(({ name, count }) => ({ value: `part:${name}`, label: `   Part: ${name}${count > 1 ? ` (${count})` : ''}`, target: { kind: 'part', name } as Target })),
-    { value: 'walls', label: 'All walls', target: { kind: 'walls' } },
-    ...walls.map((w) => ({ value: `wall:${w.id}`, label: wallLabel(project.room, w.id), target: { kind: 'wall', id: w.id } as Target })),
-    { value: 'floor', label: 'Floor', target: { kind: 'floor' } },
-  ];
+  // A piece's tools apply to it (whole, or one of its parts); the room's to its walls and floor.
+  const targets: { value: string; label: string; target: Target }[] = forPiece
+    ? [
+        { value: 'piece', label: `${piece!.name} (whole piece)`, target: { kind: 'piece' } as Target },
+        ...partNames(piece).map(({ name, count }) => ({ value: `part:${name}`, label: `   Part: ${name}${count > 1 ? ` (${count})` : ''}`, target: { kind: 'part', name } as Target })),
+      ]
+    : [
+        { value: 'walls', label: 'All walls', target: { kind: 'walls' } },
+        ...walls.map((w) => ({ value: `wall:${w.id}`, label: wallLabel(project.room, w.id), target: { kind: 'wall', id: w.id } as Target })),
+        { value: 'floor', label: 'Floor', target: { kind: 'floor' } },
+      ];
+  const title = forPiece ? `Photos for ${piece!.name}` : 'Match my room';
+  const tools: { value: Mode; label: string }[] = forPiece
+    ? [
+        { value: 'correct', label: 'Correct colours' },
+        { value: 'colour', label: 'Pick colour' },
+        { value: 'texture', label: 'Apply photos' },
+        { value: 'rebuild', label: 'Rebuild shape' },
+      ]
+    : [
+        { value: 'correct', label: 'Correct colours' },
+        { value: 'colour', label: 'Pick colour' },
+        { value: 'texture', label: 'Cut texture' },
+        { value: 'camera', label: 'Line up camera' },
+      ];
   const hasTexture =
     (target.kind === 'piece' && !!piece?.appearance?.textures?.[surface]) ||
     (target.kind === 'part' && !!piece?.components?.some((c) => c.name === target.name && c.texture)) ||
@@ -207,15 +244,33 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
     (target.kind === 'floor' && !!project.room.floor.photo);
 
   return (
-    <aside className="match-panel" aria-label="Match my room">
+    <aside className="match-panel" aria-label={title} ref={panelRef}>
       <div className="match-head">
         <h2>
-          Match my room <span className="beta-badge">Beta</span>
+          {title} <span className="beta-badge">Beta</span>
         </h2>
-        <button type="button" className="icon-button small" aria-label="Close Match my room" onClick={onClose}>
+        <button type="button" className="icon-button small" aria-label={`Close ${title}`} onClick={onClose}>
           <Icon name="close" size={16} />
         </button>
       </div>
+      {forPiece ? (
+        <p className="hint match-focus">
+          Photos &amp; scans for this piece: apply photos to its surfaces, or rebuild its shape.{' '}
+          <button type="button" className="link-button" onClick={() => onFocus('room')}>
+            Work on the room instead
+          </button>
+        </p>
+      ) : (
+        piece && (
+          <p className="hint match-focus">
+            To use these photos on <strong>{piece.name}</strong>:{' '}
+            <button type="button" className="link-button" onClick={() => onFocus('surfaces')}>
+              Photos for {piece.name}
+            </button>
+          </p>
+        )
+      )}
+      {focus !== 'room' && !piece && <p className="hint match-focus">Select a piece (in the plan or the 3D view) to use its photo tools.</p>}
 
       <div className="match-photos" role="list" aria-label="Photos of the room">
         {photos.map((p) => (
@@ -243,13 +298,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
           <SegmentedControl
             label="Tool"
             value={mode}
-            options={[
-              { value: 'correct', label: 'Correct colours' },
-              { value: 'colour', label: 'Pick colour' },
-              { value: 'texture', label: 'Cut texture' },
-              { value: 'rebuild', label: 'Rebuild object' },
-              { value: 'camera', label: 'Line up camera' },
-            ]}
+            options={tools}
             onChange={setMode}
           />
           {mode === 'camera' ? (

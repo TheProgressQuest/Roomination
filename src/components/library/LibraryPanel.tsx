@@ -9,38 +9,30 @@ import { Icon } from '../Icon';
 import { useOpenStudio } from '../studio/studioContext';
 import { useAssetImage } from '../useAssetImage';
 import { libraryChanged, useLibrary } from './useLibrary';
+import { CreateFurnitureDialog, PhotosOrScanDialog } from './StartChoosers';
 
 /**
- * Custom furniture: draw a new piece, start from photos, or reuse a piece from the
- * library (saved on this device and shared by every project).
+ * Custom furniture: create a new piece (draw its outline, combine shapes, build from parts),
+ * start one from photos or a 3D scan, or reuse a piece from the library (saved on this device
+ * and shared by every project).
  */
 export function CustomFurniturePanel({ units, onPlace }: { units: UnitSystem; onPlace: (template: FurnitureTemplate) => void }) {
-  const openStudio = useOpenStudio();
   const { items, loading, error } = useLibrary();
+  const [chooser, setChooser] = useState<'create' | 'photos' | null>(null);
   return (
     <div className="custom-furniture">
-      <div className="preset-grid">
-        <button type="button" className="preset" onClick={() => openStudio({ mode: 'new' })}>
+      <div className="start-buttons">
+        <button type="button" className="preset" onClick={() => setChooser('create')}>
           <Icon name="drawRoom" size={16} />
-          <span className="preset-label">Draw custom furniture</span>
+          <span className="preset-label">Create furniture…</span>
         </button>
-        <button type="button" className="preset" onClick={() => openStudio({ mode: 'builder' })}>
-          <Icon name="shapes" size={16} />
-          <span className="preset-label">Shape Builder</span>
-        </button>
-        <button type="button" className="preset" onClick={() => openStudio({ mode: 'photos' })}>
+        <button type="button" className="preset" onClick={() => setChooser('photos')}>
           <Icon name="upload" size={16} />
-          <span className="preset-label">Create from photos</span>
-        </button>
-        <button type="button" className="preset" onClick={() => openStudio({ mode: 'components' })}>
-          <Icon name="cube" size={16} />
-          <span className="preset-label">Build from components</span>
-        </button>
-        <button type="button" className="preset" onClick={() => openStudio({ mode: 'model' })}>
-          <Icon name="upload" size={16} />
-          <span className="preset-label">Import 3D model (GLB, USDZ)</span>
+          <span className="preset-label">From photos or a 3D scan…</span>
         </button>
       </div>
+      {chooser === 'create' && <CreateFurnitureDialog onClose={() => setChooser(null)} />}
+      {chooser === 'photos' && <PhotosOrScanDialog onClose={() => setChooser(null)} />}
       <h3 className="list-heading">My furniture library</h3>
       {error && <p className="form-error">{error}</p>}
       {!loading && items.length === 0 && !error && <p className="hint">Pieces you save to the library appear here, ready for any project on this device.</p>}

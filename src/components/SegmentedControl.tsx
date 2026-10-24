@@ -3,7 +3,8 @@ import { useId } from 'react';
 interface SegmentedControlProps<T extends string> {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  /** `disabled` options are shown (so it's clear they exist) but can't be chosen; `hint` says why. */
+  options: { value: T; label: string; disabled?: boolean; hint?: string }[];
   onChange: (value: T) => void;
   /** Hide the visible label (it is still announced to screen readers). */
   hideLabel?: boolean;
@@ -24,8 +25,10 @@ export function SegmentedControl<T extends string>({ label, value, options, onCh
             type="button"
             role="radio"
             aria-checked={value === option.value}
+            aria-disabled={option.disabled || undefined}
+            title={option.hint}
             className={value === option.value ? 'is-active' : ''}
-            onClick={() => onChange(option.value)}
+            onClick={() => !option.disabled && onChange(option.value)}
           >
             {option.label}
           </button>

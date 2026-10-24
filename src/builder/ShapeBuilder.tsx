@@ -325,7 +325,7 @@ export default function ShapeBuilder({ shape, units, color, onDone, onCancel }: 
   return (
     <Dialog
       open
-      title="Shape Builder"
+      title="Combine shapes"
       onClose={onCancel}
       className="studio-dialog builder-dialog"
       footer={
@@ -377,7 +377,7 @@ export default function ShapeBuilder({ shape, units, color, onDone, onCancel }: 
               preserveAspectRatio="xMidYMid meet"
               tabIndex={0}
               role="application"
-              aria-label="Shape Builder drawing. With shapes chosen, arrow keys move them, [ and ] turn them, Delete removes them."
+              aria-label="Combine shapes drawing. With shapes chosen, arrow keys move them, [ and ] turn them, Delete removes them."
               onPointerDown={() => setSelected([])}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}

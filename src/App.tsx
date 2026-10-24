@@ -71,6 +71,7 @@ const ScanImportDialog = lazy(() => import('./scan/ScanImportDialog'));
 const ImportModelDialog = lazy(() => import('./mesh/ImportModelDialog'));
 // Match My Room (photos beside the 3D view) loads only when opened.
 const MatchMyRoom = lazy(() => import('./match/MatchMyRoom'));
+import type { MatchFocus } from './match/MatchMyRoom';
 
 interface BuilderSession {
   /** The piece in the room being rebuilt, or none for a new piece. */
@@ -118,6 +119,8 @@ export function App() {
   /** Import 3D model: open (for a new piece, or for the look of one in the room). */
   const [modelImport, setModelImport] = useState<{ furnitureId?: string } | null>(null);
   const [matchOpen, setMatchOpen] = useState(false);
+  /** What Match my room works on: the room, or one piece (its Photos & scans tools). */
+  const [matchFocus, setMatchFocus] = useState<MatchFocus>('room');
   const [cameraApi, setCameraApi] = useState<CameraApi | null>(null);
   const [overlay, setOverlay] = useState<PhotoOverlay | null>(null);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
@@ -364,6 +367,18 @@ export function App() {
 
   const openStudio = useCallback(
     async (request: StudioRequest) => {
+      if (request.mode === 'pieceAppearance') {
+        // A piece's photo tools work beside its photos in the 3D view.
+        if (!project.furniture.some((f) => f.id === request.furnitureId)) return;
+        setAddOpen(false);
+        setEditorOpen(false);
+        setSelection({ kind: 'object', id: request.furnitureId });
+        if (mode !== 'select') cancelDrawing();
+        setView('3d');
+        setMatchFocus(request.tool);
+        setMatchOpen(true);
+        return;
+      }
       if (request.mode === 'model') {
         setAddOpen(false);
         setEditorOpen(false);
@@ -392,7 +407,8 @@ export function App() {
       setEditorOpen(false);
       setStudio({ request, initial });
     },
-    [project.furniture],
+    // `mode`: opening a piece's photo tools ends any drawing in progress first.
+    [project.furniture, mode],
   );
 
   /**
@@ -822,14 +838,17 @@ export function App() {
                       onSelect={(id) => setSelection(id ? { kind: 'object', id } : null)}
                       onExit={() => setView('2d')}
                       matchOpen={matchOpen}
-                      onToggleMatch={() => setMatchOpen((open) => !open)}
+                      onToggleMatch={() => {
+                        setMatchFocus('room');
+                        setMatchOpen((open) => !open);
+                      }}
                       overlay={matchOpen ? overlay : null}
                       onCameraApi={setCameraApi}
                       sidePanel={
                         matchOpen ? (
                           <LoadBoundary title="Match my room" onClose={() => setMatchOpen(false)}>
                             <Suspense fallback={<aside className="match-panel" aria-busy="true" />}>
-                              <MatchMyRoom project={project} selectedId={selectedId} dispatch={dispatch} onClose={() => setMatchOpen(false)} camera={cameraApi} onOverlay={setOverlay} />
+                              <MatchMyRoom project={project} selectedId={selectedId} focus={matchFocus} onFocus={setMatchFocus} dispatch={dispatch} onClose={() => setMatchOpen(false)} camera={cameraApi} onOverlay={setOverlay} />
                             </Suspense>
                           </LoadBoundary>
                         ) : null
@@ -964,10 +983,10 @@ export function App() {
         )}
 
         {builder && (
-          <LoadBoundary title="Advanced Furniture Builder" onClose={() => setBuilder(null)}>
+          <LoadBoundary title="Build from parts" onClose={() => setBuilder(null)}>
             <Suspense fallback={null}>
               <FurnitureBuilder
-                title={builder.furnitureId ? `Components of ${builder.initial.name}` : 'Advanced Furniture Builder'}
+                title={builder.furnitureId ? `Parts of ${builder.initial.name}` : 'Create furniture: build from parts'}
                 initial={builder.initial}
                 units={project.units}
                 touch={isTouch}
@@ -1181,19 +1200,21 @@ function newFurnitureTemplate(template?: ShapeTemplate): FurnitureTemplate {
 function studioTitle({ request, initial }: StudioSession): string {
   switch (request.mode) {
     case 'new':
-      return 'Draw custom furniture';
+      return 'Create furniture: draw its outline';
     case 'photos':
       return 'Create furniture from photos';
     case 'builder':
-      return 'Build furniture from shapes';
+      return 'Create furniture: combine shapes';
     case 'edit':
       return `Edit ${initial.name}`;
     case 'library':
       return `Edit ${initial.name} (library)`;
     case 'components':
-      return `Components of ${initial.name}`;
+      return `Parts of ${initial.name}`;
     case 'model':
       return 'Import a 3D model';
+    case 'pieceAppearance':
+      return 'Photos & scans';
   }
 }
 

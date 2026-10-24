@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type {} from '../src/scene3d/diagnostics';
-import { exportProject, lightweight3D, mapper, openApp, props, saveAndReload, selectInList, setPlanStyle, toolsTab, tools } from './helpers';
+import { createFurniture, exportProject, lightweight3D, mapper, openApp, props, saveAndReload, selectInList, setPlanStyle, toolsTab, tools } from './helpers';
 
 /**
  * The Advanced Furniture Builder: pieces built from components (base, backrests, arms,
@@ -8,11 +8,11 @@ import { exportProject, lightweight3D, mapper, openApp, props, saveAndReload, se
  * the piece looks in the presentation plan and in 3D.
  */
 
-const builder = (page: Page) => page.getByRole('dialog', { name: /Advanced Furniture Builder|Components of/ });
+const builder = (page: Page) => page.getByRole('dialog', { name: /Create furniture: build from parts|Parts of/ });
 
 async function openNewBuilder(page: Page) {
   await toolsTab(page, 'Furnish');
-  await tools(page).getByRole('button', { name: 'Build from components' }).click();
+  await createFurniture(page, tools(page), 'Build from parts');
   await expect(builder(page)).toBeVisible();
 }
 
@@ -81,7 +81,7 @@ test('builds an angled-back loveseat from a template; it saves, undoes and reloa
 test('builds a template onto an existing piece’s own footprint, and edits components precisely', async ({ page }) => {
   const errors = await openApp(page);
   await selectInList(page, 'Sofa');
-  await props(page).getByRole('button', { name: 'Build from components' }).click();
+  await props(page).getByRole('button', { name: 'Build from parts' }).click();
   const dialog = builder(page);
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel(/Use this piece’s footprint and height/)).toBeChecked();
@@ -183,7 +183,7 @@ for (const [width, height] of [
     test('fits the screen, switches views, and keeps Save reachable', async ({ page }) => {
       const errors = await openApp(page);
       await page.getByRole('button', { name: 'Add', exact: true }).click();
-      await page.getByRole('dialog', { name: 'Add to the room' }).getByRole('button', { name: 'Build from components' }).click();
+      await createFurniture(page, page.getByRole('dialog', { name: 'Add to the room' }), 'Build from parts');
       const dialog = builder(page);
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: /^Loveseat/ }).click();

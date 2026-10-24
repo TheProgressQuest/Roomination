@@ -422,7 +422,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
             </button>
             <TemplatePicker onPick={useTemplate} onDraw={startDrawing} />
             <button type="button" className="secondary small" onClick={() => setBuilderOpen(true)} title="Combine rectangles, circles, curves and more into one shape">
-              <Icon name="shapes" size={16} /> Shape Builder
+              <Icon name="shapes" size={16} /> Combine shapes
             </button>
             {!draft.closed && (
               <button type="button" className="primary small" onClick={closeOutline} disabled={draft.points.length < 3}>
@@ -628,7 +628,7 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
       </div>
 
       {builderOpen && (
-        <Suspense fallback={<p className="hint">Loading the Shape Builder…</p>}>
+        <Suspense fallback={<p className="hint">Loading Combine shapes…</p>}>
           <ShapeBuilder
             shape={draft.closed && draft.points.length >= 3 ? draftShape(draft) : null}
             units={units}
@@ -641,8 +641,8 @@ export default function FurnitureStudio(props: FurnitureStudioProps) {
               setCanvasKey((k) => k + 1);
               setMessage(
                 shape.holes?.length || shape.islands?.length
-                  ? 'Shape made in the Shape Builder. Its holes and separate parts are kept; reopen the builder to change them.'
-                  : 'Shape made in the Shape Builder. Reopen the builder to change its parts, or fine-tune the outline here.',
+                  ? 'Shape made with Combine shapes. Its holes and separate parts are kept; reopen Combine shapes to change them.'
+                  : 'Shape made with Combine shapes. Reopen it to change its parts, or fine-tune the outline here.',
               );
             }}
           />

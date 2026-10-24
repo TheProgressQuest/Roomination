@@ -10,6 +10,7 @@ import { LockToggle, PlanningFields } from './FurniturePlanning';
 import { Icon } from './Icon';
 import { libraryChanged } from './library/useLibrary';
 import { useOpenStudio } from './studio/studioContext';
+import { availableLooks, SHOWN_LOOK_LABELS, shownLook, withShownLook } from '../model/shownLook';
 import { furnitureOrigin, ORIGIN_LABELS, saveToLibrary, toTemplate } from '../storage/library';
 import { NumberField } from './NumberField';
 import { ScanDetails } from './ScanDetails';
@@ -86,7 +87,7 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
       {item.light && <LightSection light={item.light} onChange={(light, live) => change({ light }, live ? `light:${item.id}` : undefined)} />}
 
       <RestsOnSection project={project} item={item} onChange={(changes) => change(changes)} />
-      <ScanModelSection item={item} units={units} onChange={(changes) => change(changes)} />
+      <PhotosAndScans item={item} units={units} onChange={(changes) => change(changes)} />
 
       <Section title="Height above floor" hint="For mirrors, wall cabinets, wall lights and shelves. Raised pieces are drawn dashed on the plan and only collide with things at the same height.">
         <div className="field-grid two">
@@ -148,9 +149,9 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
  * ordinary look (shape, components, model, colour) don't show until it's switched off.
  */
 export function hiddenLookNote(item: Pick<Furniture, 'mesh' | 'photoModel'>): string | null {
-  if (item.mesh && !item.mesh.off) return 'Its 3D model is shown instead of this look: changes here appear when you switch off “Show the 3D model” (under 3D model).';
-  if (item.photoModel && !item.photoModel.off) return 'Its rebuilt look (from photos) is shown instead: changes here appear when you switch off “Show the rebuilt look” in Match my room → Rebuild object.';
-  return null;
+  const shown = shownLook(item);
+  if (shown === 'standard') return null;
+  return `The 3D view shows its ${shown === 'scan' ? '3D scan' : 'photo rebuild'}: changes here appear when “Shown in 3D” (under Photos & scans) is set to Standard model.`;
 }
 
 function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<EditorAction> }) {
@@ -164,9 +165,9 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
           ? `Built from ${item.components.length} components (how it looks in 2D and 3D). Collisions and the optimizer use its ${item.shape ? 'drawn outline' : 'width × depth'}.`
           : item.shape
             ? item.shape.source
-              ? 'Built from shapes: reopen the Shape Builder to change its parts. Collisions and 3D use its exact shape.'
+              ? 'Built from shapes: reopen Combine shapes to change its parts. Collisions and 3D use its exact shape.'
               : 'Drawn outline: collisions and the 3D view use its exact shape.'
-            : 'A plain rectangle. Draw a custom outline, build one from shapes or components, add a material or use photos.'
+            : 'A plain rectangle. Draw its outline, combine shapes or build it from parts, add a material, or use Photos & scans below.'
       }
     >
       <p className="object-meta">
@@ -179,10 +180,10 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
           <Icon name="edit" size={14} /> Edit shape & look
         </button>
         <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'edit', furnitureId: item.id, builder: true })}>
-          <Icon name="shapes" size={14} /> Shape Builder
+          <Icon name="shapes" size={14} /> Combine shapes
         </button>
         <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'components', furnitureId: item.id })}>
-          <Icon name="cube" size={14} /> {item.components?.length ? 'Edit components' : 'Build from components'}
+          <Icon name="cube" size={14} /> {item.components?.length ? 'Edit parts' : 'Build from parts'}
         </button>
         <button
           type="button"
@@ -216,53 +217,90 @@ export function resized(item: Pick<Furniture, 'width' | 'depth' | 'height' | 'me
   return { width: r(item.width), depth: r(item.depth), height: r(item.height), [key]: cm };
 }
 
-/** An imported 3D model: what it is, proportions, show or hide, and replacing or removing it. */
-function ScanModelSection({ item, units, onChange }: { item: Furniture; units: UnitSystem; onChange: (changes: Partial<Furniture>) => void }) {
+/**
+ * Photos & scans: every per-piece appearance tool in one place. "Shown in 3D" picks which look
+ * the 3D view draws (only looks the piece has can be chosen); the three actions open the tool
+ * for this piece. Nothing here changes the piece's measurements.
+ */
+function PhotosAndScans({ item, units, onChange }: { item: Furniture; units: UnitSystem; onChange: (changes: Partial<Furniture>) => void }) {
   const openStudio = useOpenStudio();
+  const available = availableLooks(item);
+  const shown = shownLook(item);
   const mesh = item.mesh;
-  if (!mesh)
-    return (
-      <Section title="3D model">
-        <p className="hint">Use a real 3D model (a GLB or USDZ from a scanning app) as this piece’s look. Its measurements stay as they are.</p>
-        <div className="button-row">
-          <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'model', furnitureId: item.id })} disabled={item.locked}>
-            <Icon name="upload" size={14} /> Use a 3D model…
-          </button>
-        </div>
-      </Section>
-    );
-  const n = mesh.natural;
+  const views = (['front', 'side', 'top'] as const).filter((v) => item.photoModel?.[v]);
+  const faces = Object.keys(item.appearance?.textures ?? {});
+  const parts = new Set((item.components ?? []).filter((c) => c.texture).map((c) => c.name)).size;
+  const surfaces = [faces.length ? `on its ${faces.join(', ')}` : '', parts ? `on ${parts} part${parts === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+  const unavailable = [!available.rebuild && 'Photo rebuild: not made yet (use Rebuild shape from photos).', !available.scan && '3D scan: none yet (use Import a 3D scan).'].filter(Boolean).join(' ');
   return (
-    <Section title="3D model">
-      <p className="hint">
-        {mesh.source ?? 'Imported model'} · {mesh.triangles.toLocaleString('en')} triangles · as modelled {formatLength(n.width, units)} × {formatLength(n.depth, units)} × {formatLength(n.height, units)}. It’s drawn to fill this piece’s size; placement and collisions use the size.
-      </p>
-      <label className="toggle">
-        <input type="checkbox" checked={!mesh.off} onChange={(e) => onChange({ mesh: { ...mesh, off: e.target.checked ? undefined : true } })} />
-        Show the 3D model
-      </label>
-      <label className="toggle">
-        <input type="checkbox" checked={mesh.lockAspect !== false} onChange={(e) => onChange({ mesh: { ...mesh, lockAspect: e.target.checked ? undefined : false } })} />
-        Keep its proportions when resizing
-      </label>
-      <div className="button-row">
-        <button type="button" className="secondary small" disabled={item.locked} onClick={() => onChange({ mesh: { ...mesh, turn: { ...mesh.turn, y: (mesh.turn.y + 90) % 360 } }, width: item.depth, depth: item.width })}>
-          Turn model 90°
+    <Section title="Photos & scans">
+      <SegmentedControl
+        label="Shown in 3D"
+        value={shown}
+        options={(['standard', 'rebuild', 'scan'] as const).map((look) => ({
+          value: look,
+          label: SHOWN_LOOK_LABELS[look],
+          disabled: !available[look] || item.locked,
+          hint: !available[look] ? (look === 'rebuild' ? 'Not made yet: use Rebuild shape from photos' : 'None yet: use Import a 3D scan') : undefined,
+        }))}
+        onChange={(look) => onChange(withShownLook(item, look))}
+      />
+      {unavailable && <p className="hint">{unavailable} Switching never deletes a look.</p>}
+      <div className="appearance-actions">
+        <button type="button" className="action-card" disabled={item.locked} onClick={() => openStudio({ mode: 'pieceAppearance', furnitureId: item.id, tool: 'surfaces' })}>
+          <strong>Apply photos to surfaces</strong>
+          <span>Use photographs as textures on the existing geometry.</span>
+          {surfaces && <span className="action-status">Photos {surfaces}</span>}
         </button>
-        <button type="button" className="secondary small" disabled={item.locked} onClick={() => {
-          // Back to the model's own proportions, at this height.
-          const scale = item.height / n.height;
-          onChange({ width: Math.round(n.width * scale * 10) / 10, depth: Math.round(n.depth * scale * 10) / 10 });
-        }}>
-          Restore proportions
+        <button type="button" className="action-card" disabled={item.locked} onClick={() => openStudio({ mode: 'pieceAppearance', furnitureId: item.id, tool: 'rebuild' })}>
+          <strong>Rebuild shape from photos</strong>
+          <span>Approximate its geometry from photographed outlines.</span>
+          {views.length > 0 && <span className="action-status">Made from its {views.join(', ')} view{views.length === 1 ? '' : 's'}</span>}
         </button>
-        <button type="button" className="secondary small" disabled={item.locked} onClick={() => openStudio({ mode: 'model', furnitureId: item.id })}>
-          Replace…
-        </button>
-        <button type="button" className="link-button" disabled={item.locked} onClick={() => onChange({ mesh: undefined })}>
-          Remove model
+        <button type="button" className="action-card" disabled={item.locked} onClick={() => openStudio({ mode: 'model', furnitureId: item.id })}>
+          <strong>{mesh ? 'Replace the 3D scan' : 'Import a 3D scan'}</strong>
+          <span>Use a detailed textured 3D mesh from a scanning app (GLB or USDZ).</span>
+          {mesh && <span className="action-status">{mesh.source ?? 'Imported scan'} · {mesh.triangles.toLocaleString('en')} triangles</span>}
         </button>
       </div>
+      {mesh && (
+        <>
+          <p className="hint">
+            The scan as modelled: {formatLength(mesh.natural.width, units)} × {formatLength(mesh.natural.depth, units)} × {formatLength(mesh.natural.height, units)}. It’s drawn to fill this piece’s size; placement and collisions use the size.
+          </p>
+          <label className="toggle">
+            <input type="checkbox" checked={mesh.lockAspect !== false} onChange={(e) => onChange({ mesh: { ...mesh, lockAspect: e.target.checked ? undefined : false } })} disabled={item.locked} />
+            Keep the scan’s proportions when resizing
+          </label>
+          <div className="button-row">
+            <button type="button" className="secondary small" disabled={item.locked} onClick={() => onChange({ mesh: { ...mesh, turn: { ...mesh.turn, y: (mesh.turn.y + 90) % 360 } }, width: item.depth, depth: item.width })}>
+              Turn scan 90°
+            </button>
+            <button
+              type="button"
+              className="secondary small"
+              disabled={item.locked}
+              onClick={() => {
+                // Back to the scan's own proportions, at this height.
+                const scale = item.height / mesh.natural.height;
+                onChange({ width: Math.round(mesh.natural.width * scale * 10) / 10, depth: Math.round(mesh.natural.depth * scale * 10) / 10 });
+              }}
+            >
+              Restore proportions
+            </button>
+            <button type="button" className="link-button" disabled={item.locked} onClick={() => onChange({ mesh: undefined })}>
+              Remove scan
+            </button>
+          </div>
+        </>
+      )}
+      {item.photoModel && (
+        <div className="button-row">
+          <button type="button" className="link-button" disabled={item.locked} onClick={() => onChange({ photoModel: undefined })}>
+            Remove photo rebuild
+          </button>
+        </div>
+      )}
     </Section>
   );
 }

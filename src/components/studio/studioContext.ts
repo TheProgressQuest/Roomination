@@ -16,7 +16,12 @@ export type StudioRequest =
   /** Build a piece from components (Advanced Furniture Builder); a new one, or one in the room. */
   | { mode: 'components'; furnitureId?: string }
   /** Import a real 3D model (GLB, glTF, USDZ): as a new piece, or as the look of one in the room. */
-  | { mode: 'model'; furnitureId?: string };
+  | { mode: 'model'; furnitureId?: string }
+  /** A piece's Photos & scans: apply photos to its surfaces, or rebuild its shape from photos. */
+  | { mode: 'pieceAppearance'; furnitureId: string; tool: PieceTool };
+
+/** The photo tools for one piece (they open in the 3D view, beside its photos). */
+export type PieceTool = 'surfaces' | 'rebuild';
 
 export const StudioContext = createContext<(request: StudioRequest) => void>(() => {});
 

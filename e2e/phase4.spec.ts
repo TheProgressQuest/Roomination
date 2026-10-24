@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { exportProject, mapper, openApp, openOptimizer, props, saveAndReload, tools, toolsTab } from './helpers';
+import { createFurniture, exportProject, mapper, openApp, openOptimizer, props, saveAndReload, tools, toolsTab } from './helpers';
 
 /**
  * Phase 4: tabbed navigation, the TPQ look, Feng Shui and the Bagua overlay, and the
@@ -207,14 +207,14 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
       await optimizer(page).getByRole('button', { name: 'Close' }).click();
       if (width < 1100) {
         await page.getByRole('button', { name: 'Add', exact: true }).click();
-        await page.getByRole('dialog', { name: 'Add to the room' }).getByRole('button', { name: 'Shape Builder' }).click();
+        await createFurniture(page, page.getByRole('dialog', { name: 'Add to the room' }), 'Combine shapes');
       } else {
         await toolsTab(page, 'Furnish');
-        await tools(page).getByRole('button', { name: 'Shape Builder' }).click();
+        await createFurniture(page, tools(page), 'Combine shapes');
       }
-      await expect(page.getByRole('dialog', { name: 'Shape Builder' })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Combine shapes', exact: true })).toBeVisible();
       expect(await fits()).toBe(true);
-      await expect(page.getByRole('dialog', { name: 'Shape Builder' }).getByRole('button', { name: 'Use this shape' })).toBeInViewport();
+      await expect(page.getByRole('dialog', { name: 'Combine shapes', exact: true }).getByRole('button', { name: 'Use this shape' })).toBeInViewport();
     });
   });
 }

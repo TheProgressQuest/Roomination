@@ -1,12 +1,12 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { exportProject, lightweight3D, openApp, props, saveAndReload, selectInList, tools, toolsTab } from './helpers';
+import { createFurniture, exportProject, lightweight3D, openApp, props, saveAndReload, selectInList, tools, toolsTab } from './helpers';
 
 /**
  * The Shape Builder end to end: basic shapes → exact sizes → cut a hole → save → the hole is
  * kept in the saved file and after reloading → reopen the recipe and change it.
  */
 
-const builder = (page: Page) => page.getByRole('dialog', { name: 'Shape Builder' });
+const builder = (page: Page) => page.getByRole('dialog', { name: 'Combine shapes', exact: true });
 const selectedPanel = (dialog: Locator) => dialog.getByRole('region', { name: 'Selected shape' });
 
 async function setField(scope: Locator, label: string, value: number) {
@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => lightweight3D(page));
 test('build a ring table from a square with a square cut out, then reopen and change it', async ({ page }) => {
   const errors = await openApp(page);
   await toolsTab(page, 'Furnish');
-  await tools(page).getByRole('button', { name: 'Shape Builder' }).click();
+  await createFurniture(page, tools(page), 'Combine shapes');
   const dialog = builder(page);
   await expect(dialog).toBeVisible();
 
@@ -51,7 +51,7 @@ test('build a ring table from a square with a square cut out, then reopen and ch
   await expect(dialog.locator('.builder-summary')).toContainText('1 hole');
 
   await dialog.getByRole('button', { name: 'Use this shape' }).click();
-  const studio = page.getByRole('dialog', { name: 'Build furniture from shapes' });
+  const studio = page.getByRole('dialog', { name: 'Create furniture: combine shapes' });
   await expect(studio).toBeVisible();
   await studio.getByLabel('Name').fill('Ring table');
   await studio.getByRole('button', { name: 'Add to room' }).click();
@@ -65,7 +65,7 @@ test('build a ring table from a square with a square cut out, then reopen and ch
   // After reloading, the recipe reopens in the builder and can be changed.
   await saveAndReload(page);
   await selectInList(page, 'Ring table');
-  await props(page).getByRole('button', { name: 'Shape Builder' }).click();
+  await props(page).getByRole('button', { name: 'Combine shapes' }).click();
   await expect(builder(page)).toBeVisible();
   await expect(builder(page).locator('.builder-tree').getByRole('button', { name: 'Cut out (2)' })).toBeVisible();
   await builder(page).locator('.builder-tree').getByRole('button', { name: 'Square' }).click();
@@ -81,7 +81,7 @@ test('build a ring table from a square with a square cut out, then reopen and ch
 test('group separate parts, merge overlapping ones, and drag and turn with the keyboard', async ({ page }) => {
   const errors = await openApp(page);
   await toolsTab(page, 'Furnish');
-  await tools(page).getByRole('button', { name: 'Shape Builder' }).click();
+  await createFurniture(page, tools(page), 'Combine shapes');
   const dialog = builder(page);
   await dialog.getByRole('button', { name: 'Circle' }).click();
   await setField(selectedPanel(dialog), 'Across (x)', 200);
@@ -114,7 +114,7 @@ test('group separate parts, merge overlapping ones, and drag and turn with the k
   await dialog.getByRole('button', { name: 'Merge' }).click();
   await expect(dialog.locator('.builder-tree').getByRole('button', { name: 'Merged (2)' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Use this shape' }).click();
-  await expect(page.getByRole('dialog', { name: 'Build furniture from shapes' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Create furniture: combine shapes' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -130,10 +130,10 @@ async function centreOf(dialog: Locator, part: string, label: string): Promise<n
 test('undo in the Shape Builder never also undoes the studio underneath', async ({ page }) => {
   await openApp(page);
   await toolsTab(page, 'Furnish');
-  await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
-  const studio = page.getByRole('dialog', { name: 'Draw custom furniture' });
+  await createFurniture(page, tools(page), 'Draw its outline');
+  const studio = page.getByRole('dialog', { name: 'Create furniture: draw its outline' });
   await studio.getByLabel('Start from a shape').selectOption('lDesk');
-  await studio.getByRole('button', { name: 'Shape Builder' }).click();
+  await studio.getByRole('button', { name: 'Combine shapes' }).click();
   const dialog = builder(page);
   await dialog.getByRole('button', { name: 'Circle' }).click();
   await dialog.locator('.shape-canvas-svg').focus();

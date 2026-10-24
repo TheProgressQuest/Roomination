@@ -3,7 +3,7 @@ import type {} from '../src/scene3d/diagnostics';
 import { strToU8, zipSync } from 'fflate';
 import { SAMPLE_STUDIO, sampleToRoomPlan } from '../src/scan/samples';
 import { syntheticGlb } from '../src/mesh/synthetic';
-import { exportProject, lightweight3D, openApp, toolsTab, tools } from './helpers';
+import { exportProject, fromPhotosOrScan, lightweight3D, openApp, props, toolsTab, tools } from './helpers';
 
 /**
  * Smoke tests: one short end-to-end pass through each main workflow, for the prototype loop
@@ -177,12 +177,12 @@ test.describe('smoke', { tag: '@smoke' }, () => {
       g.fill();
       return c.toDataURL('image/png').split(',')[1];
     });
-    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
-    await page.getByRole('button', { name: 'Match my room' }).click();
-    const panel = page.getByRole('complementary', { name: 'Match my room' });
+    // The new piece is selected: its Photos & scans → Rebuild shape from photos opens the tool for it.
+    await props(page).getByRole('button', { name: /^Rebuild shape from photos/ }).click();
+    const panel = page.getByRole('complementary', { name: 'Photos for Lidded box' });
     const [chooser] = await Promise.all([page.waitForEvent('filechooser'), panel.getByRole('button', { name: /Add a photo/ }).click()]);
     await chooser.setFiles({ name: 'object.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
-    await panel.getByRole('radio', { name: 'Rebuild object' }).click();
+    await expect(panel.getByRole('radio', { name: 'Rebuild shape' })).toHaveAttribute('aria-checked', 'true');
     // Tap the wall in the preview's top-left corner to trim it.
     const preview = panel.locator('.rebuild-preview canvas');
     await preview.scrollIntoViewIfNeeded();
@@ -210,7 +210,7 @@ test.describe('smoke', { tag: '@smoke' }, () => {
       if (!url.startsWith('data:') && !url.startsWith('blob:') && new URL(url).origin !== origin) outside.push(url);
     });
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: /Import 3D model/ }).click();
+    await fromPhotosOrScan(page, tools(page), 'scan');
     const dialog = page.getByRole('dialog', { name: 'Import a 3D model' });
     // A 30 × 35 × 19 cm textured box, lying on its back (19 cm high, 35 cm deep).
     const glb = Buffer.from(syntheticGlb({ w: 0.3, h: 0.19, d: 0.35 }));
@@ -230,6 +230,46 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
     await expect.poll(() => page.evaluate(() => window.__roomination3D?.stats().modelTriangles ?? 0), { timeout: 20000 }).toBe(12);
     expect(outside).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test('Photos & scans and Create furniture: one selector for the look, the last method remembered', async ({ page }) => {
+    const errors = await openApp(page);
+    await toolsTab(page, 'Furnish');
+    // A piece with a 3D scan (synthetic box).
+    await fromPhotosOrScan(page, tools(page), 'scan');
+    const dialog = page.getByRole('dialog', { name: 'Import a 3D model' });
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), dialog.getByRole('button', { name: /Choose model file/ }).click()]);
+    await chooser.setFiles({ name: 'radio-scan.glb', mimeType: 'model/gltf-binary', buffer: Buffer.from(syntheticGlb()) });
+    await dialog.getByRole('button', { name: 'Add to room' }).click();
+    await expect(dialog).toBeHidden();
+    // Shown in 3D: the scan is shown; a photo rebuild doesn't exist yet, and says so.
+    const shown = props(page).getByRole('radiogroup', { name: 'Shown in 3D' });
+    await expect(shown.getByRole('radio', { name: '3D scan' })).toHaveAttribute('aria-checked', 'true');
+    await expect(shown.getByRole('radio', { name: 'Photo rebuild' })).toHaveAttribute('aria-disabled', 'true');
+    await expect(props(page).getByText(/Photo rebuild: not made yet/)).toBeVisible();
+    // Tapping an unavailable look changes nothing (forced: Playwright won't tap a disabled control).
+    await shown.getByRole('radio', { name: 'Photo rebuild' }).click({ force: true });
+    await expect(shown.getByRole('radio', { name: '3D scan' })).toHaveAttribute('aria-checked', 'true');
+    // Switching to the standard model keeps the scan (just not shown).
+    await shown.getByRole('radio', { name: 'Standard model' }).click();
+    const project = await exportProject(page);
+    const piece = (project.furniture as { name: string; mesh?: { off?: boolean; assetId: string } }[]).find((f) => f.mesh)!;
+    expect(piece.mesh).toMatchObject({ off: true });
+    expect(piece.mesh!.assetId).toMatch(/^[0-9a-f]{64}$/);
+    // Create furniture: start with Combine shapes, cancel, and it's preselected next time.
+    await page.keyboard.press('Escape');
+    await toolsTab(page, 'Furnish');
+    await tools(page).getByRole('button', { name: 'Create furniture…' }).click();
+    const create = page.getByRole('dialog', { name: 'Create furniture', exact: true });
+    await create.getByRole('radio', { name: /^Combine shapes/ }).check();
+    await create.getByRole('button', { name: 'Start combining shapes' }).click();
+    await expect(page.getByRole('dialog', { name: 'Combine shapes', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await tools(page).getByRole('button', { name: 'Create furniture…' }).click();
+    await expect(create.getByRole('radio', { name: /^Combine shapes/ })).toBeChecked();
+    await expect(create.getByText('Used last')).toBeVisible();
     expect(errors).toEqual([]);
   });
 

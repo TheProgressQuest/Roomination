@@ -88,6 +88,24 @@ export async function setPlanStyle(page: Page, style: 'Technical' | 'Presentatio
   await radio(tools(page), 'Plan style', style).click();
 }
 
+export type CreateMethod = 'Draw its outline' | 'Combine shapes' | 'Build from parts';
+
+/** Create furniture… → a method → Start. `scope`: the tools panel, or the Add sheet on phones. */
+export async function createFurniture(page: Page, scope: Locator, method: CreateMethod) {
+  await scope.getByRole('button', { name: 'Create furniture…' }).click();
+  const chooser = page.getByRole('dialog', { name: 'Create furniture', exact: true });
+  await chooser.getByRole('radio', { name: new RegExp(`^${method}`) }).check();
+  await chooser.getByRole('button', { name: /^Start/ }).click();
+}
+
+/** From photos or a 3D scan… → a scan or photos → continue. */
+export async function fromPhotosOrScan(page: Page, scope: Locator, start: 'scan' | 'photos') {
+  await scope.getByRole('button', { name: 'From photos or a 3D scan…' }).click();
+  const chooser = page.getByRole('dialog', { name: 'From photos or a 3D scan' });
+  await chooser.getByRole('radio', { name: start === 'scan' ? /^I have a 3D scan/ : /^I have photos/ }).check();
+  await chooser.getByRole('button', { name: start === 'scan' ? 'Choose the scan' : 'Start from photos' }).click();
+}
+
 /** Furniture listed in the Furnish tab (open it first). */
 export const furnitureRows = (page: Page) => tools(page).locator('.furniture-list li');
 /** Features and stairs listed in the Build tab (open it first). */

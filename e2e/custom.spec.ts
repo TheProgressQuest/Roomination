@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import type {} from '../src/scene3d/diagnostics';
-import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, selectInList, setNum, tools, toolsTab } from './helpers';
+import { createFurniture, exportProject, fromPhotosOrScan, importProject, lightweight3D, openApp, props, saveAndReload, selectInList, setNum, tools, toolsTab } from './helpers';
 import { loveseatPhoto } from './png';
 
 /**
@@ -9,7 +9,7 @@ import { loveseatPhoto } from './png';
  * place → rotate → collisions → 3D → photos → export with photos → import → reload.
  */
 
-const studio = (page: Page, name = 'Draw custom furniture') => page.getByRole('dialog', { name });
+const studio = (page: Page, name = 'Create furniture: draw its outline') => page.getByRole('dialog', { name });
 
 /** Clicks a point given in the studio drawing's own centimetres. */
 async function clickAtCm(page: Page, dialog: Locator, x: number, y: number) {
@@ -36,12 +36,12 @@ function expectOnlyThisSite(urls: string[], page: Page) {
 
 test.beforeEach(async ({ page }) => lightweight3D(page));
 
-test.describe('Draw custom furniture', () => {
+test.describe('Create furniture: draw its outline', () => {
   test('draw an irregular loveseat with exact dimensions, curve an edge, save to the library and place it', async ({ page }) => {
     const errors = await openApp(page);
     const requests = recordRequests(page);
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+    await createFurniture(page, tools(page), 'Draw its outline');
     const dialog = studio(page);
     await expect(dialog).toBeVisible();
 
@@ -113,7 +113,7 @@ test.describe('Draw custom furniture', () => {
   test('draws a new outline corner by corner, and refuses one that crosses itself', async ({ page }) => {
     await openApp(page);
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+    await createFurniture(page, tools(page), 'Draw its outline');
     const dialog = studio(page);
     for (const [x, y] of [
       [-60, -40],
@@ -169,7 +169,7 @@ test.describe('Draw custom furniture', () => {
   test('custom pieces appear in 3D with the same footprint and can be selected there', { tag: '@3d' }, async ({ page }) => {
     await openApp(page);
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+    await createFurniture(page, tools(page), 'Draw its outline');
     const dialog = studio(page);
     await dialog.getByLabel('Start from a shape').selectOption('lDesk');
     await dialog.getByLabel('Name').fill('Studio desk');
@@ -196,7 +196,7 @@ test.describe('Create furniture from photos', () => {
     writeFileSync(photo, loveseatPhoto());
 
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Create from photos' }).click();
+    await fromPhotosOrScan(page, tools(page), 'photos');
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await expect(workshop).toContainText('front, the side and above');
     await workshop.locator('#photo-top').setInputFiles(photo);
@@ -275,7 +275,7 @@ test.describe('Create furniture from photos', () => {
     const photo = info.outputPath('photo.png');
     writeFileSync(photo, loveseatPhoto());
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Create from photos' }).click();
+    await fromPhotosOrScan(page, tools(page), 'photos');
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await workshop.locator('#photo-front').setInputFiles(photo);
     await workshop.getByRole('button', { name: 'Use this photo' }).click();
@@ -288,7 +288,7 @@ test.describe('Create furniture from photos', () => {
     const fake = info.outputPath('not-a-photo.png');
     writeFileSync(fake, '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>');
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Create from photos' }).click();
+    await fromPhotosOrScan(page, tools(page), 'photos');
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await workshop.locator('#photo-front').setInputFiles(fake);
     await expect(workshop.getByRole('alert')).toContainText('isn’t a photo');
@@ -301,7 +301,7 @@ test.describe('Create furniture from photos', () => {
     const photo = info.outputPath('photo.png');
     writeFileSync(photo, loveseatPhoto());
     await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Create from photos' }).click();
+    await fromPhotosOrScan(page, tools(page), 'photos');
     const workshop = page.getByRole('dialog', { name: 'Photos of your furniture' });
     await workshop.locator('#photo-front').setInputFiles(photo);
     await workshop.getByRole('button', { name: 'Edit' }).click();
@@ -327,7 +327,7 @@ test.describe('Studio on phones', () => {
   test('fits the screen, draws with taps, and keeps Save and Cancel reachable', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Add to the room' }).getByRole('button', { name: 'Draw custom furniture' }).click();
+    await createFurniture(page, page.getByRole('dialog', { name: 'Add to the room' }), 'Draw its outline');
     const dialog = studio(page);
     await expect(dialog).toBeVisible();
     const overflow = await page.evaluate(() => document.querySelector('dialog[open]')!.scrollWidth > window.innerWidth);
@@ -362,10 +362,10 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
       const errors = await openApp(page);
       if (width < 1100) {
         await page.getByRole('button', { name: 'Add', exact: true }).click();
-        await page.getByRole('dialog', { name: 'Add to the room' }).getByRole('button', { name: 'Draw custom furniture' }).click();
+        await createFurniture(page, page.getByRole('dialog', { name: 'Add to the room' }), 'Draw its outline');
       } else {
         await toolsTab(page, 'Furnish');
-    await tools(page).getByRole('button', { name: 'Draw custom furniture' }).click();
+    await createFurniture(page, tools(page), 'Draw its outline');
       }
       const dialog = studio(page);
       await dialog.getByLabel('Start from a shape').selectOption('curvedSofa');

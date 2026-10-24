@@ -551,6 +551,56 @@ h3 {
   opacity: 0.5;
 }
 
+/* An option that exists but can't be chosen yet (the reason is written beside it). */
+.segmented button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Photos & scans: each action is one large, clearly labelled button. */
+.appearance-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.action-card {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.action-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.action-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.action-card strong {
+  font-size: 0.9rem;
+}
+
+.action-card span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.action-card .action-status {
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
 .view3d-panel,
 .view3d-loading {
   background: var(--surface-sunk);
@@ -1186,6 +1236,77 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 6px;
+}
+
+/* Custom furniture: two ways to start a piece yourself, each opening a short chooser. */
+.start-buttons {
+  display: grid;
+  gap: 6px;
+}
+
+.start-buttons .preset {
+  justify-content: flex-start;
+}
+
+.choice-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.choice-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  min-height: 44px;
+  padding: 12px 14px 12px 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.choice-card input {
+  position: absolute;
+  left: 14px;
+  top: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.choice-card:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.choice-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.choice-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.choice-title .badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.choice-text {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.match-focus {
+  margin-top: -4px;
 }
 
 .preset {
