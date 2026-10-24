@@ -4871,3 +4871,31 @@ select {
     overflow: visible;
   }
 }
+
+/* Match my room → Pick colour → Selecting an area (AI) */
+.area-intro,
+.area-suggestion {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-sunk);
+}
+
+.area-suggestion {
+  display: grid;
+  gap: 8px;
+}
+
+.area-controls progress,
+.match-panel progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.area-confirm {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--text);
+}

@@ -632,6 +632,17 @@ polygon-clipping (MIT) does the Shape Builder's merges and cuts, and loads only 
 - The first use downloads about 19 MB from this site, and the browser then caches it.
 - Inference runs in a Web Worker on your device. No photo is sent to any server or AI service.
 
+**Select an area** (Match my room → Pick colour → *Selecting an area (AI)*, optional, beta) uses
+MobileSAM (Apache-2.0; Segment Anything's mask decoder, Apache-2.0; ONNX export by Acly, MIT),
+quantized to 8 bits here, run by the same onnxruntime-web engine:
+- Nothing is downloaded until you turn it on. Then 19 MB of model (and up to 14 MB of engine,
+  shared with Smart remove) come from this site only, are checked against their SHA-256 sums
+  and kept in the browser (see `public/models/mobilesam/README.md`).
+- Tap an object or surface: it's outlined on your device, its typical colour is suggested, and
+  nothing changes until you apply it (undoable). Photos and masks never leave the device.
+- It can be turned off, deleting the downloaded model, at any time; tapping a point works
+  without it.
+
 ## Known limitations
 
 - **Presentation plan and 3D models:**

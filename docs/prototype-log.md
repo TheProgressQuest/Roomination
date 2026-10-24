@@ -8,6 +8,7 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| Select an area (Step 2A) | A physical iPhone: time to read a photo, memory (the browser grew by 0.3–0.65 GB on a Mac), behaviour when Safari runs short of memory, and touch taps on the photo. Safari on a real Mac/iPhone (only Playwright's WebKit was run), private browsing (Cache Storage may be unavailable: the model then downloads each time), offline use after the first download, and HEIC photos | S2A |
 | Scan classification (Step 1) | A real iPhone/Safari import of a RoomSheet package with photos: HEIC photos (only JPEG/PNG were tested; HEIC opens only where the browser can decode it), memory with 7 full-size photos, and the review's join checkbox on touch. Other scanner exports' attributes (3D Model Anything rooms use the same RoomPlan JSON, untested with attributes) | S1 |
 | Photos & scans, Create furniture | Real iPhone and Safari: the two choosers, the *Shown in 3D* selector's disabled choices (VoiceOver reads them as dimmed), and *Photos for <piece>* in the stacked phone layout | UX |
 | Real-object test | The radio test in [real-object-test.md](real-object-test.md) on a real iPhone: import time, memory peak, frame rate, budget fallback, persistence and transfer. Prepared, not yet run | M8 |
@@ -29,6 +30,16 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Select an area (Step 2A, 24 Oct 2026, beta, optional):** MobileSAM instead of the approved
+  SlimSAM (SlimSAM needed about 2 GB per photo; see docs/segmentation-investigation.md). Limits:
+  - one photo at a time; the selection resets when the photo changes;
+  - the suggestion is the typical colour of the selected area as photographed (after the
+    photo's colour correction), so shading and lighting are part of it: a shaded floor suggests
+    a darker colour than its sunlit corner;
+  - masks follow what the model sees as one thing: a sofa's chaise may come out without the
+    rest (use *Larger area*), a rug may join a floor (use *Leave out*);
+  - adds 19 MB of model files to the website (downloaded only on use) and 5 kB (compressed) to
+    Match my room's code; the start-up download is unchanged.
 - **Scan classification (Step 1, 24 Oct 2026):** the scanner's object details (sofa, table,
   storage and chair types) and links are now used, recorded and shown as the scanner's; a desk
   is Roomination's inference from a chair linked to a cabinet. Still limited:

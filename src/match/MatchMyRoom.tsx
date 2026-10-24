@@ -13,6 +13,11 @@ import { getAsset, putAsset } from '../storage/assets';
 import { CameraMatch } from './CameraMatch';
 import type { PieceTool } from '../components/studio/studioContext';
 import { RebuildObject } from './RebuildObject';
+import { AreaSelectPanel, useAreaSelect } from './AreaSelect';
+import { AREA_SELECT_AVAILABLE } from '../photo/areaSelectModel';
+import { representativeColour, type AreaColour } from '../photo/representativeColour';
+import type { PromptPoint } from '../photo/sam';
+import { shownLook } from '../model/shownLook';
 import { NO_CORRECTION, correctImage, cutTexture, sampleColour, suggestPalette, whiteBalanceFrom, type PhotoCorrection, type TextureCut } from './photoTools';
 import type { CameraApi, PhotoOverlay } from '../components/view3d/View3D';
 
@@ -95,6 +100,12 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
   const [surface, setSurface] = useState<Surface>('front');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  /** Pick colour: by tapping a point (as always), or by selecting an area with the on-device model. */
+  const [pickBy, setPickBy] = useState<'point' | 'area'>('point');
+  /** The colour measured over the selected area (a suggestion until applied). */
+  const [suggestion, setSuggestion] = useState<AreaColour | null>(null);
+  /** Applying a suggestion over a photo texture or a hidden look waits for a second, explicit click. */
+  const [confirming, setConfirming] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const targetId = useId();
 
@@ -143,6 +154,17 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
     dispatch({ type: 'photos/set', photos: photos.map((p) => (p.assetId === active ? (next ? { ...p, correction: next } : (({ correction: _c, ...rest }) => rest)(p)) : p)) });
   };
   const sampleRadius = image ? Math.max(2, Math.round(image.width / 300)) : 2;
+  const byArea = AREA_SELECT_AVAILABLE && mode === 'colour' && pickBy === 'area';
+  // The model reads the photo as taken; the colour is measured on the corrected view.
+  const area = useAreaSelect(image, active, byArea);
+  useEffect(() => {
+    if (!byArea) return;
+    const measured = area.mask && view ? representativeColour(view, area.mask) : null;
+    setSuggestion(measured);
+    setColour(measured?.hex ?? null);
+    setConfirming(false);
+  }, [byArea, area.mask, view]);
+  useEffect(() => setConfirming(false), [target, colour]);
   const palette = useMemo(() => (view ? suggestPalette(view, 6) : []), [view]);
   const cut: TextureCut | null = corners ? { corners, ...size, brightness, seamless } : null;
 
@@ -165,6 +187,12 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
 
   function applyColour() {
     if (!colour) return;
+    // A suggestion never silently replaces a look the person made: say what stays, and wait.
+    if (suggestion && colour === suggestion.hex && customLook && !confirming) {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
     if (target.kind === 'piece' && piece) dispatch({ type: 'furniture/update', id: piece.id, changes: { color: colour } });
     if (target.kind === 'part' && piece) dispatch({ type: 'furniture/update', id: piece.id, changes: { components: withPart(piece, target.name, (c) => ({ ...c, color: colour })) } });
     if (target.kind === 'walls') dispatch({ type: 'room/setWallLook', wallId: null, color: colour });
@@ -242,6 +270,34 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
     (target.kind === 'walls' && !!project.room.wallTexture) ||
     (target.kind === 'wall' && !!project.room.wallFinishes?.[target.id]) ||
     (target.kind === 'floor' && !!project.room.floor.photo);
+  /** What the colour would sit under (a photo texture, or another look shown in 3D), in plain words. */
+  const customLook: string | null =
+    target.kind === 'piece' && piece
+      ? shownLook(piece) !== 'standard'
+        ? `${piece.name} shows its ${shownLook(piece) === 'scan' ? '3D scan' : 'photo rebuild'} in 3D, so the colour appears only on its Standard model (Photos & scans → Shown in 3D).`
+        : piece.appearance?.textures && Object.values(piece.appearance.textures).some(Boolean)
+          ? `${piece.name} has photo textures on some surfaces; they stay, and the colour shows on its other surfaces.`
+          : null
+      : target.kind === 'part' && piece?.components?.some((c) => c.name === target.name && c.texture)
+        ? `This part has a photo texture, which stays on top of the colour.`
+        : target.kind === 'walls' && (project.room.wallTexture || Object.keys(project.room.wallFinishes ?? {}).length)
+          ? `Some walls have their own photo texture or colour; those stay as they are.`
+          : target.kind === 'wall' && project.room.wallFinishes?.[target.id]?.texture
+            ? `This wall has a photo texture, which stays on top of the colour.`
+            : target.kind === 'floor' && project.room.floor.photo
+              ? `The floor has a texture from a photo, which stays on top of the colour.`
+              : null;
+  /** The target's colour now, to compare with a suggestion. */
+  const currentColour =
+    target.kind === 'piece'
+      ? piece?.color
+      : target.kind === 'part'
+        ? (piece?.components?.find((c) => c.name === target.name)?.color ?? piece?.color)
+        : target.kind === 'wall'
+          ? (project.room.wallFinishes?.[target.id]?.color ?? project.room.wallColor)
+          : target.kind === 'walls'
+            ? project.room.wallColor
+            : project.room.floor.color;
 
   return (
     <aside className="match-panel" aria-label={title} ref={panelRef}>
@@ -310,7 +366,14 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
             mode={mode === 'correct' ? 'colour' : mode === 'rebuild' ? 'texture' : mode}
             corners={corners}
             onCorners={setCorners}
+            selecting={byArea}
+            overlay={byArea ? area.mask : null}
+            marks={byArea ? area.points : []}
             onSample={(p) => {
+              if (byArea) {
+                area.tap(p);
+                return;
+              }
               if (mode === 'correct') {
                 setCorrection(whiteBalanceFrom(sampleColour(image, p.x, p.y, sampleRadius * 2), correction.exposure));
                 return;
@@ -348,6 +411,53 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
             <RebuildObject piece={piece} image={view!} corners={corners} units={units} dispatch={dispatch} />
           ) : mode === 'colour' ? (
             <div className="stack">
+              {AREA_SELECT_AVAILABLE && (
+                <SegmentedControl
+                  label="Pick by"
+                  value={pickBy}
+                  options={[
+                    { value: 'point', label: 'Tapping a point' },
+                    { value: 'area', label: 'Selecting an area (AI)' },
+                  ]}
+                  onChange={(v) => {
+                    setPickBy(v);
+                    setColour(null);
+                    setSuggestion(null);
+                  }}
+                />
+              )}
+              {byArea ? (
+                <>
+                  <AreaSelectPanel area={area} />
+                  {suggestion && colour === suggestion.hex && (
+                    <div className="area-suggestion" aria-label="Suggested colour">
+                      <div className="match-compare">
+                        {currentColour && (
+                          <span>
+                            <span className="match-swatch is-large" style={{ background: currentColour }} aria-hidden="true" />
+                            Now
+                            <code>{currentColour}</code>
+                          </span>
+                        )}
+                        <span>
+                          <span className="match-swatch is-large" style={{ background: suggestion.hex }} aria-hidden="true" />
+                          Suggested
+                          <code>{suggestion.hex}</code>
+                        </span>
+                      </div>
+                      <p className="hint">
+                        The typical colour of {Math.round(suggestion.share * 100)}% of the area ({suggestion.spread <= 6 ? 'an even colour' : suggestion.spread <= 12 ? 'some variation' : 'a varied surface, so check it'}); shine, deep shadows and other colours were left out.
+                      </p>
+                      <div className="button-row tight">
+                        <button type="button" className="secondary small" onClick={() => { area.reset(); setColour(null); setSuggestion(null); }}>
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+              <>
               <p className="hint">Tap the photo to sample a colour, or pick one the photo suggests. Photos are often darker than the real surface.</p>
               <div className="match-swatches" role="radiogroup" aria-label="Suggested colours">
                 {palette.map((c) => (
@@ -377,6 +487,8 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
                   </label>
                   <code>{colour}</code>
                 </div>
+              )}
+              </>
               )}
             </div>
           ) : (
@@ -423,6 +535,11 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
               ))}
             </select>
           </div>
+          {mode === 'colour' && confirming && customLook && (
+            <p className="hint area-confirm" role="alert">
+              {customLook} Nothing is deleted, and Undo brings back the previous colour.
+            </p>
+          )}
           {target.kind === 'piece' && mode === 'texture' && (
             <SegmentedControl
               label="Surface of the piece"
@@ -440,7 +557,7 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
           <div className="button-row">
             {mode === 'colour' ? (
               <button type="button" className="primary small" disabled={!colour} onClick={applyColour}>
-                Apply colour
+                {confirming ? 'Apply anyway' : 'Apply colour'}
               </button>
             ) : (
               <button type="button" className="primary small" disabled={busy} onClick={() => void applyTexture()}>
@@ -514,7 +631,7 @@ function windowAround(image: RGBAImage, corners: Point[]): Window {
 }
 
 /** The photo, fitted to the panel: tap to sample, or drag the texture corners. */
-function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGBAImage; mode: Mode; corners: [Point, Point, Point, Point]; onCorners: (c: [Point, Point, Point, Point]) => void; onSample: (p: Point) => void }) {
+function PhotoCanvas({ image, mode, corners, onCorners, onSample, selecting = false, overlay = null, marks = [] }: { image: RGBAImage; mode: Mode; corners: [Point, Point, Point, Point]; onCorners: (c: [Point, Point, Point, Point]) => void; onSample: (p: Point) => void; selecting?: boolean; overlay?: Uint8Array | null; marks?: PromptPoint[] }) {
   // Zoomed in, the window stays put while corners are dragged (it doesn't chase them).
   const [zoom, setZoom] = useState<Window | null>(null);
   const win = zoom ?? { x: 0, y: 0, w: image.width, h: image.height };
@@ -528,6 +645,26 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
     return c;
   }, [image]);
   const dragging = useRef<number | null>(null);
+  // The selected area, tinted in the accent colour with a solid edge.
+  const tint = useMemo(() => {
+    if (!overlay || overlay.length !== image.width * image.height) return null;
+    const c = document.createElement('canvas');
+    c.width = image.width;
+    c.height = image.height;
+    const ctx = c.getContext('2d')!;
+    const out = ctx.createImageData(image.width, image.height);
+    const w = image.width;
+    for (let i = 0; i < overlay.length; i++) {
+      if (!overlay[i]) continue;
+      const edge = !overlay[i - 1] || !overlay[i + 1] || !overlay[i - w] || !overlay[i + w];
+      out.data[i * 4] = edge ? 255 : 31;
+      out.data[i * 4 + 1] = edge ? 255 : 43;
+      out.data[i * 4 + 2] = edge ? 255 : 214;
+      out.data[i * 4 + 3] = edge ? 255 : 110;
+    }
+    ctx.putImageData(out, 0, 0);
+    return c;
+  }, [overlay, image.width, image.height]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -541,6 +678,21 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
     const ctx = canvas.getContext('2d')!;
     ctx.setTransform(ratio * scale, 0, 0, ratio * scale, -win.x * ratio * scale, -win.y * ratio * scale);
     ctx.drawImage(source, 0, 0);
+    if (tint) ctx.drawImage(tint, 0, 0);
+    marks.forEach((m) => {
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, 8 / scale, 0, Math.PI * 2);
+      ctx.fillStyle = m.include ? '#1f2bd6' : '#b42318';
+      ctx.fill();
+      ctx.lineWidth = 2 / scale;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${12 / scale}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(m.include ? '+' : '−', m.x, m.y);
+    });
     if (mode === 'texture') {
       ctx.lineWidth = 2 / scale;
       ctx.strokeStyle = '#ffffff';
@@ -569,7 +721,7 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
         ctx.fillText(String(i + 1), p.x, p.y);
       });
     }
-  }, [image, source, mode, corners, win.x, win.y, win.w, win.h]);
+  }, [image, source, mode, corners, win.x, win.y, win.w, win.h, tint, marks]);
 
   const toImage = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -582,7 +734,7 @@ function PhotoCanvas({ image, mode, corners, onCorners, onSample }: { image: RGB
     <canvas
       ref={ref}
       className={`match-photo is-${mode}`}
-      aria-label={mode === 'colour' ? 'Room photo: tap to sample a colour' : 'Room photo: drag the four numbered corners'}
+      aria-label={selecting ? 'Room photo: tap to select an area' : mode === 'colour' ? 'Room photo: tap to sample a colour' : 'Room photo: drag the four numbered corners'}
       onPointerDown={(e) => {
         const p = toImage(e);
         if (mode === 'colour') {

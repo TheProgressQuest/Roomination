@@ -1,5 +1,10 @@
 # Step 2 investigation: finding walls, floors and furniture in photos
 
+> **Update (Step 2A, built):** *Select an area* uses **MobileSAM**, not SlimSAM. Measured on
+> WebAssembly, SlimSAM-77's encoder needed about 2 GB of memory per photo, too much for a
+> phone; MobileSAM needed about 0.5 GB, was faster and gave equal or better masks. Results are
+> at the end of this document.
+
 October 2026, `proto-lidar`. Research only: no model has been downloaded, converted or
 integrated. The aim of Step 2 is "Make it look like my room": find the wall, floor, ceiling and
 each piece of furniture in the person's own photos, on their device, and take colours and
@@ -66,3 +71,40 @@ proves too slow, at the cost of exporting it ourselves. Any model would be:
   [SlimSAM](https://github.com/czg1225/SlimSAM)
 - [MediaPipe Image Segmenter](https://developers.google.com/edge/mediapipe/solutions/vision/image_segmenter)
 - [WebGPU in major browsers (iOS 26)](https://web.dev/blog/webgpu-supported-major-browsers)
+
+## Step 2A results (October 2026)
+
+Built: *Select an area* in Match my room → Pick colour (tap → outline → suggested colour →
+apply or reject). Model: MobileSAM, 8-bit quantized here (19.0 MB; see
+`public/models/mobilesam/README.md`). No automatic recognition, matching or 3D shapes.
+
+**Model comparison** (WebAssembly, single thread, Node on a Mac; synthetic 960 × 720 photo):
+
+| | Download | Photo read | Memory, process peak | Mask overlap with the truth (sofa / wall / floor) |
+| --- | --- | --- | --- | --- |
+| SlimSAM-77, 8-bit | 13.8 MB | 4.4 s | about 2.2 GB | 0.945 / 0.986 / 0.976 |
+| MobileSAM, 32-bit | 44.7 MB | 2.7 s | about 0.97 GB | 0.994 / 0.996 / 0.989 |
+| **MobileSAM, 8-bit (used)** | **19.0 MB** | **2.6 s** | **about 0.93 GB** | **0.993 / 0.996 / 0.988** |
+
+Colour of the selected area against each surface's true colour: within 1.2 (sofa), 0.7 (wall)
+and 0.5 (floor) ΔE (CIE76; about 2 is barely noticeable).
+
+**In browsers, on the person's own photo** (1200 × 1600 after scaling), on a Mac. A physical
+iPhone has **not** been tested.
+
+| Browser | Download + start + read the photo | Each tap | Browser memory added |
+| --- | --- | --- | --- |
+| Chromium, desktop | 3.4 s | 0.5–1.2 s | +468 MB |
+| WebKit (Safari's engine), desktop | 3.4 s | 0.4–1.0 s | +378 MB |
+| Chromium, iPhone-sized emulation | 3.4 s | 0.6–0.8 s | +654 MB |
+| WebKit, iPhone-sized emulation | 3.4 s | 0.4–1.0 s | +327 MB |
+
+Suggested colours against a hand-picked patch of the same surface: sectional 2.4–2.7 ΔE, wall
+1.1 ΔE, floor 6 ΔE (the selection covers the whole floor, including its shaded part in front of
+the sofa; the patch was a small sunlit corner, so the whole-floor colour is darker, as it is).
+Memory is the whole browser's resident memory (including the 3D view), measured with `ps`; the
+emulated "iPhone" runs on the Mac's CPU, so its times say nothing about a real phone's.
+
+**WebGPU:** not used. WebAssembly runs everywhere (Safari 16.4+), and with the photo read once
+in a few seconds and each tap under a second, it's fast enough; WebGPU would add a second, much
+larger engine (28 MB) and a code path to test. Revisit if a real iPhone proves too slow.
