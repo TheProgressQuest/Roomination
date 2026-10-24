@@ -180,13 +180,13 @@ dark, normal and large text. Layout bugs were fixed (see git log); these need a 
 
 | Issue | Notes |
 | --- | --- |
-| **Optimize appears three times** | Header button, bottom/selection bar and the Optimize tab; on a phone all three are on screen at once |
-| **Four ways to give a piece a photo or scan look** | *Create from photos* (studio), *Match my room → Cut texture → whole piece* (same front/top/side mechanism), *Rebuild object*, *Import 3D model*. Suggest one "Photos & scans" entry per piece |
-| **Three ways to build custom furniture** | *Draw custom furniture*, *Shape Builder*, *Build from components*, beside *Quick add* and the catalogue |
-| **Plan style twice** | Technical / Presentation in the toolbar and again under Design → *Presentation plan → Plan style* |
+| ~~Optimize appears three times~~ | Done: the Optimize tab is its only entry point (the header and bottom-bar buttons are gone). Tests open it via the tab |
+| **Four ways to give a piece a photo or scan look** | Approved in principle; mock-ups shown (a *Photos & scans* section per piece with three actions and a *Shown in 3D* choice, plus *From photos or a 3D scan…* for new pieces). Awaiting approval before building |
+| **Three ways to build custom furniture** | Approved in principle; mock-ups shown (one *Create furniture…* chooser: Draw its outline / Combine shapes / Build from parts, last-used preselected; editing stays direct). Awaiting approval |
+| ~~Plan style twice~~ | Done: only under Design → *Presentation plan* (saved preference unchanged). The toolbar keeps the quick *Editing aids* switch while Presentation is on |
 | **Edits hidden by a model** | Fixed with a note: on pieces showing a 3D model or rebuilt look, edits to the ordinary look don't show until it's switched off. A bigger fix would hide or merge those controls |
 | **Match my room on phones** | Stacks below the 3D view; selecting an object to rebuild means leaving the panel |
-| **Phone 3D view** | Toolbars take the top half of the screen; the hint card and bottom bar cover the lower part of the view |
+| **Phone 3D view** | Improved: the camera choice stays; walls, shadows, ceiling, quality and Match my room fold behind *Options*; the scene fills the screen height (it starts ~160px higher); zoom/fit and the tip moved to the top, clear of the bottom bar. Still open: a full bottom sheet for properties (today: the bottom bar's *Edit* opens a modal), and the two-row phone header |
 
 Smaller, left as they are: corner handles in the outline editors are 26 px on touch (WCAG's
 minimum is 24 px; 44 px would crowd the drawing); the photo's remove button has a 44 px hit

@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import type {} from '../src/scene3d/diagnostics';
 import { serializeProject } from '../src/storage/projectFile';
 import { ROOMS_3D } from '../src/scene3d/testRooms';
-import { exportProject, importProject, lightweight3D, mapper, openApp, props, toolsTab, tools } from './helpers';
+import { exportProject, importProject, lightweight3D, mapper, openApp, props, radio, setPlanStyle, toolsTab, tools } from './helpers';
 
 /**
  * Phase 5 rendering: the Technical and Presentation plans, image export, and 3D quality
@@ -44,8 +44,8 @@ test.describe('Presentation plan', () => {
     // A point on the sofa's seat (the sofa is 220 × 90 at 240, 330).
     const seat = m.at(240, 320);
     const technical = await colourAt(page, seat.x, seat.y);
-    await page.getByRole('radio', { name: 'Presentation' }).click();
-    await expect(page.getByRole('radio', { name: 'Presentation' })).toHaveAttribute('aria-checked', 'true');
+    await setPlanStyle(page, 'Presentation');
+    await expect(radio(tools(page), 'Plan style', 'Presentation')).toHaveAttribute('aria-checked', 'true');
     await expect.poll(async () => JSON.stringify(await colourAt(page, seat.x, seat.y))).not.toBe(JSON.stringify(technical));
     // The plan's geometry is untouched: same project, same mapping from cm to screen.
     expect(await exportProject(page)).toEqual(before);
@@ -64,16 +64,18 @@ test.describe('Presentation plan', () => {
     expect(moved.width).toBe(220);
 
     // Editing aids reveal the selection and handles on request.
-    await page.getByLabel('Editing aids').check();
-    await expect(page.getByLabel('Editing aids')).toBeChecked();
-    await page.getByLabel('Editing aids').uncheck();
+    // The quick switch beside the plan (the Design tab has the same setting, with its full name).
+    await page.getByLabel('Editing aids', { exact: true }).check();
+    await expect(page.getByLabel('Editing aids', { exact: true })).toBeChecked();
+    await page.getByLabel('Editing aids', { exact: true }).uncheck();
 
     // Remembered, and switchable back to the precise Technical plan.
     await page.reload();
     await page.waitForSelector('.floor-plan canvas');
-    await expect(page.getByRole('radio', { name: 'Presentation' })).toHaveAttribute('aria-checked', 'true');
-    await page.getByRole('radio', { name: 'Technical' }).click();
-    await expect(page.getByRole('radio', { name: 'Technical' })).toHaveAttribute('aria-checked', 'true');
+    await toolsTab(page, 'Design');
+    await expect(radio(tools(page), 'Plan style', 'Presentation')).toHaveAttribute('aria-checked', 'true');
+    await setPlanStyle(page, 'Technical');
+    await expect(radio(tools(page), 'Plan style', 'Technical')).toHaveAttribute('aria-checked', 'true');
     expect(errors).toEqual([]);
   });
 
@@ -95,7 +97,7 @@ test.describe('Presentation plan', () => {
     const file = info.outputPath('holes.json');
     writeFileSync(file, serializeProject(ROOMS_3D.holesAndCurves()));
     await importProject(page, file);
-    await page.getByRole('radio', { name: 'Presentation' }).click();
+    await setPlanStyle(page, 'Presentation');
     const types = info.outputPath('types.json');
     writeFileSync(types, serializeProject(ROOMS_3D.furnitureTypes()));
     await importProject(page, types);
@@ -110,7 +112,7 @@ test.describe('Presentation plan', () => {
   test('works in the dark theme', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('radio', { name: 'Dark theme' }).click();
-    await page.getByRole('radio', { name: 'Presentation' }).click();
+    await setPlanStyle(page, 'Presentation');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await page.waitForTimeout(200);
     expect(errors).toEqual([]);
@@ -184,9 +186,10 @@ for (const width of [375, 768]) {
   test.describe(`Rendering controls at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 500 ? 780 : 900 }, hasTouch: true, isMobile: width < 500 });
 
-    test('the plan style switch and export fit without sideways scrolling', async ({ page }) => {
+    test('the presentation plan and export fit without sideways scrolling', async ({ page }) => {
       const errors = await openApp(page);
-      await page.getByRole('radio', { name: 'Presentation' }).click();
+      await setPlanStyle(page, 'Presentation');
+      await page.evaluate(() => window.scrollTo(0, 0));
       await expect(page.getByRole('button', { name: 'Export image' })).toBeInViewport();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
       expect(overflow).toBe(false);

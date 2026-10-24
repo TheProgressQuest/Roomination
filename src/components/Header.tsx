@@ -12,7 +12,6 @@ interface HeaderProps {
   onUndo: () => void;
   onRedo: () => void;
   onOpenProjects: () => void;
-  onOptimize: () => void;
   onTheme: (theme: ThemePreference) => void;
 }
 
@@ -45,10 +44,6 @@ export function Header(props: HeaderProps) {
       </button>
 
       <div className="header-actions">
-        <button type="button" className="secondary optimize-button" onClick={props.onOptimize} aria-label="Optimize layout" title="Optimize layout">
-          <Icon name="sparkle" size={16} />
-          <span className="optimize-label">Optimize</span>
-        </button>
         <span className={`save-status is-${props.saveStatus}`} role="status" title={SAVE_LABELS[props.saveStatus]}>
           <span className="save-dot" aria-hidden="true" />
           <span className="save-label">{SAVE_LABELS[props.saveStatus]}</span>

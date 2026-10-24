@@ -713,7 +713,6 @@ export function App() {
             setProjectsOpen(true);
           }}
           onTheme={(value) => updatePreferences({ theme: value })}
-          onOptimize={openOptimizer}
         />
 
         {activeId ? (
@@ -769,22 +768,6 @@ export function App() {
                   </button>
                 ))}
               </div>
-              {view === '2d' && (
-                <div className="segmented plan-style" role="radiogroup" aria-label="Plan style">
-                  {(['technical', 'presentation'] as const).map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={preferences.planStyle === value}
-                      className={preferences.planStyle === value ? 'is-active' : ''}
-                      onClick={() => updatePreferences({ planStyle: value })}
-                    >
-                      {value === 'technical' ? 'Technical' : 'Presentation'}
-                    </button>
-                  ))}
-                </div>
-              )}
               {view === '2d' && preferences.planStyle === 'presentation' && (
                 <label className="chip-toggle" title="Show selection outlines, handles and overlap warnings">
                   <input
@@ -898,7 +881,6 @@ export function App() {
                   onRotate={() => rotateSelected(1)}
                   onDelete={deleteSelection}
                   onAdd={() => setAddOpen(true)}
-                  onOptimize={openOptimizer}
                 />
               )}
             </div>

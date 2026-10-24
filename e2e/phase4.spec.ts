@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { exportProject, mapper, openApp, props, saveAndReload, tools, toolsTab } from './helpers';
+import { exportProject, mapper, openApp, openOptimizer, props, saveAndReload, tools, toolsTab } from './helpers';
 
 /**
  * Phase 4: tabbed navigation, the TPQ look, Feng Shui and the Bagua overlay, and the
@@ -125,7 +125,7 @@ test.describe('Feng Shui and the Bagua map', () => {
 test.describe('Optimizer modes and comparison', () => {
   test('custom weights always add up to 100%, and Feng Shui mode explains itself as interpretive', async ({ page }) => {
     const errors = await openApp(page);
-    await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+    await openOptimizer(page);
     const dialog = optimizer(page);
     await expect(dialog.getByLabel('Room is mainly a…')).toContainText('Living room (guessed from the furniture)');
     // The sample already relates the sofa to the TV; the armchair's pairing is assumed.
@@ -193,7 +193,8 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
 
     test('the optimizer and Shape Builder fit the screen', async ({ page }) => {
       await openApp(page);
-      await page.getByRole('button', { name: /Optimize/ }).first().click();
+      // The Optimize tab is its one entry point, at every width (phones included).
+      await openOptimizer(page);
       const fits = () =>
         page.evaluate(() =>
           [...document.querySelectorAll<HTMLElement>('dialog[open]')].every((d) => {

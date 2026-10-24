@@ -8,22 +8,18 @@ interface SelectionBarProps {
   onRotate: () => void;
   onDelete: () => void;
   onAdd: () => void;
-  onOptimize: () => void;
 }
 
 /**
  * Touch-friendly controls under the plan on phones and tablets: a visible "Edit"
  * button (double-tap is a shortcut, never the only way), plus rotate and delete.
  */
-export function SelectionBar({ selectedName, canRotate, onEdit, onRotate, onDelete, onAdd, onOptimize }: SelectionBarProps) {
+export function SelectionBar({ selectedName, canRotate, onEdit, onRotate, onDelete, onAdd }: SelectionBarProps) {
   if (!selectedName) {
     return (
       <div className="selection-bar">
         <p className="selection-hint">Tap an item to select it. Double-tap to edit.</p>
         <div className="button-row tight">
-          <button type="button" className="secondary" onClick={onOptimize} aria-label="Optimize layout">
-            <Icon name="sparkle" size={16} />
-          </button>
           <button type="button" className="primary" onClick={onAdd}>
             <Icon name="plus" size={16} /> Add
           </button>

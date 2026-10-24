@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CameraPose, Project } from '../../model/types';
 import { formatLength } from '../../model/units';
 import type {} from '../../scene3d/diagnostics';
@@ -75,6 +75,9 @@ export default function View3D(props: View3DProps) {
   const [status, setStatus] = useState<Status>('ready');
   /** Bumped to rebuild the viewer after the graphics context was lost. */
   const [attempt, setAttempt] = useState(0);
+  /** Phones: the extra view options (walls, shadows, ceiling, quality, Match my room), folded away. */
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsId = useId();
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   // Callbacks change identity on every render; the viewer always calls the latest ones.
@@ -191,6 +194,11 @@ export default function View3D(props: View3DProps) {
             </button>
           ))}
         </div>
+        {/* Phones: the camera stays in view; everything else folds behind one button. */}
+        <button type="button" className={`secondary view3d-more${optionsOpen ? ' is-active' : ''}`} aria-expanded={optionsOpen} aria-controls={optionsId} aria-label="View options" title="View options: walls, shadows, ceiling, quality, Match my room" onClick={() => setOptionsOpen((open) => !open)}>
+          <Icon name="sliders" size={16} /> Options
+        </button>
+        <div id={optionsId} className={`view3d-extras${optionsOpen ? ' is-open' : ''}`}>
         <div className="segmented" role="radiogroup" aria-label="Walls">
           {WALL_OPTIONS.map((option) => (
             <button
@@ -228,6 +236,7 @@ export default function View3D(props: View3DProps) {
             <option value="high">High</option>
           </select>
         </label>
+        </div>
       </div>
 
       <div className="view3d-body" ref={bodyRef}>

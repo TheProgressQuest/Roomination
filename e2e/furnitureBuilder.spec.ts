@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type {} from '../src/scene3d/diagnostics';
-import { exportProject, lightweight3D, mapper, openApp, props, saveAndReload, selectInList, toolsTab, tools } from './helpers';
+import { exportProject, lightweight3D, mapper, openApp, props, saveAndReload, selectInList, setPlanStyle, toolsTab, tools } from './helpers';
 
 /**
  * The Advanced Furniture Builder: pieces built from components (base, backrests, arms,
@@ -165,7 +165,7 @@ test('the presentation plan shades the component piece; the technical plan shows
   const b = m.at(piece.x + piece.width / 2 - 4, piece.y - piece.depth / 2 + piece.depth * 0.35);
   const box = { x0: a.x, y0: a.y, x1: b.x, y1: b.y };
   const technical = await shadingSpread(page, box);
-  await page.getByRole('radio', { name: 'Presentation' }).click();
+  await setPlanStyle(page, 'Presentation');
   await expect.poll(() => shadingSpread(page, box)).toBeGreaterThan(technical + 2);
   await info.attach('component-loveseat-presentation.png', { body: await page.locator('.canvas-panel').screenshot(), contentType: 'image/png' });
   // Collisions use the footprint: it's still exactly the size it was.

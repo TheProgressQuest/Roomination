@@ -2,12 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { serializeProject } from '../src/storage/projectFile';
 import { lShapedStudio, overcrowded } from '../src/optimizer/testRooms';
-import { exportProject, furnitureRows, importProject, openApp, props, saveAndReload, selectInList, tools, toolsTab } from './helpers';
+import { exportProject, furnitureRows, importProject, openApp, openOptimizer, props, saveAndReload, selectInList, tools, toolsTab } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Optimize layout' });
 
 async function findLayouts(page: Page) {
-  await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+  await openOptimizer(page);
   await dialog(page).getByRole('button', { name: 'Find layouts' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Find layouts again' })).toBeVisible({ timeout: 60_000 });
 }
@@ -40,7 +40,7 @@ test.describe('Optimize Layout', () => {
     await page.locator('.preview-bar').getByRole('button', { name: 'Exit preview' }).click();
     expect(await exportProject(page)).toEqual(before);
 
-    await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+    await openOptimizer(page);
     await dialog(page).getByRole('button', { name: 'Apply layout' }).first().click();
     await expect(page.locator('.toast')).toContainText('Applied Layout A');
     const after = await exportProject(page);
@@ -72,7 +72,7 @@ test.describe('Optimize Layout', () => {
     await page.getByRole('button', { name: /^Projects/ }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Empty room' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
-    await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+    await openOptimizer(page);
     await expect(dialog(page).locator('.suggestion-card')).toHaveCount(0);
   });
 
@@ -83,7 +83,7 @@ test.describe('Optimize Layout', () => {
     await expect(dialog(page).getByRole('region', { name: 'Saved layouts' })).toContainText('Layout B');
     await dialog(page).getByRole('button', { name: 'Close' }).click();
     await saveAndReload(page);
-    await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+    await openOptimizer(page);
     const saved = dialog(page).getByRole('region', { name: 'Saved layouts' });
     await expect(saved).toContainText('Layout B');
     await saved.getByRole('button', { name: 'Apply' }).click();
@@ -93,7 +93,7 @@ test.describe('Optimize Layout', () => {
   test('can be cancelled while running; the layout is unchanged', async ({ page }) => {
     await openApp(page);
     const before = await exportProject(page);
-    await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+    await openOptimizer(page);
     await dialog(page).getByRole('radiogroup', { name: 'Effort' }).getByRole('radio', { name: 'Thorough' }).click();
     await dialog(page).getByRole('button', { name: 'Find layouts' }).click();
     await expect(dialog(page).locator('progress')).toBeVisible();
@@ -177,7 +177,7 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
 
     test('dialog fits, scrolls, and Apply / Cancel are reachable', async ({ page }) => {
       await openApp(page);
-      await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+      await openOptimizer(page);
       const box = (await dialog(page).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
 import { SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, sampleToRoomPlan } from '../src/scan/samples';
 import { writeFileSync } from 'node:fs';
-import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, selectInList } from './helpers';
+import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, selectInList, setPlanStyle } from './helpers';
 
 /**
  * Importing a LiDAR room scan: choose a file, review and correct it, create a new project.
@@ -215,7 +215,7 @@ test.describe('scanned rooms in the rest of the app', { tag: '@3d' }, () => {
     await dialog(page).getByRole('button', { name: 'Create new project' }).click();
     await expect(dialog(page)).toBeHidden();
 
-    await page.getByRole('radio', { name: 'Presentation' }).click();
+    await setPlanStyle(page, 'Presentation');
     await expect(page.locator('.floor-plan canvas').first()).toBeVisible();
     await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
     const panel = page.getByRole('region', { name: '3D view' });

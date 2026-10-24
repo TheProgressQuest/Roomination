@@ -241,15 +241,6 @@ h3 {
   }
 }
 
-.plan-style {
-  flex: none;
-  border: 1px solid var(--border);
-}
-
-.plan-style button {
-  min-height: 36px;
-}
-
 .view-switch {
   flex: none;
   flex-wrap: nowrap;
@@ -528,6 +519,15 @@ h3 {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* Wider screens: every option shows in the toolbar; the fold-away button isn't needed. */
+.view3d-more {
+  display: none;
+}
+
+.view3d-extras {
+  display: contents;
 }
 
 .view3d-select {
@@ -1788,10 +1788,6 @@ select {
 }
 
 /* ---------- Layout optimizer ---------- */
-.optimize-button {
-  min-height: 38px;
-}
-
 .dialog.optimizer-dialog {
   width: min(1180px, calc(100vw - 24px));
 }
@@ -4336,9 +4332,6 @@ select {
   .save-label {
     display: none;
   }
-  .optimize-label {
-    display: none;
-  }
 }
 
 /* Phones: the plan comes first at full width; tools follow below it. */
@@ -4392,29 +4385,70 @@ select {
     margin-left: 0;
     order: 1;
   }
-  .canvas-head .plan-style {
-    order: 2;
-  }
   .canvas-head > .chip-toggle {
     order: 3;
-  }
-  .canvas-head .plan-style {
-    flex: 1 1 auto;
-  }
-  .canvas-head .plan-style button {
-    flex: 1;
   }
   .view-switch button {
     flex: 1;
     justify-content: center;
   }
+  /*
+   * Phones, 3D: the scene comes first. The camera choice stays in the toolbar; the other
+   * options fold behind "View options". The scene is as tall as the screen allows, and the
+   * buttons inside it sit at the top, clear of the bottom bar.
+   */
+  .view3d-toolbar {
+    flex-wrap: wrap;
+  }
+  .view3d-toolbar > .segmented {
+    flex: 1 1 auto;
+  }
+  .view3d-toolbar > .segmented button {
+    flex: 1;
+    padding-inline: 6px;
+    white-space: nowrap;
+  }
+  .view3d-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .view3d-extras {
+    display: none;
+  }
+  .view3d-extras.is-open {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
   .canvas-panel.view3d-panel,
   .canvas-panel.view3d-loading {
-    aspect-ratio: 4 / 5;
+    aspect-ratio: auto;
+    height: max(360px, calc(100svh - 330px));
+    max-height: none;
+  }
+  .view3d-camera-buttons {
+    top: 10px;
+    bottom: auto;
   }
   .view3d-hint {
+    top: 10px;
+    bottom: auto;
     flex-direction: column;
     align-items: flex-start;
+  }
+  /* The bottom bar already names the selection; the tip comes first while it's showing. */
+  .view3d-panel:has(.view3d-hint) .view3d-selected {
+    display: none;
+  }
+  .view3d-selected {
+    padding: 6px 10px;
   }
   .tools-panel {
     order: 2;

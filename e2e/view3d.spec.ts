@@ -5,7 +5,7 @@ import { ROOMS_3D } from '../src/scene3d/testRooms';
 import type { Project } from '../src/model/types';
 import type {} from '../src/scene3d/diagnostics';
 import { serializeProject } from '../src/storage/projectFile';
-import { exportProject, importProject, lightweight3D, openApp, props, selectInList, tools, toolsTab } from './helpers';
+import { exportProject, importProject, lightweight3D, openApp, openOptimizer, props, selectInList, tools, toolsTab } from './helpers';
 
 /**
  * The 3D view. Headless Chromium renders WebGL in software (SwiftShader), so these tests
@@ -323,7 +323,7 @@ test.describe('3D rooms', { tag: '@3d' }, () => {
 
   test('renders an optimized layout exactly where the optimizer put it', async ({ page }) => {
     await openApp(page);
-    await page.getByRole('button', { name: 'Optimize layout' }).first().click();
+    await openOptimizer(page);
     const dialog = page.getByRole('dialog', { name: 'Optimize layout' });
     await dialog.getByRole('button', { name: 'Find layouts' }).click();
     await expect(dialog.getByRole('button', { name: 'Find layouts again' })).toBeVisible({ timeout: 60_000 });
@@ -359,7 +359,15 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
       expect(overflow).toEqual({ scroll: false, offenders: [] });
       const canvas = (await panel3d(page).locator('canvas').boundingBox())!;
       expect(canvas.height).toBeGreaterThan(220);
+      // Phones: the scene gets most of the screen (the extra options fold away).
+      if (width < 768) expect(canvas.height).toBeGreaterThan((width < 500 ? 780 : 900) * 0.5);
       await expect(panel3d(page).locator('canvas')).toHaveCSS('touch-action', 'none');
+      // On phones the walls, shadows, ceiling, quality and Match my room are one tap away.
+      const more = page.getByRole('button', { name: 'View options' });
+      if (await more.isVisible()) {
+        await more.click();
+        await expect(page.getByRole('checkbox', { name: 'Shadows' })).toBeVisible();
+      }
       // Every control is fully on screen and, on touch screens, at least 44 px tall.
       for (const control of await page.locator('.view3d-toolbar button, .view3d-toolbar .chip-toggle span, .view3d-camera-buttons button, .view-switch button').all()) {
         const box = (await control.boundingBox())!;

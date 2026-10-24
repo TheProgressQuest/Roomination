@@ -76,6 +76,18 @@ export async function toolsTab(page: Page, name: ToolsTabName) {
   await expect(tab).toHaveAttribute('aria-selected', 'true');
 }
 
+/** Opens the layout optimizer, from the Optimize tab (its only entry point). */
+export async function openOptimizer(page: Page) {
+  await toolsTab(page, 'Optimize');
+  await tools(page).getByRole('button', { name: /^Optimize layout/ }).click();
+}
+
+/** Sets the 2D plan style, under Design → Presentation plan (its only control). */
+export async function setPlanStyle(page: Page, style: 'Technical' | 'Presentation') {
+  await toolsTab(page, 'Design');
+  await radio(tools(page), 'Plan style', style).click();
+}
+
 /** Furniture listed in the Furnish tab (open it first). */
 export const furnitureRows = (page: Page) => tools(page).locator('.furniture-list li');
 /** Features and stairs listed in the Build tab (open it first). */
