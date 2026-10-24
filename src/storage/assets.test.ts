@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import { createFurniture, createSampleProject } from '../model/sample';
-import { deleteAssets, existingAssetIds, getAsset, putAsset, sniffImageType, StorageFullError, unusedAssets } from './assets';
+import { deleteAssets, existingAssetIds, getAsset, InsecurePageError, putAsset, sniffImageType, StorageFullError, unusedAssets } from './assets';
 import { db } from './db';
 import { deleteLibraryItem, duplicateLibraryItem, furnitureOrigin, listLibraryRecords, saveToLibrary, toTemplate } from './library';
 import { saveProject } from './projectStore';
@@ -29,6 +29,18 @@ describe('photo storage', () => {
     // A photo saved by an earlier version, as a Blob.
     await db.assets.put({ id: 'e'.repeat(64), blob: png(9), type: 'image/png', width: 10, height: 10, bytes: 12, createdAt: 1 });
     expect(new Uint8Array(await (await getAsset('e'.repeat(64)))!.blob.arrayBuffer())[8]).toBe(9);
+  });
+
+  it('explains why saving fails on a plain http:// page (no secure hashing there)', async () => {
+    const subtle = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle');
+    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+    try {
+      await expect(putAsset(png(21), size)).rejects.toBeInstanceOf(InsecurePageError);
+      await expect(putAsset(png(21), size)).rejects.toThrow(/https:\/\//);
+    } finally {
+      if (subtle) Object.defineProperty(globalThis.crypto, 'subtle', subtle);
+      else delete (globalThis.crypto as { subtle?: unknown }).subtle;
+    }
   });
 
   it('stores identical photos once, under the hash of their bytes', async () => {

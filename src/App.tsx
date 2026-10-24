@@ -40,7 +40,7 @@ import { canRedo, canUndo, createEditorState, editorReducer, type EditorAction }
 import { objectId, type Selection, type ToolMode } from './state/selection';
 import { useOptimizer } from './state/useOptimizer';
 import { useMediaQuery, usePreferences, useResolvedTheme, type BoardPreferences, type ResolvedTheme } from './state/preferences';
-import { StorageFullError } from './storage/assets';
+import { InsecurePageError, StorageFullError } from './storage/assets';
 import type { ImportResult } from './storage/projectPackage';
 import { projectAssetIds } from './storage/projectFile';
 import {
@@ -264,7 +264,7 @@ export function App() {
       const { importProjectFile } = await import('./storage/projectPackage');
       result = await importProjectFile(file);
     } catch (error) {
-      setImportMessage({ kind: 'error', text: error instanceof StorageFullError ? error.message : 'That file couldn’t be imported.' });
+      setImportMessage({ kind: 'error', text: error instanceof StorageFullError || error instanceof InsecurePageError ? error.message : 'That file couldn’t be imported.' });
       return;
     }
     if (!result.ok) {

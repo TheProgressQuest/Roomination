@@ -8,7 +8,7 @@ import { guessKind } from '../model/furnitureKinds';
 import { createFurniture } from '../model/sample';
 import type { Furniture, MeshModel, UnitSystem } from '../model/types';
 import { cmToInput, formatLength, inputToCm, inputUnitLabel } from '../model/units';
-import { putAsset, StorageFullError } from '../storage/assets';
+import { InsecurePageError, putAsset, StorageFullError } from '../storage/assets';
 import { toTemplate } from '../storage/library';
 import type { FurnitureTemplate } from '../storage/projectFile';
 import { ModelFileError } from './inspect';
@@ -97,7 +97,7 @@ export default function ImportModelDialog({ open, units, target, onClose, onAdd,
       }
       setStatus({ kind: 'idle' });
     } catch (error) {
-      const message = error instanceof ModelFileError || error instanceof StorageFullError ? error.message : 'The model couldn’t be saved on this device. Browser storage may be full or blocked.';
+      const message = error instanceof ModelFileError || error instanceof StorageFullError || error instanceof InsecurePageError ? error.message : 'The model couldn’t be saved on this device. Browser storage may be full or blocked.';
       setStatus({ kind: 'error', message });
     }
   }

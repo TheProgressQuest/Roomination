@@ -31,7 +31,18 @@ export function sniffImageType(bytes: Uint8Array): ImageType | null {
   return null;
 }
 
+/**
+ * Thrown when the page isn't a secure context (an http:// address on the network, as when
+ * testing from another device), where browsers withhold the hashing used to store photos.
+ */
+export class InsecurePageError extends Error {
+  constructor() {
+    super('Photos and 3D models can only be saved when Roomination is opened from an https:// address (or localhost). This address is plain http://. On a phone, use the https:// test address.');
+  }
+}
+
 export async function sha256Hex(data: ArrayBuffer): Promise<string> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) throw new InsecurePageError();
   const digest = await crypto.subtle.digest('SHA-256', data);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

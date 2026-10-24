@@ -8,6 +8,8 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| Real-object test | The radio test in [real-object-test.md](real-object-test.md) on a real iPhone: import time, memory peak, frame rate, budget fallback, persistence and transfer. Prepared, not yet run | M8 |
+| Real-object test | iPhone file picker: whether .glb files are selectable with the importer's file-type filter (iOS may not know the GLB type and grey it out) | M8 |
 | 3D model import | A real phone scan end to end (Reality Composer USDZ, Scaniverse GLB): only CC0 models (Poly Haven) and synthetic files were tested; the USDZ was packaged from Poly Haven's USD files | M7 |
 | 3D model import | Real iPhone: memory and frame rate with several models; file picking of multi-file glTF in Files; the preview's touch orbit | M7 |
 | 3D model import | Full regression with the new Content Security Policy (production only): smoke tests pass; check Smart remove, image export and the optimizer worker | M7 |
@@ -25,6 +27,18 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Testing on another device (M8):** web apps can only store photos and models on https://
+  (or localhost) pages: browsers withhold the hashing they use on plain http:// network
+  addresses. `npm run phone-test` serves the build over HTTPS with a test certificate limited
+  to local addresses (kept in `~/.roomination-phone-test`). Opening a dev server by its IP
+  address over http now shows a clear message instead of "storage may be full". The live site
+  (https) is unaffected.
+- **Moving between devices:** projects move by **Export file / Import file** (the zip carries
+  photos and models). *My Library* belongs to each browser and isn't exported; a future sync or
+  library export would be needed for that.
+- **Large scan textures:** an Object Capture USDZ can carry 4K–8K textures; they're decoded at
+  full size while previewing (then saved at most 2048 px). Watch memory on the iPhone with big
+  scans.
 - **Import 3D model (M7, prototype):** see [3d-model-import.md](3d-model-import.md).
   - **Formats:** GLB, glTF (multi-file) and USDZ/USDC/USDA. No OBJ/FBX/PLY; no Draco, meshopt
     or KTX2; no EXR textures.

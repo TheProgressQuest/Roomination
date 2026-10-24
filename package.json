@@ -13,6 +13,8 @@
     "typecheck": "tsc -b",
     "test:e2e": "playwright test",
     "check": "tsc -b && vite build",
+    "phone-test": "npm run build && node tools/serve-phone.mjs",
+    "inspect-model": "node tools/inspect-model.mjs",
     "test:smoke": "playwright test --grep @smoke --project=dev",
     "test:full": "vitest run && playwright test --grep-invert @3d && playwright test --grep @3d --workers=1"
   },
