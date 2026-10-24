@@ -23,6 +23,27 @@ describe('changing a piece’s model', () => {
   });
 });
 
+describe('fitting a model to a scanned size', () => {
+  it('puts a vanity’s worktop at the measured height; the tap keeps its size above it', () => {
+    const template = pick('vanity-drop-in');
+    const tap = template.components!.find((c) => c.name === 'Tap')!;
+    const fitted = fitTemplate(template, { width: 93.2, depth: 52.9, height: 79.1 });
+    const worktop = fitted.components!.find((c) => c.name === 'Worktop')!;
+    expect(worktop.z + worktop.height).toBeCloseTo(79.1, 1);
+    const fittedTap = fitted.components!.find((c) => c.name === 'Tap')!;
+    expect(fittedTap.height).toBe(tap.height);
+    expect(fittedTap.z).toBeCloseTo(79.1, 0);
+    // The piece's height is the measured one (things rest on the worktop at that height).
+    expect(fitted.height).toBe(79.1);
+  });
+
+  it('stretches a piece with nothing above its body as before', () => {
+    const fitted = fitTemplate(pick('dresser'), { width: 100, depth: 50, height: 100 });
+    const top = Math.max(...fitted.components!.map((c) => c.z + c.height));
+    expect(top).toBeCloseTo(100, 0);
+  });
+});
+
 describe('raised and wall-mounted pieces', () => {
   it('mounts a mirror on the nearest wall, facing into the room, and saves its height', () => {
     const project = createEmptyProject(); // 400 × 350

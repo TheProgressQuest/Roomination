@@ -12,6 +12,8 @@ import { listLibraryRecords } from './library';
  */
 
 export type ImageType = 'image/png' | 'image/jpeg' | 'image/webp';
+/** Imported 3D models are stored next to photos, always as GLB. */
+export type AssetType = ImageType | 'model/gltf-binary';
 
 /** Thrown when the browser refuses to store more (its quota is full or storage is blocked). */
 export class StorageFullError extends Error {
@@ -34,14 +36,20 @@ export async function sha256Hex(data: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** An image, or a GLB model (glTF 2 binary), recognised by its first bytes; null for anything else. */
+export function sniffAssetType(bytes: Uint8Array): AssetType | null {
+  if (bytes[0] === 0x67 && bytes[1] === 0x6c && bytes[2] === 0x54 && bytes[3] === 0x46 && bytes[4] === 2) return 'model/gltf-binary';
+  return sniffImageType(bytes);
+}
+
 /**
- * Stores an image and returns its id. The same bytes always get the same id, so storing a
+ * Stores an image (or an imported model's GLB) and returns its id. The same bytes always get the same id, so storing a
  * photo twice keeps one copy. Throws StorageFullError when the browser is out of space.
  */
 export async function putAsset(blob: Blob, size: { width: number; height: number }): Promise<string> {
   const data = await blob.arrayBuffer();
-  const type = sniffImageType(new Uint8Array(data.slice(0, 16)));
-  if (!type) throw new Error('Only PNG, JPEG and WebP images can be stored.');
+  const type = sniffAssetType(new Uint8Array(data.slice(0, 16)));
+  if (!type) throw new Error('Only PNG, JPEG and WebP images (and GLB models) can be stored.');
   const id = await sha256Hex(data);
   try {
     if (await db.assets.get(id)) return id;

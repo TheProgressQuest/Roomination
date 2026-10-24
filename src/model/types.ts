@@ -239,6 +239,8 @@ export interface Furniture {
   appearance?: FurnitureAppearance;
   /** Rebuilt from photos (Reconstruct): visual only, never the measurements. */
   photoModel?: PhotoModel;
+  /** A real 3D model (Import 3D model): visual only; drawn instead of a photo model. */
+  mesh?: MeshModel;
   /** A light fitting's light (lamps, wall lights, vanity bars). Missing = gives no light. */
   light?: FurnitureLight;
   /**
@@ -463,6 +465,33 @@ export interface PhotoModel {
   front?: PhotoModelView;
   side?: PhotoModelView;
   top?: PhotoModelView;
+  /** Kept but not shown (to compare with the ordinary look). */
+  off?: boolean;
+}
+
+/**
+ * A real 3D model of the piece (Import 3D model: a GLB, glTF or USDZ from a scanning app),
+ * stored on this device as one GLB. Purely visual, like a photo model: it's drawn to fill the
+ * piece's measured box, while placement, collisions, the plan and the optimizer keep using the
+ * piece's width, depth and height.
+ */
+export interface MeshModel {
+  /** The model, stored as a GLB (same store as photos, named by its hash). */
+  assetId: string;
+  /** Triangles in the model (for the per-device drawing budget). */
+  triangles: number;
+  /**
+   * Turns that set it upright and facing front, applied before fitting: about the
+   * left-right axis (`x`, quarter turns), the up axis (`y`, any angle) and the front-back axis
+   * (`z`, quarter turns), in degrees.
+   */
+  turn: { x: number; y: number; z: number };
+  /** Its size as modelled (cm, after turning), to restore its proportions. */
+  natural: { width: number; depth: number; height: number };
+  /** Changing one dimension scales the others (default true). */
+  lockAspect?: boolean;
+  /** The file it came from (for its properties). */
+  source?: string;
   /** Kept but not shown (to compare with the ordinary look). */
   off?: boolean;
 }

@@ -385,6 +385,8 @@ export class RoomViewer {
       framesRendered: this.framesRendered,
       pixelRatio: this.renderer.getPixelRatio(),
       animating: this.transition !== null,
+      modelTriangles: this.furniture.modelTriangles,
+      modelFallbacks: this.furniture.modelFallbacks,
     };
   }
 

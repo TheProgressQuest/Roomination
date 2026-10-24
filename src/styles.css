@@ -503,6 +503,17 @@ h3 {
 }
 
 /* Rebuild object: big enough to tap the background accurately, scaling down on narrow panels. */
+/* Import 3D model: the preview fills the dialog's width, square-ish, and takes touch drags. */
+.model-preview {
+  display: block;
+  width: 100%;
+  height: min(60vw, 320px);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: linear-gradient(#f6f7f9, #e9ebef);
+  touch-action: none;
+}
+
 .rebuild-preview canvas {
   width: 100%;
   max-width: 280px;

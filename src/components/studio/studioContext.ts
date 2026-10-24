@@ -14,7 +14,9 @@ export type StudioRequest =
   /** Start from photographs. */
   | { mode: 'photos' }
   /** Build a piece from components (Advanced Furniture Builder); a new one, or one in the room. */
-  | { mode: 'components'; furnitureId?: string };
+  | { mode: 'components'; furnitureId?: string }
+  /** Import a real 3D model (GLB, glTF, USDZ): as a new piece, or as the look of one in the room. */
+  | { mode: 'model'; furnitureId?: string };
 
 export const StudioContext = createContext<(request: StudioRequest) => void>(() => {});
 

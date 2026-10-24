@@ -19,6 +19,7 @@ import {
   Vector2,
   Vector3,
   BoxGeometry,
+  Box3,
   RepeatWrapping,
   Texture,
   type Intersection,
@@ -29,7 +30,10 @@ import { boundingBox, signedArea2, type Polygon } from '../../model/polygon';
 import type { SurfaceFinish } from '../../model/types';
 import type { Ring } from '../../model/shape';
 import type { SurfaceKind } from '../../render/materials';
-import { loadAssetImage } from '../../storage/assets';
+import { getAsset, loadAssetImage } from '../../storage/assets';
+
+/** Triangles of imported 3D models drawn at each quality (Low suits phones). */
+const MODEL_BUDGET: Record<PartDetail, number> = { low: 150_000, medium: 600_000, high: 1_500_000 };
 import { photoModelMesh } from '../../model/photoModel';
 import { CM_PER_SCENE_UNIT, type SceneFurniture } from '../model';
 import { lookKey, type FurnitureMaterials, type SurfaceLook } from './furnitureMaterials';
@@ -103,6 +107,15 @@ export class FurnitureLayer {
   batches = 0;
   /** Photo textures still loading (an image export waits for them). */
   pendingPhotos = 0;
+  /** Imported 3D models: loaded ones (by asset id), ones loading, and ones that couldn't be read. */
+  private models = new Map<string, Cached<{ root: Group; dispose(): void }>>();
+  private loadingModels = new Map<string, Promise<{ root: Group; dispose(): void } | null>>();
+  private failedModels = new Set<string>();
+  /** Model boxes after turning (metres), by asset and turn. */
+  private modelBoxes = new Map<string, Box3>();
+  /** Triangles of imported models drawn in the last build, and pieces shown as boxes instead. */
+  modelTriangles = 0;
+  modelFallbacks = 0;
   private readonly pieces = new Map<string, PieceRecord>();
   private readonly batchOwners = new Map<BatchedMesh, string[]>();
   private contactShadows: InstancedMesh | null = null;
@@ -149,10 +162,24 @@ export class FurnitureLayer {
     const generation = this.generation;
     const bySurface = new Map<string, { surface: SurfaceKind; finish: SurfaceFinish; look: SurfaceLook; casts: boolean; parts: PlacedPart[] }>();
     let parts = 0;
+    let modelTriangles = 0;
+    let fallbacks = 0;
     for (const piece of furniture) {
       this.pieces.set(piece.id, { footprint: piece, batched: [], extruded: null, owned: [] });
       if (piece.extruded) this.addExtruded(piece, generation);
       if (piece.photoModel) this.addPhotoModel(piece, generation);
+      if (piece.mesh) {
+        // Imported 3D models share a triangle budget for this quality; beyond it (or if a model
+        // can't be read) a piece shows a plain box at its measured size.
+        const fits = !this.failedModels.has(piece.mesh.assetId) && modelTriangles + piece.mesh.triangles <= MODEL_BUDGET[this.detail];
+        if (fits) {
+          modelTriangles += piece.mesh.triangles;
+          this.addMeshModel(piece, generation);
+        } else {
+          this.addModelFallback(piece);
+          fallbacks++;
+        }
+      }
       const placement = new Matrix4().compose(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
       for (const part of piece.parts) {
         if (part.photo) {
@@ -178,12 +205,14 @@ export class FurnitureLayer {
     }
     for (const group of bySurface.values()) this.addBatch(group.surface, group.finish, group.look, group.casts, group.parts);
     this.addContactShadows(furniture);
-    this.partCount = parts + furniture.filter((f) => f.extruded || f.photoModel).length;
-    this.batches = bySurface.size + furniture.filter((f) => f.extruded || f.photoModel).length;
+    this.partCount = parts + furniture.filter((f) => f.extruded || f.photoModel || f.mesh).length;
+    this.batches = bySurface.size + furniture.filter((f) => f.extruded || f.photoModel || f.mesh).length;
+    this.modelTriangles = modelTriangles;
+    this.modelFallbacks = fallbacks;
     this.applySelection();
     // Free shapes and photos that nothing in this rebuild used. (Photos still loading are
     // claimed when they arrive, so they're kept until the following rebuild.)
-    for (const cache of [this.geometries, this.photos, this.repeats] as Map<string, Cached<{ dispose(): void }>>[]) {
+    for (const cache of [this.geometries, this.photos, this.repeats, this.models] as Map<string, Cached<{ dispose(): void }>>[]) {
       for (const [key, entry] of cache) {
         if (entry.generation < generation) {
           entry.value.dispose();
@@ -231,7 +260,7 @@ export class FurnitureLayer {
 
   dispose() {
     this.clear();
-    for (const cache of [this.geometries, this.photos, this.repeats] as Map<string, Cached<{ dispose(): void }>>[]) {
+    for (const cache of [this.geometries, this.photos, this.repeats, this.models] as Map<string, Cached<{ dispose(): void }>>[]) {
       for (const entry of cache.values()) entry.value.dispose();
       cache.clear();
     }
@@ -425,6 +454,105 @@ export class FurnitureLayer {
     const record = this.pieces.get(piece.id)!;
     record.extruded = mesh;
     record.owned = owned;
+    this.group.add(mesh);
+  }
+
+  /** An imported 3D model, fitted to the piece's measured box (loaded once, then shared). */
+  private addMeshModel(piece: SceneFurniture, generation: number) {
+    const id = piece.mesh!.assetId;
+    const ready = this.models.get(id);
+    if (ready) {
+      ready.generation = generation;
+      void this.placeModel(piece, ready.value.root, generation);
+      return;
+    }
+    this.pendingPhotos++;
+    this.loadModel(id)
+      .then((loaded) => {
+        if (!loaded) {
+          this.failedModels.add(id);
+          if (generation === this.generation) this.addModelFallback(piece);
+          this.onChange();
+          return;
+        }
+        const entry = this.cached(this.models, id, generation, () => loaded);
+        if (entry !== loaded) loaded.dispose();
+        if (generation !== this.generation) return;
+        void this.placeModel(piece, entry.root, generation).then(() => this.onChange());
+      })
+      .finally(() => this.pendingPhotos--);
+  }
+
+  private loadModel(id: string): Promise<{ root: Group; dispose(): void } | null> {
+    const loading = this.loadingModels.get(id);
+    if (loading) return loading;
+    const promise = (async () => {
+      try {
+        const asset = await getAsset(id);
+        if (!asset) return null;
+        const { parseStoredGlb, disposeModel } = await import('../../mesh/loadModel');
+        const root = await parseStoredGlb(await asset.blob.arrayBuffer());
+        root.updateMatrixWorld(true);
+        return { root, dispose: () => disposeModel(root) };
+      } catch {
+        return null;
+      } finally {
+        this.loadingModels.delete(id);
+      }
+    })();
+    this.loadingModels.set(id, promise);
+    return promise;
+  }
+
+  /** Adds the model's meshes for one piece: turned upright, then scaled to its box. */
+  private async placeModel(piece: SceneFurniture, root: Group, generation: number) {
+    const model = piece.mesh!;
+    const boxKey = `${model.assetId}|${model.turn.x}|${model.turn.y}|${model.turn.z}`;
+    let box = this.modelBoxes.get(boxKey);
+    const { turnedBox, turnQuaternion } = await import('../../mesh/loadModel');
+    if (!box) {
+      box = turnedBox(root, model.turn);
+      this.modelBoxes.set(boxKey, box);
+    }
+    // A newer build has replaced this one while the loader module arrived: it places its own.
+    if (generation !== this.generation || !this.pieces.has(piece.id)) return;
+    const size = box.getSize(new Vector3());
+    const scale = new Vector3(m(piece.width) / Math.max(size.x, 1e-6), m(piece.height) / Math.max(size.y, 1e-6), m(piece.depth) / Math.max(size.z, 1e-6));
+    const placement = new Matrix4().compose(new Vector3(m(piece.x), m(piece.elevation), m(piece.y)), new Quaternion().setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180), new Vector3(1, 1, 1));
+    const centre = box.getCenter(new Vector3());
+    const fit = placement
+      .multiply(new Matrix4().makeScale(scale.x, scale.y, scale.z))
+      .multiply(new Matrix4().makeTranslation(-centre.x, -box.min.y, -centre.z))
+      .multiply(new Matrix4().makeRotationFromQuaternion(turnQuaternion(model.turn)));
+    root.traverse((o) => {
+      const source = o as Mesh;
+      if (!source.isMesh) return;
+      const mesh = new Mesh(source.geometry, source.material);
+      mesh.matrixAutoUpdate = false;
+      mesh.matrix.copy(fit.clone().multiply(source.matrixWorld));
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.furnitureId = piece.id;
+      mesh.name = `furniture:${piece.id}`;
+      this.group.add(mesh);
+    });
+  }
+
+  /** A plain box at the piece's measured size, for a model that's over budget or unreadable. */
+  private addModelFallback(piece: SceneFurniture) {
+    const record = this.pieces.get(piece.id);
+    if (!record) return;
+    const geometry = this.cached(this.geometries, 'model-fallback-box', this.generation, () => new BoxGeometry(1, 1, 1).translate(0, 0.5, 0));
+    const material = this.materials.create('custom', 'matte', '#b9b2a6');
+    record.owned.push(material);
+    const mesh = new Mesh(geometry, material);
+    mesh.position.set(m(piece.x), m(piece.elevation), m(piece.y));
+    mesh.quaternion.setFromAxisAngle(UP, (-piece.rotation * Math.PI) / 180);
+    mesh.scale.set(m(piece.width), m(piece.height), m(piece.depth));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.furnitureId = piece.id;
+    mesh.name = `furniture:${piece.id}`;
     this.group.add(mesh);
   }
 

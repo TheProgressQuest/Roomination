@@ -1,6 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from 'fflate';
 import type { Furniture, Project } from '../model/types';
-import { existingAssetIds, getAsset, putAsset, sniffImageType } from './assets';
+import { existingAssetIds, getAsset, putAsset, sniffAssetType } from './assets';
+import { inspectGltf, MAX_STORED_MODEL_BYTES, parseGlb } from '../mesh/inspect';
 import { MAX_IMPORT_BYTES, furnitureAssetIds, parseProjectFile, projectAssetIds, serializeProject, type ParseResult } from './projectFile';
 
 /**
@@ -14,11 +15,14 @@ import { MAX_IMPORT_BYTES, furnitureAssetIds, parseProjectFile, projectAssetIds,
  *   SVG), must decode, and are re-hashed; sizes are capped.
  */
 
-const MAX_ZIP_BYTES = 80 * 1024 * 1024;
+/** Projects with photos and 3D models (models are up to 40 MB each). */
+const MAX_ZIP_BYTES = 200 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 60 * 1024 * 1024;
-const ASSET_PATH = /^assets\/([0-9a-f]{64})\.(png|jpe?g|webp)$/;
-const EXTENSIONS: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+const ASSET_PATH = /^assets\/([0-9a-f]{64})\.(png|jpe?g|webp|glb)$/;
+/** Imported 3D models in a package, together. */
+const MAX_TOTAL_MODEL_BYTES = 160 * 1024 * 1024;
+const EXTENSIONS: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'model/gltf-binary': 'glb' };
 
 export interface ExportedFile {
   blob: Blob;
@@ -71,7 +75,7 @@ export async function importProjectFile(file: Blob, canDecode: (blob: Blob) => P
     return { ok: true, project: dropMissing(result.project, await existingAssetIds(projectAssetIds(result.project))), warnings: [] };
   }
 
-  if (file.size > MAX_ZIP_BYTES) return { ok: false, error: 'That file is too large to import (over 80 MB).' };
+  if (file.size > MAX_ZIP_BYTES) return { ok: false, error: 'That file is too large to import (over 200 MB).' };
   let entries: Unzipped;
   let total = 0;
   let tooBig = false;
@@ -81,16 +85,17 @@ export async function importProjectFile(file: Blob, canDecode: (blob: Blob) => P
       filter: (entry) => {
         const wanted = entry.name === 'project.json' || ASSET_PATH.test(entry.name);
         if (!wanted) return false;
-        const limit = entry.name === 'project.json' ? MAX_IMPORT_BYTES : MAX_IMAGE_BYTES;
+        const model = entry.name.endsWith('.glb');
+        const limit = entry.name === 'project.json' ? MAX_IMPORT_BYTES : model ? MAX_STORED_MODEL_BYTES : MAX_IMAGE_BYTES;
         if (entry.originalSize > limit) tooBig = true;
         total += entry.originalSize;
-        return !tooBig && total <= MAX_TOTAL_IMAGE_BYTES + MAX_IMPORT_BYTES;
+        return !tooBig && total <= MAX_TOTAL_IMAGE_BYTES + MAX_TOTAL_MODEL_BYTES + MAX_IMPORT_BYTES;
       },
     });
   } catch {
     return { ok: false, error: 'That ZIP file is damaged or isn’t a Roomination project.' };
   }
-  if (tooBig || total > MAX_TOTAL_IMAGE_BYTES + MAX_IMPORT_BYTES) return { ok: false, error: 'That file contains photos that are too large to import safely.' };
+  if (tooBig || total > MAX_TOTAL_IMAGE_BYTES + MAX_TOTAL_MODEL_BYTES + MAX_IMPORT_BYTES) return { ok: false, error: 'That file contains photos or 3D models that are too large to import safely.' };
   if (!entries['project.json']) return { ok: false, error: 'That ZIP file doesn’t contain a Roomination project.' };
   const parsed = parseProjectFile(strFromU8(entries['project.json']));
   if (!parsed.ok) return parsed;
@@ -101,9 +106,11 @@ export async function importProjectFile(file: Blob, canDecode: (blob: Blob) => P
   for (const [name, bytes] of Object.entries(entries)) {
     const match = ASSET_PATH.exec(name);
     if (!match) continue;
-    const type = sniffImageType(bytes.subarray(0, 16));
+    const type = sniffAssetType(bytes.subarray(0, 16));
     const blob = type ? new Blob([new Uint8Array(bytes)], { type }) : null;
-    if (!blob || !(await canDecode(blob))) {
+    // A 3D model must pass the same checks as a direct import, and be self-contained.
+    const usable = type === 'model/gltf-binary' ? isSelfContainedGlb(bytes) : !!blob && (await canDecode(blob));
+    if (!blob || !usable) {
       rejected++;
       continue;
     }
@@ -111,7 +118,7 @@ export async function importProjectFile(file: Blob, canDecode: (blob: Blob) => P
     // and the project's references are pointed at that.
     stored.set(match[1], await putAsset(blob, await imageSize(blob)));
   }
-  if (rejected > 0) warnings.push(`${rejected} file${rejected === 1 ? '' : 's'} in the ZIP ${rejected === 1 ? 'wasn’t a usable image and was' : 'weren’t usable images and were'} skipped.`);
+  if (rejected > 0) warnings.push(`${rejected} file${rejected === 1 ? '' : 's'} in the ZIP ${rejected === 1 ? 'wasn’t a usable image or 3D model and was' : 'weren’t usable images or 3D models and were'} skipped.`);
 
   const onDevice = await existingAssetIds(projectAssetIds(parsed.project).filter((id) => !stored.has(id)));
   let dropped = 0;
@@ -181,6 +188,12 @@ function remapFurniture(item: Furniture, map: (id: string) => string | null): Fu
     return id ? { ...rest, texture: { ...texture, assetId: id } } : rest;
   });
   item = components ? { ...item, components } : item;
+  if (item.mesh) {
+    // A 3D model: remapped, or dropped (the ordinary look returns) when it isn't available.
+    const { mesh, ...rest } = item;
+    const id = map(mesh.assetId);
+    item = id ? { ...rest, mesh: { ...mesh, assetId: id } } : rest;
+  }
   if (item.photoModel) {
     // Rebuilt views: remapped, or dropped when their photo isn't available.
     const { photoModel, ...rest } = item;
@@ -207,6 +220,14 @@ function remapFurniture(item: Furniture, map: (id: string) => string | null): Fu
   };
 }
 
+function isSelfContainedGlb(bytes: Uint8Array): boolean {
+  try {
+    return inspectGltf(parseGlb(bytes).json, 'glb').needs.length === 0;
+  } catch {
+    return false;
+  }
+}
+
 async function decodes(blob: Blob): Promise<boolean> {
   try {
     const bitmap = await createImageBitmap(blob);
@@ -218,7 +239,7 @@ async function decodes(blob: Blob): Promise<boolean> {
 }
 
 async function imageSize(blob: Blob): Promise<{ width: number; height: number }> {
-  if (typeof createImageBitmap !== 'function') return { width: 0, height: 0 };
+  if (typeof createImageBitmap !== 'function' || blob.type === 'model/gltf-binary') return { width: 0, height: 0 };
   try {
     const bitmap = await createImageBitmap(blob);
     const size = { width: bitmap.width, height: bitmap.height };

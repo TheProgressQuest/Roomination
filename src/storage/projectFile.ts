@@ -10,6 +10,7 @@ import {
   type ComponentShape,
   type ComponentType,
   type FurnitureComponent,
+  type MeshModel,
   type PhotoModel,
   type PrimitiveKind,
   type SeamStyle,
@@ -486,6 +487,8 @@ function parseFurniture(raw: unknown, index: number, uniqueId: (id: unknown) => 
   if (appearance) item.appearance = appearance;
   const photoModel = parsePhotoModel(raw.photoModel);
   if (photoModel) item.photoModel = photoModel;
+  const mesh = parseMeshModel(raw.mesh);
+  if (mesh) item.mesh = mesh;
   const light = parseLight(raw.light);
   if (light) item.light = light;
   if (typeof raw.restsOn === 'string' && raw.restsOn.length <= 100) item.restsOn = raw.restsOn;
@@ -709,6 +712,28 @@ const ASSET_ID = /^[0-9a-f]{64}$/;
 const MAX_PHOTOS = 12;
 const MAX_CLEARANCE = 500;
 
+/** A piece's imported 3D model; dropped (the piece keeps its ordinary look) if damaged. */
+export function parseMeshModel(raw: unknown): MeshModel | undefined {
+  if (!isRecord(raw) || typeof raw.assetId !== 'string' || !ASSET_ID.test(raw.assetId)) return undefined;
+  if (!finite(raw.triangles) || raw.triangles < 0 || raw.triangles > 5_000_000) return undefined;
+  const turn = isRecord(raw.turn) ? raw.turn : {};
+  const quarter = (v: unknown) => (finite(v) ? ((Math.round(v / 90) * 90) % 360 + 360) % 360 : 0);
+  const natural = isRecord(raw.natural) ? raw.natural : {};
+  const dim = (v: unknown) => (finite(v) && v > 0 && v <= MAX_ROOM_SPAN ? v : null);
+  const [width, depth, height] = [dim(natural.width), dim(natural.depth), dim(natural.height)];
+  if (width === null || depth === null || height === null) return undefined;
+  const model: MeshModel = {
+    assetId: raw.assetId,
+    triangles: Math.round(raw.triangles),
+    turn: { x: quarter(turn.x), y: finite(turn.y) ? ((turn.y % 360) + 360) % 360 : 0, z: quarter(turn.z) },
+    natural: { width, depth, height },
+  };
+  if (raw.lockAspect === false) model.lockAspect = false;
+  if (typeof raw.source === 'string') model.source = raw.source.slice(0, 120);
+  if (raw.off === true) model.off = true;
+  return model;
+}
+
 /** A piece rebuilt from photos. Views with a damaged photo id or outline are dropped. */
 export function parsePhotoModel(raw: unknown): PhotoModel | undefined {
   if (!isRecord(raw)) return undefined;
@@ -759,10 +784,10 @@ export function projectAssetIds(project: Pick<Project, 'furniture'> & Partial<Pi
   ];
 }
 
-export function furnitureAssetIds(item: Pick<Furniture, 'appearance'> & Partial<Pick<Furniture, 'components' | 'photoModel'>>): string[] {
+export function furnitureAssetIds(item: Pick<Furniture, 'appearance'> & Partial<Pick<Furniture, 'components' | 'photoModel' | 'mesh'>>): string[] {
   const a = item.appearance;
   const parts = (item.components ?? []).map((c) => c.texture?.assetId);
-  const rebuilt = [item.photoModel?.front, item.photoModel?.side, item.photoModel?.top].map((v) => v?.assetId);
+  const rebuilt = [item.photoModel?.front, item.photoModel?.side, item.photoModel?.top, item.mesh].map((v) => v?.assetId);
   return [...Object.values(a?.textures ?? {}), ...(a?.photos ?? []), ...parts, ...rebuilt].filter((v): v is string => typeof v === 'string');
 }
 

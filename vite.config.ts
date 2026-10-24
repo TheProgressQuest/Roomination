@@ -17,8 +17,24 @@ function buildVersion(): string {
   }
 }
 
+/**
+ * Production builds only (the dev server needs inline scripts): a Content Security Policy that
+ * lets images, fetches and media come only from the app itself or local data (photos, imported
+ * 3D models), so a file can never make the browser contact another site. Scripts are left as
+ * they are (the AI tools use workers and WebAssembly).
+ */
+const CONTENT_SECURITY_POLICY = ["img-src 'self' data: blob:", "connect-src 'self' data: blob:", "media-src 'self' data: blob:", "object-src 'none'", "base-uri 'self'", "form-action 'none'"].join('; ');
+
+function contentSecurityPolicy() {
+  return {
+    name: 'roomination-content-security-policy',
+    apply: 'build' as const,
+    transformIndexHtml: () => [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: CONTENT_SECURITY_POLICY }, injectTo: 'head-prepend' as const }],
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), contentSecurityPolicy()],
   define: {
     __APP_VERSION__: JSON.stringify(buildVersion()),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),

@@ -8,6 +8,9 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| 3D model import | A real phone scan end to end (Reality Composer USDZ, Scaniverse GLB): only CC0 models (Poly Haven) and synthetic files were tested; the USDZ was packaged from Poly Haven's USD files | M7 |
+| 3D model import | Real iPhone: memory and frame rate with several models; file picking of multi-file glTF in Files; the preview's touch orbit | M7 |
+| 3D model import | Full regression with the new Content Security Policy (production only): smoke tests pass; check Smart remove, image export and the optimizer worker | M7 |
 | Reconstruct | A real iPhone run: rebuild time, memory with several rebuilt objects, touch dragging of corners and tap-to-trim (only WebKit and slowed-down Chromium were measured; their 3D frame times are software-rendered and not meaningful) | M6 |
 | Reconstruct | Safari Private Browsing end to end on a device (fixed: photos are now stored as plain bytes; verified in WebKit's private sessions only) | M6 |
 | Reconstruct | Rebuilt objects in the 2D presentation plan (they draw as their ordinary look there) | M6 |
@@ -22,7 +25,22 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
-- **Reconstruct My Room (M6, prototype):** see [reconstruction-feasibility.md](reconstruction-feasibility.md).
+- **Import 3D model (M7, prototype):** see [3d-model-import.md](3d-model-import.md).
+  - **Formats:** GLB, glTF (multi-file) and USDZ/USDC/USDA. No OBJ/FBX/PLY; no Draco, meshopt
+    or KTX2; no EXR textures.
+  - **Fitting:** the model is fitted to the measured box: non-proportional sizes stretch it. The
+    pivot is always the centre of its base (bounding box); there's no manual offset or crop.
+    Crop tables and floors in the scanning app.
+  - **No simplification:** models are refused above 1M triangles, and pieces over the
+    per-quality budget show a plain box.
+  - **Selection** shows the outline only (no blue tint on model materials).
+  - **The 2D plan** shows the piece's ordinary look, not the model.
+- **Fitting scanned fixtures (fixed in M7):** a model is now fitted so its body (a vanity's
+  worktop) meets the measured height, with taps and vessel basins standing above at real size.
+  Before, the whole model including the tap was squeezed into the measured height, putting
+  worktops about 16 cm too low. Projects fitted before the fix keep the old geometry until the
+  model is chosen again (*Change model…*) or the scan is re-imported.
+ see [reconstruction-feasibility.md](reconstruction-feasibility.md).
   - **Shape from outlines:** hollows that no outline shows stay filled; backs and bottoms are a
     plain average colour unless photographed; the grid is 40 cells along the longest side.
   - **Photos carry their own lighting**, and the 3D lights add more; brightness is a manual fix.
@@ -145,6 +163,7 @@ debt. Every item here is checked before a public release (see
 
 | Item | Notes |
 | --- | --- |
+| Imported models: one draw call per mesh in the model, per piece (shared geometry and materials, not instanced) | Fine for a few; instance repeated models if rooms get many |
 | Rebuilt objects are one unbatched mesh each, about 10k triangles for a curved object (12 for a box) | Fine for a few; add simplification of flat areas before rooms have many |
 | Resting items add one contact-shadow quad and a few parts each | 30 accessories in the bathroom: 54 draw calls, 23k triangles, 0.6 ms CPU per frame; measure on an iPhone with a fuller room |
 | Lighting retune (M2.7) changes every interior view | Re-check the existing 3D screenshots and other rooms before release |

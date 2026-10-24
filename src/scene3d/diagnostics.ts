@@ -20,6 +20,9 @@ export interface ViewerStats {
   pixelRatio: number;
   /** A camera transition is in progress. */
   animating: boolean;
+  /** Triangles of imported 3D models drawn, and pieces shown as plain boxes over the budget. */
+  modelTriangles: number;
+  modelFallbacks: number;
 }
 
 export interface Diagnostics3D {

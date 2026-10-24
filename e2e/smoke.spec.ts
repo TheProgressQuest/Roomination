@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type {} from '../src/scene3d/diagnostics';
 import { strToU8, zipSync } from 'fflate';
 import { SAMPLE_STUDIO, sampleToRoomPlan } from '../src/scan/samples';
+import { syntheticGlb } from '../src/mesh/synthetic';
 import { exportProject, lightweight3D, openApp, toolsTab, tools } from './helpers';
 
 /**
@@ -197,6 +198,38 @@ test.describe('smoke', { tag: '@smoke' }, () => {
     // The trimmed corner is outside the outline; the middle is inside.
     expect(bits.charCodeAt(0) & 1).toBe(0);
     expect([...bits].some((ch) => ch.charCodeAt(0) === 255)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test('Import 3D model: a synthetic scan lying on its side is stood up, sized and added locally', async ({ page, baseURL }) => {
+    const errors = await openApp(page);
+    const origin = new URL(baseURL!).origin;
+    const outside: string[] = [];
+    page.on('request', (r) => {
+      const url = r.url();
+      if (!url.startsWith('data:') && !url.startsWith('blob:') && new URL(url).origin !== origin) outside.push(url);
+    });
+    await toolsTab(page, 'Furnish');
+    await tools(page).getByRole('button', { name: /Import 3D model/ }).click();
+    const dialog = page.getByRole('dialog', { name: 'Import a 3D model' });
+    // A 30 × 35 × 19 cm textured box, lying on its back (19 cm high, 35 cm deep).
+    const glb = Buffer.from(syntheticGlb({ w: 0.3, h: 0.19, d: 0.35 }));
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), dialog.getByRole('button', { name: /Choose model file/ }).click()]);
+    await chooser.setFiles({ name: 'radio-scan.glb', mimeType: 'model/gltf-binary', buffer: glb });
+    await expect(dialog.getByText(/GLB · 12 triangles · as modelled 30 cm wide, 35 cm deep, 19 cm high/)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Tip forward 90°' }).click();
+    await expect(dialog.getByText(/as modelled 30 cm wide, 19 cm deep, 35 cm high/)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Add to room' }).click();
+    await expect(dialog).toBeHidden();
+    const project = await exportProject(page);
+    type Piece = { name: string; width: number; depth: number; height: number; category: string; mesh?: { assetId: string; turn: { x: number }; triangles: number } };
+    const piece = (project.furniture as Piece[]).find((f) => f.mesh)!;
+    expect(piece).toMatchObject({ name: 'Radio scan', width: 30, depth: 19, height: 35, category: 'decoration' });
+    expect(piece.mesh).toMatchObject({ turn: { x: 90 }, triangles: 12 });
+    // Drawn in 3D from the stored model.
+    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
+    await expect.poll(() => page.evaluate(() => window.__roomination3D?.stats().modelTriangles ?? 0), { timeout: 20000 }).toBe(12);
+    expect(outside).toEqual([]);
     expect(errors).toEqual([]);
   });
 

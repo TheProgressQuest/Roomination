@@ -75,9 +75,9 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
 
       <Section title="Size">
         <div className="field-grid">
-          <NumberField label="Width" suffix={unit} min={0} value={length(item.width)} onCommit={(v) => change({ width: toCm(v) })} />
-          <NumberField label="Depth" suffix={unit} min={0} value={length(item.depth)} onCommit={(v) => change({ depth: toCm(v) })} />
-          <NumberField label="Height" suffix={unit} min={0} value={length(item.height)} onCommit={(v) => change({ height: toCm(v) })} />
+          <NumberField label="Width" suffix={unit} min={0} value={length(item.width)} onCommit={(v) => change(resized(item, 'width', toCm(v)))} />
+          <NumberField label="Depth" suffix={unit} min={0} value={length(item.depth)} onCommit={(v) => change(resized(item, 'depth', toCm(v)))} />
+          <NumberField label="Height" suffix={unit} min={0} value={length(item.height)} onCommit={(v) => change(resized(item, 'height', toCm(v)))} />
         </div>
       </Section>
 
@@ -86,6 +86,7 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
       {item.light && <LightSection light={item.light} onChange={(light, live) => change({ light }, live ? `light:${item.id}` : undefined)} />}
 
       <RestsOnSection project={project} item={item} onChange={(changes) => change(changes)} />
+      <ScanModelSection item={item} units={units} onChange={(changes) => change(changes)} />
 
       <Section title="Height above floor" hint="For mirrors, wall cabinets, wall lights and shelves. Raised pieces are drawn dashed on the plan and only collide with things at the same height.">
         <div className="field-grid two">
@@ -193,6 +194,68 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
 }
 
 /** Which surface a piece rests on (a worktop, a shelf, a tray): it then moves with that piece. */
+/**
+ * A new size for one dimension. A piece with a 3D model keeps the model's proportions (unless
+ * that's turned off), so the other dimensions follow.
+ */
+export function resized(item: Pick<Furniture, 'width' | 'depth' | 'height' | 'mesh'>, key: 'width' | 'depth' | 'height', cm: number): Partial<Furniture> {
+  if (!item.mesh || item.mesh.off || item.mesh.lockAspect === false || !(cm > 0) || !(item[key] > 0)) return { [key]: cm };
+  const ratio = cm / item[key];
+  const r = (v: number) => Math.round(v * ratio * 10) / 10;
+  return { width: r(item.width), depth: r(item.depth), height: r(item.height), [key]: cm };
+}
+
+/** An imported 3D model: what it is, proportions, show or hide, and replacing or removing it. */
+function ScanModelSection({ item, units, onChange }: { item: Furniture; units: UnitSystem; onChange: (changes: Partial<Furniture>) => void }) {
+  const openStudio = useOpenStudio();
+  const mesh = item.mesh;
+  if (!mesh)
+    return (
+      <Section title="3D model">
+        <p className="hint">Use a real 3D model (a GLB or USDZ from a scanning app) as this piece’s look. Its measurements stay as they are.</p>
+        <div className="button-row">
+          <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'model', furnitureId: item.id })} disabled={item.locked}>
+            <Icon name="upload" size={14} /> Use a 3D model…
+          </button>
+        </div>
+      </Section>
+    );
+  const n = mesh.natural;
+  return (
+    <Section title="3D model">
+      <p className="hint">
+        {mesh.source ?? 'Imported model'} · {mesh.triangles.toLocaleString('en')} triangles · as modelled {formatLength(n.width, units)} × {formatLength(n.depth, units)} × {formatLength(n.height, units)}. It’s drawn to fill this piece’s size; placement and collisions use the size.
+      </p>
+      <label className="toggle">
+        <input type="checkbox" checked={!mesh.off} onChange={(e) => onChange({ mesh: { ...mesh, off: e.target.checked ? undefined : true } })} />
+        Show the 3D model
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={mesh.lockAspect !== false} onChange={(e) => onChange({ mesh: { ...mesh, lockAspect: e.target.checked ? undefined : false } })} />
+        Keep its proportions when resizing
+      </label>
+      <div className="button-row">
+        <button type="button" className="secondary small" disabled={item.locked} onClick={() => onChange({ mesh: { ...mesh, turn: { ...mesh.turn, y: (mesh.turn.y + 90) % 360 } }, width: item.depth, depth: item.width })}>
+          Turn model 90°
+        </button>
+        <button type="button" className="secondary small" disabled={item.locked} onClick={() => {
+          // Back to the model's own proportions, at this height.
+          const scale = item.height / n.height;
+          onChange({ width: Math.round(n.width * scale * 10) / 10, depth: Math.round(n.depth * scale * 10) / 10 });
+        }}>
+          Restore proportions
+        </button>
+        <button type="button" className="secondary small" disabled={item.locked} onClick={() => openStudio({ mode: 'model', furnitureId: item.id })}>
+          Replace…
+        </button>
+        <button type="button" className="link-button" disabled={item.locked} onClick={() => onChange({ mesh: undefined })}>
+          Remove model
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 function RestsOnSection({ project, item, onChange }: { project: Project; item: Furniture; onChange: (changes: Partial<Furniture>) => void }) {
   const selectId = useId();
   const excluded = new Set([item.id, ...restingOn(project.furniture, item.id)]);

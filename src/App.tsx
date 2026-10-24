@@ -68,6 +68,7 @@ const CatalogueBrowser = lazy(() => import('./catalogue/CatalogueBrowser'));
 const FurnitureBuilder = lazy(() => import('./builder/FurnitureBuilder'));
 // The room-scan importer (and the catalogue it maps furniture to) loads only when opened.
 const ScanImportDialog = lazy(() => import('./scan/ScanImportDialog'));
+const ImportModelDialog = lazy(() => import('./mesh/ImportModelDialog'));
 // Match My Room (photos beside the 3D view) loads only when opened.
 const MatchMyRoom = lazy(() => import('./match/MatchMyRoom'));
 
@@ -114,6 +115,8 @@ export function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  /** Import 3D model: open (for a new piece, or for the look of one in the room). */
+  const [modelImport, setModelImport] = useState<{ furnitureId?: string } | null>(null);
   const [matchOpen, setMatchOpen] = useState(false);
   const [cameraApi, setCameraApi] = useState<CameraApi | null>(null);
   const [overlay, setOverlay] = useState<PhotoOverlay | null>(null);
@@ -361,6 +364,12 @@ export function App() {
 
   const openStudio = useCallback(
     async (request: StudioRequest) => {
+      if (request.mode === 'model') {
+        setAddOpen(false);
+        setEditorOpen(false);
+        setModelImport({ furnitureId: request.furnitureId });
+        return;
+      }
       if (request.mode === 'components') {
         const piece = request.furnitureId ? project.furniture.find((f) => f.id === request.furnitureId) : undefined;
         if (request.furnitureId && !piece) return;
@@ -990,6 +999,37 @@ export function App() {
           </LoadBoundary>
         )}
 
+        {modelImport && (
+          <LoadBoundary title="Import a 3D model" onClose={() => setModelImport(null)}>
+            <Suspense fallback={null}>
+              <ImportModelDialog
+                open
+                units={project.units}
+                target={modelImport.furnitureId ? project.furniture.find((f) => f.id === modelImport.furnitureId) : undefined}
+                onClose={() => setModelImport(null)}
+                onAdd={async (template, alsoLibrary) => {
+                  if (alsoLibrary) {
+                    try {
+                      await saveToLibrary(template);
+                      libraryChanged();
+                    } catch {
+                      dispatch({ type: 'notice/show', message: 'The model was added, but My Library couldn’t be saved. Browser storage may be full.' });
+                    }
+                  }
+                  setModelImport(null);
+                  placeTemplate(template);
+                }}
+                onApply={(mesh, size) => {
+                  if (!modelImport.furnitureId) return;
+                  dispatch({ type: 'furniture/update', id: modelImport.furnitureId, changes: { mesh, ...size } });
+                  setModelImport(null);
+                  dispatch({ type: 'notice/show', message: 'The 3D model is now its look. Undo brings back the previous one.' });
+                }}
+              />
+            </Suspense>
+          </LoadBoundary>
+        )}
+
         {scanOpen && (
           <LoadBoundary title="Import a room scan" onClose={() => setScanOpen(false)}>
             <Suspense fallback={null}>
@@ -1170,6 +1210,8 @@ function studioTitle({ request, initial }: StudioSession): string {
       return `Edit ${initial.name} (library)`;
     case 'components':
       return `Components of ${initial.name}`;
+    case 'model':
+      return 'Import a 3D model';
   }
 }
 

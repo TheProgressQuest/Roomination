@@ -3,7 +3,7 @@ import { doorLeaves, featureFrame, toRoom, type Frame } from '../model/features'
 import { boundingBox, pointInPolygon, polygonArea, signedArea2, type Box, type Polygon } from '../model/polygon';
 import { layoutStair, stairToRoom, totalSteps } from '../model/stairs';
 import { localFootprint, pieceToRoom, type Ring } from '../model/shape';
-import type { FloorStyle, Furniture, MaterialKind, PhotoModel, Point, Project, RoomFeature, Staircase, SurfaceFinish, PhotoTexture } from '../model/types';
+import type { FloorStyle, Furniture, MaterialKind, MeshModel, PhotoModel, Point, Project, RoomFeature, Staircase, SurfaceFinish, PhotoTexture } from '../model/types';
 import { hasPhotoModel } from '../model/photoModel';
 import { wallBodies, wallDirection, wallOutward } from '../model/wallGeometry';
 import { outlinePolygon, wallSegments, type WallSegment } from '../model/walls';
@@ -128,6 +128,8 @@ export interface SceneFurniture {
   extruded?: { rings: Ring[]; bottom: number; height: number; color: string };
   /** Rebuilt from photos (Reconstruct): drawn instead of the parts, inside the measured box. */
   photoModel?: PhotoModel;
+  /** An imported 3D model: drawn instead of the parts (and a photo model), filling the measured box. */
+  mesh?: MeshModel;
   /** What the piece's own surfaces are made of: the person's choice, or its kind's default. */
   material: MaterialKind;
   finish: SurfaceFinish;
@@ -495,6 +497,8 @@ function furnitureBody(item: Furniture): SceneFurniture {
     finish: item.appearance?.finish ?? 'satin',
     textures,
   };
+  // An imported 3D model replaces the ordinary look (and any photo model); measurements don't change.
+  if (item.mesh && !item.mesh.off) return { ...base, parts: [], mesh: item.mesh };
   // Rebuilt from photos: the photo model replaces the ordinary look (the measurements don't change).
   if (item.photoModel && !item.photoModel.off && hasPhotoModel(item.photoModel)) return { ...base, parts: [], photoModel: item.photoModel };
   // Drawn shapes keep their true outline; photo textures need real surfaces to sit on, so a
