@@ -8,6 +8,7 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| **Physical iPhone (release blocker)** | Everything in [iphone-acceptance-test.md](iphone-acceptance-test.md): the scanned room with its photos, 3D, Select an area (memory!), save/reopen, memory pressure, HEIC from Photos and Files. Nothing has run on a real iPhone yet | R1 |
 | Select an area (Step 2A) | A physical iPhone: time to read a photo, memory (the browser grew by 0.3–0.65 GB on a Mac), behaviour when Safari runs short of memory, and touch taps on the photo. Safari on a real Mac/iPhone (only Playwright's WebKit was run), private browsing (Cache Storage may be unavailable: the model then downloads each time), offline use after the first download, and HEIC photos | S2A |
 | Scan classification (Step 1) | A real iPhone/Safari import of a RoomSheet package with photos: HEIC photos (only JPEG/PNG were tested; HEIC opens only where the browser can decode it), memory with 7 full-size photos, and the review's join checkbox on touch. Other scanner exports' attributes (3D Model Anything rooms use the same RoomPlan JSON, untested with attributes) | S1 |
 | Photos & scans, Create furniture | Real iPhone and Safari: the two choosers, the *Shown in 3D* selector's disabled choices (VoiceOver reads them as dimmed), and *Photos for <piece>* in the stacked phone layout | UX |
@@ -15,7 +16,6 @@ debt. Every item here is checked before a public release (see
 | Real-object test | iPhone file picker: whether .glb files are selectable with the importer's file-type filter (iOS may not know the GLB type and grey it out) | M8 |
 | 3D model import | A real phone scan end to end (Reality Composer USDZ, Scaniverse GLB): only CC0 models (Poly Haven) and synthetic files were tested; the USDZ was packaged from Poly Haven's USD files | M7 |
 | 3D model import | Real iPhone: memory and frame rate with several models; file picking of multi-file glTF in Files; the preview's touch orbit | M7 |
-| 3D model import | Full regression with the new Content Security Policy (production only): smoke tests pass; check Smart remove, image export and the optimizer worker | M7 |
 | Reconstruct | A real iPhone run: rebuild time, memory with several rebuilt objects, touch dragging of corners and tap-to-trim (only WebKit and slowed-down Chromium were measured; their 3D frame times are software-rendered and not meaningful) | M6 |
 | Reconstruct | Safari Private Browsing end to end on a device (fixed: photos are now stored as plain bytes; verified in WebKit's private sessions only) | M6 |
 | Reconstruct | Rebuilt objects in the 2D presentation plan (they draw as their ordinary look there) | M6 |
@@ -25,8 +25,8 @@ debt. Every item here is checked before a public release (see
 | Room scan import | A real LiDAR Room Scanner "RoomPlan JSON" export (its structure isn't documented) | M1 |
 | Room scan import | A real LiDAR scan end to end; real exports from 3D Model Anything | 8A |
 | Room scan import | Safari on iPhone and iPad (file picker from Files, the review on touch) | 8A |
-| Whole app | Safari and Firefox browser runs (only Chromium is automated) | earlier |
-| Whole app | Screen readers (VoiceOver) with real assistive software | earlier |
+| Whole app | Real Safari (Mac and iPhone) and real VoiceOver. Done on 24 Oct with Playwright's WebKit and Firefox (production build, CSP): all non-3D tests pass in both; 3D passes except where the tool can't emulate (mouse wheel in mobile WebKit, touch in Firefox). A rerun of WebKit's 3D tests was blocked by a macOS fault on this Mac (WebKit's helper processes waited 45 s each, "IORegisterForSystemPower failed"); rerun after a restart. Automated accessibility (axe-core 4.10.3, WCAG 2.2 A/AA) on 13 screens at desktop and iPhone sizes, Chromium and Firefox: no violations after the fixes | earlier |
+| Whole app | Keyboard: selecting an area of a photo (and sampling a point) needs a pointer; the colour itself can always be typed in the colour field. Canvas corner handles move with the arrow keys | R1 |
 
 ## Known limitations
 
@@ -224,7 +224,12 @@ dark, normal and large text. Layout bugs were fixed (see git log); these need a 
 | **Match my room on phones** | Stacks below the 3D view; selecting an object to rebuild means leaving the panel |
 | **Phone 3D view** | Improved: the camera choice stays; walls, shadows, ceiling, quality and Match my room fold behind *Options*; the scene fills the screen height (it starts ~160px higher); zoom/fit and the tip moved to the top, clear of the bottom bar. Still open: a full bottom sheet for properties (today: the bottom bar's *Edit* opens a modal), and the two-row phone header |
 
-Smaller, left as they are: corner handles in the outline editors are 26 px on touch (WCAG's
+Fixed on 24 Oct: corner, curve and add-a-corner handles in the outline editors and the photo
+editor's frame corners keep their size but get an invisible 44 px touch area; colour pickers,
+the builder's fields and reorder buttons, the Feng Shui heading, the image-export button and the
+tools tabs are at least 44 px on touch screens; the photo's remove button is 24 px (44 px to a
+finger); the version text's contrast and the photo strip's list structure were fixed (axe).
+Before that: corner handles in the outline editors were 26 px on touch (WCAG's
 minimum is 24 px; 44 px would crowd the drawing); the photo's remove button has a 44 px hit
 area but a 22 px look.
 
@@ -240,7 +245,7 @@ area but a 22 px look.
 | Lights, trim and door controls | Only desktop Chromium; check touch sizes in the Light and Trim controls on iPhone (44 px) |
 | Part textures (M2.5) draw each textured part as its own mesh (not batched) | Fine for a few parts; measure if a room gets dozens |
 | Match My Room panel touch targets | Some panel buttons are the small (32 px) size; check on iPhone and iPad before release (44 px rule) |
-| Full regression not run for M2.1–M2.4 | Only targeted tests, the 3D suite and smoke tests; run `npm run test:full` before release |
+| Full regression | Run on 24 Oct 2026 against the production build with its CSP: 836 unit, 147 browser and 48 3D tests pass (one stale catalogue test updated: the search for “toilet” rightly finds 7 pieces since Decorate My Room) |
 | Match My Room panel (~400 lines) | Tested on desktop with synthetic photos; touch dragging of corners not yet tried on an iPhone |
 | New fixtures (vanities, mirrors, lights, curtain, towel bar) only checked in synthetic screenshots | Look at them on a real device and at eye level |
 | `custom.spec.ts` “draws a new outline corner by corner” is flaky on CI | It occasionally lands 2 cm off; it passes on retry |

@@ -32,6 +32,15 @@ export default defineConfig({
   projects: [
     { name: 'dev', use: { baseURL: 'http://localhost:5173/' } },
     { name: 'prod', use: { baseURL: 'http://localhost:4173/Roomination/' } },
+    // Opt-in (CROSS=1): the production build in WebKit (Safari's engine) and Firefox, as
+    // installed by `npx playwright install webkit firefox`. Not real Safari or iPhone Safari.
+    ...(process.env.CROSS
+      ? [
+          { name: 'prod-webkit', use: { ...devices['Desktop Safari'], viewport: { width: 1440, height: 900 }, launchOptions: {}, baseURL: 'http://localhost:4173/Roomination/' } },
+          // Firefox can't emulate a phone's touch screen in Playwright: phone-size tests run in Chromium and WebKit.
+          { name: 'prod-firefox', grepInvert: /\b\d{3,4}px\b|phone|iPhone/i, use: { ...devices['Desktop Firefox'], viewport: { width: 1440, height: 900 }, launchOptions: {}, baseURL: 'http://localhost:4173/Roomination/' } },
+        ]
+      : []),
   ],
   webServer: [
     { command: 'npm run dev -- --port 5173 --strictPort', url: 'http://localhost:5173/', reuseExistingServer: true },

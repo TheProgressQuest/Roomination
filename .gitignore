@@ -16,6 +16,8 @@ private-scans/
 *.f16z
 *.conf
 *.heic
+# …except synthetic test images made for the tests (no real photos).
+!e2e/fixtures/synthetic-*.heic
 **/rooms/room-*-data.json
 # Files inside scanning apps' exports (RoomSheet, 3D Model Anything, …)
 captured-room.json

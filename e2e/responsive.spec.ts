@@ -53,7 +53,8 @@ for (const width of WIDTHS) {
       await expect(page.locator('dialog[open]')).toHaveCount(1);
     });
 
-    test('swiping over the unselected plan scrolls the page; a selected item can be dragged', async ({ page }) => {
+    test('swiping over the unselected plan scrolls the page; a selected item can be dragged', async ({ page, browserName }) => {
+      test.skip(browserName !== 'chromium', 'Touch swipes are simulated through Chromium’s DevTools protocol');
       await openApp(page);
       await expect(page.locator('.floor-plan')).toHaveCSS('touch-action', 'pan-y');
       const m = await mapper(page);

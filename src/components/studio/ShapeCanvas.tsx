@@ -85,6 +85,8 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
   /** Handle sizes in cm that look the same on screen at any zoom. */
   const px = (n: number) => n / pxPerCm;
   const handle = px(touch ? 13 : 8);
+  /** On touch screens, an invisible 44 px circle around each handle takes the finger (the handle looks the same). */
+  const touchArea = (x: number, y: number) => (touch ? <circle cx={x} cy={y} r={px(22)} className="touch-area" /> : null);
 
   function toCm(e: { clientX: number; clientY: number }): Point {
     const el = svg.current!;
@@ -243,8 +245,9 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
                 <line x1={v.x} y1={v.y} x2={v.c1!.x} y2={v.c1!.y} vectorEffect="non-scaling-stroke" />
                 <line x1={b.x} y1={b.y} x2={v.c2!.x} y2={v.c2!.y} vectorEffect="non-scaling-stroke" />
                 {(['c1', 'c2'] as const).map((which) => (
+                  <g key={which} onPointerDown={(e) => startDrag(e, { kind: which, index: i })}>
+                  {touchArea(v[which]!.x, v[which]!.y)}
                   <rect
-                    key={which}
                     x={v[which]!.x - handle * 0.8}
                     y={v[which]!.y - handle * 0.8}
                     width={handle * 1.6}
@@ -252,8 +255,8 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
                     className="curve-handle"
                     role="button"
                     aria-label={`Curve handle ${which === 'c1' ? 1 : 2} of edge ${i + 1}`}
-                    onPointerDown={(e) => startDrag(e, { kind: which, index: i })}
                   />
+                  </g>
                 ))}
               </g>
             );
@@ -277,6 +280,7 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
                 props.onSelect({ kind: 'vertex', index: i + 1 });
               }}
             >
+              {touchArea(mid.x, mid.y)}
               <circle cx={mid.x} cy={mid.y} r={handle} />
               <path d={`M${mid.x - handle * 0.5},${mid.y} h${handle} M${mid.x},${mid.y - handle * 0.5} v${handle}`} vectorEffect="non-scaling-stroke" />
             </g>
@@ -287,9 +291,22 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
         {points.map((v, i) => {
           const selected = selection?.kind === 'vertex' && selection.index === i;
           const closing = !closed && i === 0 && points.length >= 3;
+          const onPointerDown = (e: React.PointerEvent<SVGElement>) => {
+            if (measuring) return;
+            if (closing) {
+              e.stopPropagation();
+              props.onClose();
+              return;
+            }
+            if (!closed) return;
+            props.onSelect({ kind: 'vertex', index: i });
+            const p = toCm(e);
+            startDrag(e, { kind: 'vertex', index: i, grab: { x: p.x - v.x, y: p.y - v.y } });
+          };
           return (
+            <g key={`v${i}`} onPointerDown={onPointerDown}>
+            {touchArea(v.x, v.y)}
             <circle
-              key={`v${i}`}
               cx={v.x}
               cy={v.y}
               r={closing ? handle * 1.3 : handle}
@@ -300,19 +317,8 @@ export function ShapeCanvas(props: ShapeCanvasProps) {
               aria-pressed={selected}
               onFocus={() => closed && props.onSelect({ kind: 'vertex', index: i })}
               onKeyDown={(e) => onVertexKey(e, i)}
-              onPointerDown={(e) => {
-                if (measuring) return;
-                if (closing) {
-                  e.stopPropagation();
-                  props.onClose();
-                  return;
-                }
-                if (!closed) return;
-                props.onSelect({ kind: 'vertex', index: i });
-                const p = toCm(e);
-                startDrag(e, { kind: 'vertex', index: i, grab: { x: p.x - v.x, y: p.y - v.y } });
-              }}
             />
+            </g>
           );
         })}
 

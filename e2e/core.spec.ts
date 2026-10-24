@@ -36,7 +36,9 @@ test.describe('Phase 1 & 2 features still work', () => {
     await openApp(page);
     const m = await mapper(page);
     const p = props(page);
-    await drag(page, m.at(240, 220), { x: m.at(240, 220).x + 2000, y: m.at(240, 220).y });
+    // Dragged to the window's edge, far past the right wall (a drag beyond the window isn't
+    // delivered by every test browser).
+    await drag(page, m.at(240, 220), { x: page.viewportSize()!.width - 4, y: m.at(240, 220).y });
     expect(await num(p, 'From left')).toBe(425); // 480 − 110/2
     await toolsTab(page, 'Furnish');
     await page.locator('.object-list button.is-selected').focus();

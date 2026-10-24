@@ -332,9 +332,11 @@ export default function MatchMyRoom({ project, selectedId, dispatch, onClose, ca
         {photos.map((p) => (
           <PhotoThumb key={p.assetId} photo={p} active={p.assetId === active} onSelect={() => setActive(p.assetId)} onRemove={() => dispatch({ type: 'photos/set', photos: photos.filter((q) => q.assetId !== p.assetId) })} />
         ))}
-        <button type="button" className="secondary small match-add" onClick={() => fileInput.current?.click()} disabled={busy}>
-          <Icon name="plus" size={14} /> {photos.length ? 'Add photo' : 'Add a photo of the room'}
-        </button>
+        <div role="listitem" className="match-add-item">
+          <button type="button" className="secondary small match-add" onClick={() => fileInput.current?.click()} disabled={busy}>
+            <Icon name="plus" size={14} /> {photos.length ? 'Add photo' : 'Add a photo of the room'}
+          </button>
+        </div>
         <input
           ref={fileInput}
           type="file"

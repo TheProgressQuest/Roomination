@@ -198,6 +198,9 @@ h3 {
   border-radius: var(--radius-lg);
   overflow: hidden;
   min-height: 0;
+  /* WebKit otherwise keeps the panel as wide as the plan's canvas, past a narrow screen's edge. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .floor-plan {
@@ -259,7 +262,6 @@ h3 {
 .app-version {
   display: block;
   margin-top: 4px;
-  opacity: 0.8;
 }
 
 .view3d {
@@ -379,10 +381,10 @@ h3 {
 
 .match-thumb-remove {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 22px;
-  height: 22px;
+  top: -7px;
+  right: -7px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -4733,11 +4735,31 @@ select {
     width: 44px;
     height: 44px;
   }
+  /* Colour pickers, the builder's fields and its reorder buttons, the Feng Shui heading. */
+  input[type='color'],
+  .fb-dialog input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  .feng-shui-section > summary {
+    min-height: 44px;
+  }
+  .feng-shui-section > summary {
+    display: flex;
+    align-items: center;
+  }
+  .fb-list-actions button,
+  .export-button,
+  .tools-tabs button {
+    min-width: 44px;
+    flex-shrink: 0;
+  }
+  /* In the scrolling chip row, chips keep their size rather than shrinking. */
+  .catalogue-categories button {
+    flex-shrink: 0;
+  }
   /* The photo's small remove button keeps its look but gets a finger-sized hit area. */
   .match-thumb-remove::before {
     content: '';
     position: absolute;
-    inset: -11px;
+    inset: -10px;
   }
 }
 
@@ -4898,4 +4920,12 @@ select {
   border-radius: 8px;
   background: var(--warning-soft);
   color: var(--text);
+}
+
+/* Outline editors on touch screens: an invisible 44 px area around each handle takes the finger. */
+circle.touch-area,
+.insert-handle circle.touch-area {
+  fill: transparent;
+  stroke: none;
+  cursor: pointer;
 }

@@ -108,3 +108,51 @@ emulated "iPhone" runs on the Mac's CPU, so its times say nothing about a real p
 **WebGPU:** not used. WebAssembly runs everywhere (Safari 16.4+), and with the photo read once
 in a few seconds and each tap under a second, it's fast enough; WebGPU would add a second, much
 larger engine (28 MB) and a code path to test. Revisit if a real iPhone proves too slow.
+
+## Memory: is it released, and does repeated use grow? (24 October 2026)
+
+Measured on the Mac in Chromium (production build), with synthetic 1600 × 1200 photos, the
+3D view open. *Tab* is the tab's process (where the page, its workers and the model's
+WebAssembly memory live); *GPU* is the graphics process; *page* and *worker* are the JavaScript
+heaps with their buffers (from Chromium's DevTools protocol). Process memory is what the
+operating system reports (`ps`), the measure closest to what makes iOS end a page.
+
+| Step | Tab | GPU | Page heap + buffers | Worker heap + buffers |
+| --- | --- | --- | --- | --- |
+| App + 3D view | 196–226 MB | 158–162 MB | 10 + 2 MB | none |
+| 3 photos added | 290–295 MB | 240 MB | 10 + 16 MB | none |
+| Model loaded, photo read | 551–558 MB | 230 MB | 10 + 16 MB | 2 + 20 MB |
+| After 20 / 40 / 60 selections | 812 / 805 / 706 MB | 231 MB | 11 + 29 MB | 2 + 27–36 MB |
+| **Panel closed** (worker stopped) | **195–271 MB** | 150–255 MB | 11 + 2 MB | none |
+| 12 cycles of open → read → select → close | rises, then levels off at about 600–650 MB | 176–256 MB | 11 + 2 MB | none |
+| After 10 s idle, then simulated critical memory pressure | 549 → 545 MB | 240 MB | 11 + 2 MB | none |
+
+- **The model's memory is in the tab's process,** not the JavaScript heaps: reading a photo
+  adds about 260 MB to the tab while the worker's JavaScript stays at 2 MB plus 20–40 MB of
+  buffers. The GPU isn't used by the model (the GPU process changes only with the 3D view).
+- **Released when the panel closes:** the tab drops back to (or near) where it was before the
+  model loaded.
+- **Repeated selections don't grow without bound:** 20, 40 and 60 selections stay around
+  0.7–0.8 GB.
+- **Repeated open/close cycles creep, then level off:** about +15 MB per cycle for the first few,
+  settling at about 0.6 GB after 7 cycles (not returned under simulated memory pressure).
+  Chromium appears to keep freed memory from discarded workers for reuse; the page's own heaps
+  are flat, so it isn't a leak in Roomination's JavaScript. WebKit (Safari) manages memory
+  differently: this has to be measured on the iPhone (see iphone-acceptance-test.md).
+
+**Safeguards added:** the project is saved before the model loads or reads a photo (and
+whenever the page is hidden), so a page ended for lack of memory loses nothing. If the page
+ends during those steps, the feature waits to be turned on again; after two such stops it is
+switched off on that device, and picking colours by tapping a point (and everything else) keeps
+working. Closing Match my room stops the worker.
+
+## Go / no-go for iPhones (recommendation)
+
+**Ship Select an area as an optional beta, off until turned on, with the safeguards above: a
+conditional go, confirmed only by the physical-iPhone test.** On the Mac it adds about
+0.26 GB when a photo is read and up to about 0.6 GB during heavy use, on top of the room
+planner and 3D view. A recent iPhone (the iPhone 17 Pro has 12 GB) should cope; older iPhones
+with 3–4 GB may not. If the iPhone test shows Safari reloading the page during normal use, the
+safeguard already turns it off on that device; if it happens on the test iPhone itself, turn
+it off for iPhones altogether (`AREA_SELECT_AVAILABLE`, or a check for iOS) and keep the
+manual tools, rather than risk the room planner.

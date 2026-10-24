@@ -29,7 +29,12 @@ test('searches and filters by room, and adds a fixture with a click', async ({ p
 
   await cat.getByRole('radio', { name: 'All', exact: true }).click();
   await cat.getByLabel('Search the catalogue').fill('toilet');
-  await expect(cat.locator('.catalogue-card')).toHaveCount(4); // toilet, wall-hung toilet, roll holder, over-toilet wall cabinet
+  // The toilets, and what's tagged for them (the roll holder and spare roll, the over-toilet
+  // cabinet, toiletry bottles).
+  await expect(cat.locator('.catalogue-card')).toHaveCount(7);
+  for (const name of ['Toilet', 'Wall-hung toilet', 'Toilet roll holder', 'Bathroom wall cabinet', 'Spare toilet roll', 'Tall bottle', 'Small bottle']) {
+    await expect(cat.getByRole('button', { name: new RegExp(`^Add ${name},`) })).toHaveCount(1);
+  }
   // Pictures are drawn on this device.
   await expect(cat.locator('.catalogue-card img').first()).toHaveAttribute('src', /^data:image\/png/);
   await cat.getByRole('button', { name: /^Add Toilet,/ }).click();

@@ -226,6 +226,8 @@ export function PhotoEditor({ title, image: initial, onSave, onCancel }: { title
   }
 
   const handle = Math.max(image.width, image.height) / 45;
+  /** On touch screens, an invisible circle about 44 px across around each corner takes the finger. */
+  const touch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
   return (
     <Dialog
@@ -264,8 +266,16 @@ export function PhotoEditor({ title, image: initial, onSave, onCancel }: { title
                 <g>
                   <polygon points={corners.map((c) => `${c.x},${c.y}`).join(' ')} className="frame-outline" vectorEffect="non-scaling-stroke" />
                   {corners.map((c, i) => (
-                    <circle
+                    <g
                       key={i}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        overlay.current!.setPointerCapture(e.pointerId);
+                        setDragCorner(i);
+                      }}
+                    >
+                    {touch && <circle cx={c.x} cy={c.y} r={handle * 1.7} className="touch-area" />}
+                    <circle
                       cx={c.x}
                       cy={c.y}
                       r={handle}
@@ -281,12 +291,8 @@ export function PhotoEditor({ title, image: initial, onSave, onCancel }: { title
                         const p = { x: Math.max(0, Math.min(image.width, c.x + d[e.key].x)), y: Math.max(0, Math.min(image.height, c.y + d[e.key].y)) };
                         setCorners(corners.map((q, k) => (k === i ? p : frameMode === 'crop' ? cropFollow(corners, i, p, k) : q)));
                       }}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        overlay.current!.setPointerCapture(e.pointerId);
-                        setDragCorner(i);
-                      }}
                     />
+                    </g>
                   ))}
                 </g>
               )}

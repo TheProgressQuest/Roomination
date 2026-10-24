@@ -4,6 +4,7 @@ import { AREA_MODEL, ENGINE_BYTES, megabytes } from '../photo/areaSelectModel';
 import { AreaSelectError, cancelAreaSelect, embedPhoto, isAreaModelDownloaded, isAreaModelLoaded, loadAreaModel, removeAreaModel, segmentPhoto, unsupportedReason } from '../photo/areaSelectClient';
 import type { RGBAImage } from '../photo/imageOps';
 import { bestCandidate, type Candidate, type PromptPoint } from '../photo/sam';
+import { beginHeavyWork, clearStops, endHeavyWork, STOPS_TO_DISABLE, unexplainedStops } from '../photo/areaSelectGuard';
 
 /**
  * "Select an area" in Match my room → Pick colour: tap an object or surface in a photo, an
@@ -53,13 +54,15 @@ const MESSAGES: Record<string, string> = {
 
 export function useAreaSelect(image: RGBAImage | null, photoKey: string | null, active: boolean) {
   const [enabled, setEnabled] = useState(readEnabled);
+  /** Times the page ended while the model was loading or reading a photo (see areaSelectGuard). */
+  const [stops, setStops] = useState(() => (readEnabled() ? unexplainedStops() : 0));
   const [state, setState] = useState<AreaSelectState>({ status: 'off', progress: 0, error: null, points: [], candidates: [], index: 0, mask: null, include: true, timings: { readMs: null, selectMs: null, loadMs: null, fromCache: null } });
   /** Bumped on every photo change or cancel, so late replies are ignored. */
   const generation = useRef(0);
   const readKey = useRef<string | null>(null);
   const reading = useRef<Promise<void> | null>(null);
-  /** After a cancel, the model isn't loaded again by itself (only when the person asks). */
-  const held = useRef(false);
+  /** After a cancel, or a stop, the model isn't loaded again by itself (only when the person asks). */
+  const held = useRef(stops > 0);
   const patch = (change: Partial<AreaSelectState>) => setState((s) => ({ ...s, ...change }));
 
   const fail = useCallback((error: unknown, back: AreaStatus) => {
@@ -79,15 +82,23 @@ export function useAreaSelect(image: RGBAImage | null, photoKey: string | null, 
     const gen = generation.current;
     readKey.current = photoKey;
     patch({ status: 'reading', error: null });
+    beginHeavyWork();
     reading.current = embedPhoto(photoKey, image).then(
       (ms) => {
+        endHeavyWork();
+        clearStops();
         if (gen !== generation.current) return;
         setState((s) => ({ ...s, status: 'ready', timings: { ...s.timings, readMs: ms } }));
       },
       (error) => {
+        endHeavyWork();
         readKey.current = null;
         reading.current = null;
-        if (gen === generation.current) fail(error, 'ready');
+        if (gen === generation.current) {
+          // The worker stopped (crashed, or out of memory): back to "Turn on", never retried by itself.
+          if (!isAreaModelLoaded()) held.current = true;
+          fail(error, isAreaModelLoaded() ? 'ready' : 'off');
+        }
         throw error;
       },
     );
@@ -98,8 +109,9 @@ export function useAreaSelect(image: RGBAImage | null, photoKey: string | null, 
     held.current = false;
     const gen = generation.current;
     patch({ status: 'loading', progress: 0, error: null });
+    beginHeavyWork();
     try {
-      const { fromCache, ms } = await loadAreaModel((loaded, total) => gen === generation.current && patch({ progress: loaded / total }));
+      const { fromCache, ms } = await loadAreaModel((loaded, total) => gen === generation.current && patch({ progress: loaded / total })).finally(endHeavyWork);
       if (gen !== generation.current) return;
       setState((s) => ({ ...s, status: 'ready', timings: { ...s.timings, loadMs: ms, fromCache } }));
       writeEnabled(true);
@@ -123,7 +135,7 @@ export function useAreaSelect(image: RGBAImage | null, photoKey: string | null, 
     if (active && enabled && !held.current && !isAreaModelLoaded() && state.status === 'off' && !state.error) void load();
   }, [active, enabled, state.status, state.error, load]);
   useEffect(() => {
-    if (active && state.status === 'ready' && image && photoKey && readKey.current !== photoKey) read().catch(() => undefined);
+    if (active && state.status === 'ready' && isAreaModelLoaded() && image && photoKey && readKey.current !== photoKey) read().catch(() => undefined);
   }, [active, state.status, image, photoKey, read]);
 
   const select = useCallback(
@@ -135,7 +147,8 @@ export function useAreaSelect(image: RGBAImage | null, photoKey: string | null, 
         if (!isAreaModelLoaded()) {
           readKey.current = null;
           reading.current = null;
-          await loadAreaModel(() => undefined);
+          beginHeavyWork();
+          await loadAreaModel(() => undefined).finally(endHeavyWork);
         }
         await read();
         if (!points.length) {
@@ -155,6 +168,15 @@ export function useAreaSelect(image: RGBAImage | null, photoKey: string | null, 
 
   const actions = {
     enabled,
+    /** The page stopped during loading or reading before (0 = never). */
+    stops,
+    /** Stopped often enough that it's off on this device until the person insists. */
+    disabledHere: stops >= STOPS_TO_DISABLE,
+    tryAnyway: () => {
+      clearStops();
+      setStops(0);
+      void load();
+    },
     unsupported: unsupportedReason(),
     load,
     tap: (p: { x: number; y: number }) => {
@@ -211,6 +233,20 @@ export function AreaSelectPanel({ area }: { area: AreaSelect }) {
       </p>
     );
   }
+  if (area.status === 'off' && area.disabledHere) {
+    return (
+      <div className="area-intro stack">
+        <p className="hint" role="status">
+          Area selection stopped this page {area.stops} times on this device before it finished (most likely the device ran short of memory), so it’s turned off here. Tapping a point works as usual, and the rest of Roomination isn’t affected.
+        </p>
+        <div className="button-row">
+          <button type="button" className="secondary small" onClick={area.tryAnyway}>
+            Try anyway
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (area.status === 'off') {
     return (
       <div className="area-intro stack">
@@ -222,6 +258,11 @@ export function AreaSelectPanel({ area }: { area: AreaSelect }) {
             ? 'The model is already kept in this browser.'
             : `The first time, it downloads ${megabytes(AREA_MODEL.encoder.bytes + AREA_MODEL.decoder.bytes)} (the model) and up to ${megabytes(ENGINE_BYTES)} (the engine, shared with Smart remove), from this website only. They’re kept in this browser.`}
         </p>
+        {area.stops > 0 && !area.error && (
+          <p className="hint" role="status">
+            Last time, the page stopped while area selection was starting or reading a photo (most likely the device ran short of memory), so it didn’t start by itself. Close other tabs or apps first, or tap a point instead.
+          </p>
+        )}
         {area.error && (
           <p className="form-error" role="alert">
             {area.error}
@@ -260,6 +301,11 @@ export function AreaSelectPanel({ area }: { area: AreaSelect }) {
               ? 'Shaded: the selected area. Tap again to add to it, or choose Leave out and tap what shouldn’t be in it.'
               : 'Tap the middle of the object or surface.'}
       </p>
+      {area.timings.readMs !== null && (
+        <p className="hint area-timing">
+          Photo read in {(area.timings.readMs / 1000).toFixed(1)} s{area.timings.selectMs !== null ? `; last selection ${(area.timings.selectMs / 1000).toFixed(1)} s` : ''}.
+        </p>
+      )}
       {area.error && (
         <p className="form-error" role="alert">
           {area.error}

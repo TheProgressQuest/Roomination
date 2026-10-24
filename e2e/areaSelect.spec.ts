@@ -1,4 +1,6 @@
 import { devices, expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { unzipSync } from 'fflate';
 import { exportProject, openApp, selectInList } from './helpers';
 import { makePng } from './png';
 import { syntheticRoomPhoto } from './syntheticPhoto';
@@ -248,6 +250,126 @@ test.describe('Select an area', () => {
     await panel.getByRole('radio', { name: 'Tapping a point' }).click();
     await tapPhoto(panel, photo.taps.wall);
     await expect(panel.locator('.match-picked code')).toHaveText(/^#[0-9a-f]{6}$/);
+    expect(errors).toEqual([]);
+  });
+
+  test('after the page stopped mid-read (as Safari does when memory runs out), it waits; after two, it’s off here', async ({ page }) => {
+    // Turned on before, and a heavy step was running when the previous page ended.
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('seeded')) return;
+      sessionStorage.setItem('seeded', '1');
+      localStorage.setItem('roomination.areaSelect', 'on');
+      localStorage.setItem('roomination.areaSelect.busy', String(Date.now() - 5000));
+    });
+    const errors = await openApp(page);
+    let panel = await openWithPhoto(page);
+    await panel.getByRole('radio', { name: 'Selecting an area (AI)' }).click();
+    await expect(panel.getByText(/Last time, the page stopped/)).toBeVisible();
+    await expect(panel.getByRole('button', { name: /Turn on|Download and turn on/ })).toBeVisible();
+    await page.waitForTimeout(1500);
+    await expect(panel.getByText('Tap the middle of the object or surface.')).toHaveCount(0); // didn't start by itself
+    // A second stop: off on this device, with the manual tools unaffected.
+    await page.evaluate(() => localStorage.setItem('roomination.areaSelect.busy', String(Date.now() - 5000)));
+    await page.reload();
+    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
+    await page.getByRole('button', { name: 'Match my room' }).click();
+    panel = page.getByRole('complementary', { name: 'Match my room' });
+    await panel.getByRole('radio', { name: 'Selecting an area (AI)' }).click();
+    await expect(panel.getByText(/stopped this page 2 times on this device/)).toBeVisible();
+    await panel.getByRole('radio', { name: 'Tapping a point' }).click();
+    await tapPhoto(panel, photo.taps.wall);
+    await expect(panel.locator('.match-picked code')).toHaveText(/^#[0-9a-f]{6}$/);
+    // "Try anyway" works, and a completed read clears the record.
+    await panel.getByRole('radio', { name: 'Selecting an area (AI)' }).click();
+    await panel.getByRole('button', { name: 'Try anyway' }).click();
+    await expect(panel.getByText('Tap the middle of the object or surface.')).toBeVisible({ timeout: 60_000 });
+    expect(await page.evaluate(() => localStorage.getItem('roomination.areaSelect.stops'))).toBeNull();
+    expect(errors).toEqual([]);
+  });
+
+  test('a page reloaded in the middle of reading a photo keeps the project, and the safeguard notices', async ({ page }) => {
+    const errors = await openApp(page);
+    const panel = await openWithPhoto(page);
+    await turnOn(panel);
+    // Another photo starts a read; reload while it runs.
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), panel.getByRole('button', { name: /Add (a )?photo/ }).click()]);
+    await chooser.setFiles({ name: 'second.png', mimeType: 'image/png', buffer: makePng(800, 600, (x, y) => [x % 255, y % 255, 120, 255]) });
+    await expect(panel.getByText(/Reading this photo/)).toBeVisible();
+    await page.reload();
+    const project = await exportProject(page);
+    expect(project.referencePhotos).toHaveLength(2);
+    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
+    await page.getByRole('button', { name: 'Match my room' }).click();
+    const again = page.getByRole('complementary', { name: 'Match my room' });
+    await again.getByRole('radio', { name: 'Selecting an area (AI)' }).click();
+    await expect(again.getByText(/Last time, the page stopped/)).toBeVisible();
+    await again.getByRole('button', { name: 'Turn on' }).click();
+    await expect(again.getByText('Tap the middle of the object or surface.')).toBeVisible({ timeout: 60_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test('if the worker dies mid-read, it says so, point picking works, and the next tap starts it again', async ({ page }) => {
+    // Simulates the browser stopping the worker (once) while it reads a photo.
+    await page.addInitScript(() => {
+      const Real = window.Worker;
+      let crashed = false;
+      window.Worker = class extends Real {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        postMessage(message: any, transfer?: any) {
+          if (message?.type === 'embed' && !crashed) {
+            crashed = true;
+            setTimeout(() => this.dispatchEvent(new ErrorEvent('error', { message: 'Worker stopped' })), 50);
+            return;
+          }
+          super.postMessage(message, transfer ?? []);
+        }
+        set onerror(handler: ((e: ErrorEvent) => void) | null) {
+          this.addEventListener('error', (e) => handler?.(e as ErrorEvent));
+        }
+      } as typeof Worker;
+    });
+    const errors = await openApp(page);
+    const panel = await openWithPhoto(page);
+    await panel.getByRole('radio', { name: 'Selecting an area (AI)' }).click();
+    await panel.getByRole('button', { name: 'Download and turn on' }).click();
+    await expect(panel.getByRole('alert')).toContainText('Area selection stopped', { timeout: 60_000 });
+    await panel.getByRole('radio', { name: 'Tapping a point' }).click();
+    await tapPhoto(panel, photo.taps.wall);
+    await expect(panel.locator('.match-picked code')).toHaveText(/^#[0-9a-f]{6}$/);
+    // Back to "Turn on" (not retried by itself); turning on again works.
+    await panel.getByRole('radio', { name: 'Selecting an area (AI)' }).click();
+    await panel.getByRole('button', { name: 'Turn on' }).click();
+    await expect(panel.getByText('Tap the middle of the object or surface.')).toBeVisible({ timeout: 60_000 });
+    await tapPhoto(panel, photo.taps.sofa);
+    await suggested(panel);
+    expect(errors).toEqual([]);
+  });
+
+  test('HEIC photos: opened where the browser can decode them, explained where it can’t, and exported', async ({ page, browserName }) => {
+    const errors = await openApp(page);
+    await page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { name: '3D View' }).click();
+    await page.getByRole('button', { name: 'Match my room' }).click();
+    const panel = page.getByRole('complementary', { name: 'Match my room' });
+    const heic = readFileSync('e2e/fixtures/synthetic-room.heic');
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), panel.getByRole('button', { name: /Add (a )?photo/ }).click()]);
+    await chooser.setFiles({ name: 'IMG_0001.HEIC', mimeType: 'image/heic', buffer: heic });
+    const decoded = await panel.locator('canvas.match-photo').waitFor({ timeout: 10_000 }).then(() => true, () => false);
+    if (browserName !== 'webkit') {
+      // Chrome and Firefox can't decode HEIC: a clear message, nothing stored.
+      expect(decoded).toBe(false);
+      await expect(panel.getByText(/can’t open HEIC photos/)).toBeVisible();
+      return;
+    }
+    expect(decoded).toBe(true);
+    // Stored converted (upright, at most 1600 px) and carried by the exported project.
+    const [download] = await Promise.all([page.waitForEvent('download'), (async () => {
+      await page.getByRole('button', { name: /^Projects/ }).click();
+      await page.getByRole('button', { name: 'Export file' }).click();
+    })()]);
+    const files = unzipSync(new Uint8Array(readFileSync((await download.path())!)));
+    const assets = Object.keys(files).filter((f) => f.startsWith('assets/'));
+    expect(assets).toHaveLength(1);
+    expect(assets[0]).toMatch(/\.(png|webp|jpe?g)$/);
     expect(errors).toEqual([]);
   });
 

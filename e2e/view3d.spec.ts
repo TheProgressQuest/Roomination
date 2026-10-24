@@ -240,7 +240,8 @@ test.describe('3D view', { tag: '@3d' }, () => {
     await expect(page.locator('.floor-plan canvas').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
     // The failed download is reported in the console; nothing else went wrong.
-    expect(errors.filter((e) => !/View3D|dynamically imported module|Failed to fetch|net::ERR/i.test(e))).toEqual([]);
+    // (Chromium, WebKit and Firefox word it differently; Firefox logs the error object itself.)
+    expect(errors.filter((e) => !/View3D|dynamically imported module|Importing a module script failed|Failed to fetch|net::ERR|^JSHandle@object$/i.test(e))).toEqual([]);
   });
 
   test('explains when WebGL is unavailable and returns to 2D', async ({ page }) => {
@@ -382,7 +383,8 @@ for (const width of [320, 375, 430, 768, 1024, 1440]) {
 
     if (!touch) return;
 
-    test('tapping furniture selects it and Edit opens the properties modal; the page still scrolls outside the canvas', async ({ page }) => {
+    test('tapping furniture selects it and Edit opens the properties modal; the page still scrolls outside the canvas', async ({ page, browserName }) => {
+      test.skip(browserName !== 'chromium', 'Needs touch plus wheel scrolling, which only Playwright’s Chromium emulates together');
       await openApp(page);
       const saved = await exportProject(page);
       const sofa = saved.furniture.find((f: { name: string }) => f.name === 'Sofa');

@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { SAVE_NOW_EVENT } from './state/saveNow';
 import { FeatureButtons, FurnitureButtons, StairButtons, StructureButtons, type FurniturePreset } from './components/AddCatalog';
 import { DrawingBar } from './components/DrawingBar';
 import { ConflictBanner } from './components/ConflictBanner';
@@ -196,6 +197,27 @@ export function App() {
     }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [project, activeId]);
+
+  // Save at once (not after the usual short delay) when the page is hidden or closed, and before
+  // memory-hungry work: phones may end a page then without warning (a background tab, or Safari
+  // running short of memory), and the latest change must not be lost.
+  const latest = useRef({ activeId, project });
+  latest.current = { activeId, project };
+  useEffect(() => {
+    const saveNow = () => {
+      const { activeId: id, project: current } = latest.current;
+      if (id) void saveProject(id, current).then(() => setSaveStatus('saved'), () => setSaveStatus('error'));
+    };
+    const onHidden = () => document.visibilityState === 'hidden' && saveNow();
+    window.addEventListener('pagehide', saveNow);
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener(SAVE_NOW_EVENT, saveNow);
+    return () => {
+      window.removeEventListener('pagehide', saveNow);
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener(SAVE_NOW_EVENT, saveNow);
+    };
+  }, []);
 
   const refreshProjectList = useCallback(async () => setProjectList(await listProjects()), []);
   useEffect(() => {
