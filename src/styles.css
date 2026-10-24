@@ -1560,12 +1560,20 @@ kbd {
   background: var(--surface);
   font-size: 0.72rem;
   font-weight: 650;
+  line-height: 1.2;
   min-width: 0;
+  /* Long names ("Dark walnut", "Ceramic tile") wrap inside the tile at larger text sizes. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .floor-option.is-active {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.floor-label {
+  overflow-wrap: anywhere;
 }
 
 .floor-swatch {
@@ -3485,6 +3493,9 @@ select {
 
 .tools-tabs {
   flex: 1;
+  /* Labels scale with the bar's own width (narrow panel, visible scrollbar, larger text). */
+  container-type: inline-size;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 2px;
@@ -3506,12 +3517,52 @@ select {
   border-radius: 9px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  /*
+   * Title case, not capitals: "Optimize" is about 4.8em wide where "OPTIMIZE" was 6.4em, so the
+   * labels stay readable in a quarter of a narrow panel (with a scrollbar showing, or larger
+   * text). They shrink a little only when even that doesn't fit.
+   */
+  font-size: clamp(0.62rem, 4.4cqi, 0.75rem);
+  font-weight: 700;
   cursor: pointer;
+  min-width: 0;
 }
+
+.tools-tabs button > span:not(.tab-badge) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools-head {
+  container: tools-head / inline-size;
+}
+
+/*
+ * A narrow panel (where the hide-panel button shares the row, about 1024px wide and below):
+ * four labels can't fit side by side at a readable size, so the tabs form two rows of two,
+ * each icon beside its label.
+ */
+@container tools-head (max-width: 255px) {
+  .tools-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tools-tabs button {
+    flex-direction: row;
+    gap: 6px;
+    min-height: 36px;
+    font-size: 0.75rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .tools-tabs button {
+    min-height: 44px;
+  }
+}
+
 
 .tools-tabs button:hover:not(.is-active) {
   color: var(--text);
@@ -3889,7 +3940,7 @@ select {
 .catalogue-categories button.is-active {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .catalogue-count {
@@ -4481,7 +4532,43 @@ select {
     padding: 0 6px;
   }
   .theme-toggle button {
-    width: 40px;
+    width: 44px;
+  }
+  /* "Small" variants and other compact controls: compact on desktop, finger-sized here. */
+  .secondary.small,
+  .primary.small,
+  .danger.small,
+  .project-button,
+  .view3d-select select,
+  .collapsible > summary,
+  .drawing-bar summary,
+  .snap-options > summary,
+  details > summary,
+  .scan-help summary,
+  .scan-add summary,
+  .toggle {
+    min-height: 44px;
+  }
+  /* Short labels ("cm", "All", icon buttons) still get a finger-wide target. */
+  .secondary,
+  .primary,
+  .segmented button,
+  .catalogue-categories button {
+    min-width: 44px;
+  }
+  .icon-button.small {
+    width: 44px;
+    height: 44px;
+  }
+  .match-swatch {
+    width: 44px;
+    height: 44px;
+  }
+  /* The photo's small remove button keeps its look but gets a finger-sized hit area. */
+  .match-thumb-remove::before {
+    content: '';
+    position: absolute;
+    inset: -11px;
   }
 }
 

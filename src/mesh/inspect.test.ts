@@ -87,5 +87,6 @@ describe('USDZ checks', () => {
     const bomb = zipSync({ 'radio.usdc': new Uint8Array(210 * 1024 * 1024) }, { level: 9 });
     expect(bomb.length).toBeLessThan(2 * 1024 * 1024);
     expect(() => inspectUsdz(bomb)).toThrow(/more than Roomination can safely open/);
-  });
+    // Compressing 210 MB takes a few seconds on a busy machine.
+  }, 60_000);
 });

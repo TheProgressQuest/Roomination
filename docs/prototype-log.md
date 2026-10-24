@@ -173,6 +173,25 @@ debt. Every item here is checked before a public release (see
   - meshes and photos aren't imported.
   See [scan-import.md](scan-import.md).
 
+## Design review (October 2026): decisions needed
+
+From a scan of every main screen and dialog at phone, tablet and desktop sizes, light and
+dark, normal and large text. Layout bugs were fixed (see git log); these need a decision:
+
+| Issue | Notes |
+| --- | --- |
+| **Optimize appears three times** | Header button, bottom/selection bar and the Optimize tab; on a phone all three are on screen at once |
+| **Four ways to give a piece a photo or scan look** | *Create from photos* (studio), *Match my room → Cut texture → whole piece* (same front/top/side mechanism), *Rebuild object*, *Import 3D model*. Suggest one "Photos & scans" entry per piece |
+| **Three ways to build custom furniture** | *Draw custom furniture*, *Shape Builder*, *Build from components*, beside *Quick add* and the catalogue |
+| **Plan style twice** | Technical / Presentation in the toolbar and again under Design → *Presentation plan → Plan style* |
+| **Edits hidden by a model** | Fixed with a note: on pieces showing a 3D model or rebuilt look, edits to the ordinary look don't show until it's switched off. A bigger fix would hide or merge those controls |
+| **Match my room on phones** | Stacks below the 3D view; selecting an object to rebuild means leaving the panel |
+| **Phone 3D view** | Toolbars take the top half of the screen; the hint card and bottom bar cover the lower part of the view |
+
+Smaller, left as they are: corner handles in the outline editors are 26 px on touch (WCAG's
+minimum is 24 px; 44 px would crowd the drawing); the photo's remove button has a 44 px hit
+area but a 22 px look.
+
 ## Technical debt
 
 | Item | Notes |

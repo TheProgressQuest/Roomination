@@ -143,6 +143,16 @@ function FurnitureEditor({ project, item, conflicts, dispatch, onDelete }: Objec
 }
 
 /** Custom outline, materials and photos (edited in the furniture studio), and saving to the library. */
+/**
+ * When a 3D model or a photo rebuild is drawn instead of the ordinary look, edits to the
+ * ordinary look (shape, components, model, colour) don't show until it's switched off.
+ */
+export function hiddenLookNote(item: Pick<Furniture, 'mesh' | 'photoModel'>): string | null {
+  if (item.mesh && !item.mesh.off) return 'Its 3D model is shown instead of this look: changes here appear when you switch off “Show the 3D model” (under 3D model).';
+  if (item.photoModel && !item.photoModel.off) return 'Its rebuilt look (from photos) is shown instead: changes here appear when you switch off “Show the rebuilt look” in Match my room → Rebuild object.';
+  return null;
+}
+
 function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<EditorAction> }) {
   const openStudio = useOpenStudio();
   const origin = furnitureOrigin(item);
@@ -163,6 +173,7 @@ function ShapeAndLook({ item, dispatch }: { item: Furniture; dispatch: Dispatch<
         <span className={`origin-badge is-${origin}`}>{ORIGIN_LABELS[origin]}</span>
         {item.appearance && ` · ${item.appearance.material} · ${item.appearance.finish}`}
       </p>
+      {hiddenLookNote(item) && <p className="hint">{hiddenLookNote(item)}</p>}
       <div className="button-row">
         <button type="button" className="secondary small" onClick={() => openStudio({ mode: 'edit', furnitureId: item.id })}>
           <Icon name="edit" size={14} /> Edit shape & look
@@ -337,8 +348,10 @@ function LightSection({ light, onChange }: { light: NonNullable<Furniture['light
 /** "Change model": the same size and place, a different look. */
 function ModelSection({ item, onApply }: { item: Furniture; onApply: (changes: Partial<Furniture>) => void }) {
   const [open, setOpen] = useState(false);
+  const hidden = hiddenLookNote(item);
   return (
     <Section title="Model">
+      {hidden && <p className="hint">{hidden}</p>}
       {open ? (
         <Suspense fallback={<p className="hint">Loading the catalogue…</p>}>
           <ChangeModel

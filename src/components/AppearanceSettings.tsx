@@ -44,7 +44,7 @@ export function FloorSettings({ project, dispatch }: Pick<AppearanceProps, 'proj
             onClick={() => set({ preset, color: FLOOR_PRESET_COLORS[preset] })}
           >
             <FloorSwatch preset={preset} />
-            <span className="truncate">{FLOOR_PRESET_LABELS[preset]}</span>
+            <span className="floor-label">{FLOOR_PRESET_LABELS[preset]}</span>
           </button>
         ))}
       </div>
