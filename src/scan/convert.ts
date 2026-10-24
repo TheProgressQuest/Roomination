@@ -459,6 +459,14 @@ function chainWithGaps(edges: Edge[], corners: Point[]): { loop: Loop; gaps: num
 // Building the project
 // ---------------------------------------------------------------------------
 
+/** Whether a wall runs along the outline: points along it all lie within JOIN_DISTANCE of an outline edge. */
+function alongOutline(a: Point, b: Point, poly: Point[]): boolean {
+  return [0, 0.25, 0.5, 0.75, 1].every((t) => {
+    const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    return poly.some((c, i) => projectOntoSegment(p, c, poly[(i + 1) % poly.length]).distance <= JOIN_DISTANCE);
+  });
+}
+
 function nearestSection(scan: ScanData, p: Point): string | null {
   let best: { label: string; d: number } | null = null;
   for (const s of scan.sections) {
@@ -531,6 +539,9 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
     const a = shift(w.a);
     const b = shift(w.b);
     if (dist(a, b) < MIN_WALL_LENGTH) continue;
+    // With the outline taken from the floor, the scanned walls along it are already the room's
+    // walls: adding them again would double them (and flag furniture against them).
+    if (outlineFrom === 'floor' && alongOutline(a, b, poly)) continue;
     if (segmentInsidePolygon(a, b, poly)) {
       partitions.push({ id: `${id}-interior`, nodes: [{ id, ...a, thickness: 10 }, { id: `${id}-end`, ...b, thickness: 10 }] });
     } else {

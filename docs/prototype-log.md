@@ -28,6 +28,17 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **First real open-plan scan (RoomSheet, 24 Oct 2026):** fixed: when the scanned walls don't
+  close (three walls meeting at a stair wall made the tracer give up), the floor outline is used,
+  and the scanned walls along it were added again as interior walls (doubled lengths, false
+  overlap warnings). Still as designed but confusing on a real room:
+  - the scanner records labelled boxes only (sofa, table, storage, chair); its USDZ files hold
+    boxes with no textures, so pieces get catalogue looks and default colours;
+  - "storage" is guessed from its size (a desk became a sideboard, a tall shelf a bookshelf);
+    a table measured with its chairs tucked in became a round table;
+  - dining chairs tucked under a table are flagged as overlaps;
+  - the package's reference photos aren't used by the import: colours and textures come from
+    Match my room, by hand.
 - **Testing on another device (M8):** web apps can only store photos and models on https://
   (or localhost) pages: browsers withhold the hashing they use on plain http:// network
   addresses. `npm run phone-test` serves the build over HTTPS with a test certificate limited

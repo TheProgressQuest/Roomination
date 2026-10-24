@@ -220,6 +220,22 @@ describe('building a project from a scan', () => {
     expect(roomArea(result.project!.room)).toBeCloseTo(420 * 360, -1);
   });
 
+  it('doesn’t add the walls along a floor outline again as interior walls', () => {
+    const scan = scanOf(SAMPLE_BEDROOM);
+    // Two walls along the outline and a third from their shared corner into the room: three
+    // walls meeting at one corner (as at a stair wall) make the scan fall back to its floor.
+    const [w1, w2] = scan.walls;
+    const corner = [w1.a, w1.b].find((p) => [w2.a, w2.b].some((q) => Math.hypot(p.x - q.x, p.y - q.y) < 1))!;
+    const xs = scan.floor!.map((p) => p.x);
+    const ys = scan.floor!.map((p) => p.y);
+    const mid = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+    const inside = { ...w1, id: 'stub', a: corner, b: mid };
+    const broken: ScanData = { ...scan, walls: [w1, w2, inside] };
+    const result = buildFromScan(broken, initialReview(broken));
+    expect(result.outlineFrom).toBe('floor');
+    expect(result.project!.room.partitions.map((p) => p.id)).toEqual(['stub-interior']);
+  });
+
   it('explains when nothing makes a room', () => {
     const scan = scanOf({ ...SAMPLE_BEDROOM, noFloor: true });
     const broken: ScanData = { ...scan, walls: scan.walls.slice(0, 1) };
