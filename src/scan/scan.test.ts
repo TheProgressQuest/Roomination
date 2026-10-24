@@ -594,7 +594,9 @@ describe('scanning apps', () => {
     expect(scan.source).toMatch(/^RoomSheet package/);
     expect(scan.walls).toHaveLength(4);
     expect(scan.notes.join(' ')).toMatch(/Edits made in RoomSheet aren’t included/);
-    expect(result.skipped).toBe('1 photo, 2 3D models, 5 floor-plan exports and the scanning app’s metadata and edits');
+    expect(result.skipped).toBe('2 3D models, 5 floor-plan exports and the scanning app’s metadata and edits');
+    // Its reference photo is offered for Match my room, but not read unless the person keeps it.
+    expect(result.choices[0].photos.map((p) => p.name)).toEqual(['Bedroom 2026-10-23/photos/0001.jpg']);
     const entries = await listZip(blob);
     for (const e of entries.filter((x) => !x.name.endsWith('captured-room.json'))) {
       const start = e.offset;
@@ -604,6 +606,34 @@ describe('scanning apps', () => {
     // And it builds the same room as the plain RoomPlan JSON.
     const p = buildFromScan(scan, initialReview(scan)).project!;
     expect(sortedLengths(outlineSegments(p.room).map((x) => x.length))).toEqual([360, 360, 420, 420]);
+  });
+
+  it('offers only the photos the package really contains, and reads one only when asked', async () => {
+    const bytes = (n: number, v: number) => new Uint8Array(n).fill(v);
+    const zip = zipSync({
+      'Room/captured-room.json': strToU8(JSON.stringify(sampleToRoomPlan(SAMPLE_BEDROOM))),
+      'Room/photos/photo-02.jpg': bytes(900, 7),
+      'Room/photos/photo-01.jpg': bytes(800, 8),
+      'Room/photos/notes.txt': strToU8('not a photo'),
+      'Room/photos/thumbs/photo-01.jpg': bytes(100, 9),
+      'Room/scan-preview-light.png': bytes(300, 1),
+      'Room/plan-preview.png': bytes(300, 2),
+    });
+    const result = await readScanFile(new Blob([new Uint8Array(zip)]));
+    if (!result.ok) throw new Error(result.error);
+    const photos = result.choices[0].photos;
+    expect(photos.map((p) => p.name)).toEqual(['Room/photos/photo-01.jpg', 'Room/photos/photo-02.jpg']);
+    const file = await photos[0].read();
+    expect(file.name).toBe('photo-01.jpg');
+    expect(file.type).toBe('image/jpeg');
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes(800, 8));
+    // Previews are named as previews, not photos.
+    expect(result.skipped).toBe('1 photo and 2 preview images');
+    // A RoomPlan JSON alone, or another kind of ZIP, offers none.
+    const alone = await readScanFile(new File([JSON.stringify(sampleToRoomPlan(SAMPLE_BEDROOM))], 'captured-room.json'), 'captured-room.json');
+    expect(alone.ok && alone.choices[0].photos).toEqual([]);
+    const other = await readScanFile(new Blob([new Uint8Array(zipSync({ 'rooms/room-1.json': strToU8(JSON.stringify(sampleToRoomPlan(SAMPLE_BEDROOM))), 'photos/0001.jpg': bytes(10, 1) }))]));
+    expect(other.ok && other.choices[0].photos).toEqual([]);
   });
 
   it('reads captured-room.json on its own, or at the top of a ZIP', async () => {

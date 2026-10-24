@@ -40,6 +40,10 @@ export interface SampleObject {
   rotation?: number;
   bottom?: number;
   confidence?: 'high' | 'medium' | 'low';
+  /** RoomPlan's classification details (iOS 17+), e.g. { SofaType: 'lShaped' }. */
+  attributes?: Record<string, string>;
+  /** Index (in `objects`) of the object the scanner links this one to. */
+  parent?: number;
 }
 
 export interface SampleRoom {
@@ -143,12 +147,12 @@ export function sampleToRoomPlan(room: SampleRoom): Record<string, unknown> {
     const bottom = (o.bottom ?? 0) / 100;
     return {
       identifier: uuid(`${room.name}-object-${i}`),
-      parentIdentifier: null,
+      parentIdentifier: o.parent === undefined ? null : uuid(`${room.name}-object-${o.parent}`),
       category: { [o.category]: {} },
       confidence: confidence(o.confidence),
       transform: matrix([ax, 0, az], [0, 1, 0], [fx, 0, fz], [cx, world.floorY + bottom + o.height / 200, cz]),
       dimensions: [o.width / 100, o.height / 100, o.depth / 100],
-      attributes: {},
+      attributes: o.attributes ?? {},
       story: 0,
     };
   });

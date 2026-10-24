@@ -6,7 +6,9 @@ import { createEmptyProject, DEFAULT_FLOOR, DEFAULT_WALL_COLOR } from '../model/
 import type { Furniture, Partition, Point, Project, Room, RoomFeature, ScanItemRecord, ScanRecord, Staircase, WallNode } from '../model/types';
 import { DEFAULT_WALL_THICKNESS, findSegment, MIN_WALL_LENGTH, nearestWall, outlineSegments, segmentInsidePolygon, setWallLength, validateRoom, wallLabel } from '../model/walls';
 import { parseProjectFile, serializeProject } from '../storage/projectFile';
-import { BOX, catalogueName, categoryLabel, pieceFor, STAIRS, suggestPiece, type Suggestion } from './furnitureMap';
+import { classify, inferDesk, type Classification } from './classify';
+import { BOX, catalogueName, categoryLabel, pieceFor, sectionalPiece, STAIRS, suggestPiece, type Suggestion } from './furnitureMap';
+import { isSectionalPair, joinSectional, type JoinedSectional } from './sectional';
 import { sectionName } from './roomPlan';
 import type { ScanConfidence, ScanData, ScanObject, ScanOpening, ScanOpeningKind, ScanWall } from './types';
 
@@ -71,6 +73,8 @@ export interface ObjectEdit {
   width?: number;
   depth?: number;
   height?: number;
+  /** On an L-shaped sofa's extension: false keeps it separate from the sofa it was joined to. */
+  join?: boolean;
 }
 
 export interface AddedOpening {
@@ -203,6 +207,14 @@ export interface BuiltObject {
   confidence: ScanConfidence;
   problem: string | null;
   added: boolean;
+  /** What the scanner's classification (or Roomination's inference from its links) allows; null for added pieces. */
+  classification: Classification | null;
+  /** An L-shaped sofa's extension shown as part of this sofa: the extension's id (on the sofa). */
+  joinedWith: string | null;
+  /** On the extension: the sofa it's shown as part of. */
+  joinedInto: string | null;
+  /** On an extension the scanner linked to a sofa: why they're shown apart (null when joined or not a pair). */
+  joinProblem: string | null;
 }
 
 export interface BuildResult {
@@ -459,6 +471,32 @@ function chainWithGaps(edges: Edge[], corners: Point[]): { loop: Loop; gaps: num
 // Building the project
 // ---------------------------------------------------------------------------
 
+/**
+ * L-shaped sofas whose short side the scanner linked to them (see sectional.ts), by the sofa's id.
+ * A pair is joined unless the person kept the extension separate, left either part out, gave
+ * either another category or size, or chose another piece for the sofa.
+ */
+function sectionalJoins(scan: ScanData, review: Review): Map<string, { extension: string; result: JoinedSectional | { problem: string } }> {
+  const pairs = new Map<string, { extension: string; result: JoinedSectional | { problem: string } }>();
+  const byId = new Map(scan.objects.map((o) => [o.id, o]));
+  const resized = (e: ObjectEdit) => e.width !== undefined || e.depth !== undefined || e.height !== undefined;
+  for (const extension of scan.objects) {
+    const main = extension.parentId ? byId.get(extension.parentId) : undefined;
+    if (!main || !isSectionalPair(main, extension) || pairs.has(main.id)) continue;
+    const e = review.objects[extension.id] ?? {};
+    const m = review.objects[main.id] ?? {};
+    if (e.join === false || e.include === false || m.include === false || e.category !== undefined || m.category !== undefined || resized(e) || resized(m) || (m.as !== undefined && m.as !== 'sectional')) continue;
+    pairs.set(main.id, { extension: extension.id, result: joinSectional(main, extension) });
+  }
+  return pairs;
+}
+
+/** Why the scanner's sofa extension `id` couldn't be joined to its sofa, if it couldn't. */
+function joinProblemOf(joins: ReturnType<typeof sectionalJoins>, id: string): string | null {
+  for (const j of joins.values()) if (j.extension === id && 'problem' in j.result) return j.result.problem;
+  return null;
+}
+
 /** Whether a wall runs along the outline: points along it all lie within JOIN_DISTANCE of an outline edge. */
 function alongOutline(a: Point, b: Point, poly: Point[]): boolean {
   return [0, 0.25, 0.5, 0.75, 1].every((t) => {
@@ -673,7 +711,7 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
   const stairs: Staircase[] = [];
   const builtObjects: BuiltObject[] = [];
   const centre = { x: (box.maxX - box.minX) / 2, y: (box.maxY - box.minY) / 2 };
-  const placePiece = (b: BuiltObject, at: Point, rotation: number) => {
+  const placePiece = (b: BuiltObject, at: Point, rotation: number, sectional: JoinedSectional | null = null) => {
     if (b.as === STAIRS) {
       const stair: Staircase = {
         id: b.id,
@@ -692,7 +730,7 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
       return null;
     }
     // Height above the floor comes from the scan, never from the catalogue piece's default.
-    const { elevation: _templateElevation, ...t } = pieceFor(b.as, b.category, b);
+    const { elevation: _templateElevation, ...t } = sectional ? sectionalPiece(b, sectional.shape) : pieceFor(b.as, b.category, b);
     const item: Furniture = { ...t, id: b.id, x: round1(at.x), y: round1(at.y), rotation: round1(((rotation % 360) + 360) % 360), locked: false, preferences: [], ...(b.elevation > 0 ? { elevation: b.elevation } : {}) };
     const placed = clampFurnitureToRoom(item, room);
     if (!placed) return 'It doesn’t fit inside the room at this size and angle.';
@@ -704,19 +742,33 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
 
   const merged = basinsOnCabinets(scan);
   const vanities = new Set(merged.values());
+  const sectionals = sectionalJoins(scan, review);
+  const joinedInto = new Map([...sectionals].filter(([, j]) => !('problem' in j.result)).map(([main, j]) => [j.extension, main]));
   for (const o of scan.objects) {
     const edit = review.objects[o.id] ?? {};
     const category = edit.category ?? o.category;
     const section = nearestSection(scan, o.center);
+    const pair = sectionals.get(o.id);
+    const joined = pair && !('problem' in pair.result) ? pair.result : null;
+    const partOf = joinedInto.get(o.id) ?? null;
+    if (partOf) {
+      // The extension: listed (and recorded) as part of its sofa, never placed on its own.
+      builtObjects.push({ id: o.id, measured: o, category, section, suggestion: { as: 'sectional', reason: 'Shown as part of the sectional sofa, as the scanner linked them.', basis: 'classified' }, as: 'sectional', name: 'Short side of the sectional sofa', width: round1(o.width), depth: round1(o.depth), height: round1(o.height), elevation: 0, include: edit.include ?? true, confidence: o.confidence, problem: null, added: false, classification: classify(o.category, o.attributes), joinedWith: null, joinedInto: partOf, joinProblem: null });
+      continue;
+    }
+    // The scanner's classification applies to the scanner's category; a changed category has none.
+    const classification = edit.category !== undefined && edit.category !== o.category ? null : (inferDesk(o, scan.objects, section) ?? classify(o.category, o.attributes));
     const onCabinet = merged.has(o.id);
     const isVanity = vanities.has(o.id) && edit.category === undefined;
     const unit = !onCabinet && standsOnUnit({ category, bottom: o.bottom });
     // A basin on a unit: the unit is as wide and deep as measured and reaches the basin's top.
     const measured = { width: round1(o.width), depth: round1(o.depth), height: round1(unit ? o.bottom + o.height : o.height) };
-    const size = { width: edit.width ?? measured.width, depth: edit.depth ?? measured.depth, height: edit.height ?? measured.height };
-    const suggestion = isVanity
-      ? { ...suggestPiece('sink', measured, section ?? 'bathroom'), reason: 'A basin sits on this cabinet (the scan measured them separately), so it’s shown as one vanity at the cabinet’s measured size.' }
-      : suggestPiece(category, measured, section);
+    const size = joined ? { width: joined.width, depth: joined.depth, height: joined.height } : { width: edit.width ?? measured.width, depth: edit.depth ?? measured.depth, height: edit.height ?? measured.height };
+    const suggestion: Suggestion = joined
+      ? { as: 'sectional', reason: `The scanner classified it as an L-shaped sofa and measured its short side separately, linked to it; the two are shown as one sectional, at their measured sizes and positions${joined.adjusted >= 1 ? ` (the short side lined up by ${joined.adjusted} cm)` : ''}.`, basis: 'classified' }
+      : isVanity
+        ? { ...suggestPiece('sink', measured, section ?? 'bathroom'), reason: 'A basin sits on this cabinet (the scan measured them separately), so it’s shown as one vanity at the cabinet’s measured size.' }
+        : suggestPiece(category, measured, section, classification);
     const as = edit.as ?? suggestion.as;
     const b: BuiltObject = {
       id: o.id,
@@ -732,20 +784,25 @@ export function buildFromScan(scan: ScanData, review: Review, importedAt = Date.
       confidence: o.confidence,
       problem: null,
       added: false,
+      classification,
+      joinedWith: joined ? pair!.extension : null,
+      joinedInto: null,
+      joinProblem: joinProblemOf(sectionals, o.id),
     };
     if (!(b.width >= MIN_FURNITURE_SIZE && b.depth >= MIN_FURNITURE_SIZE)) b.problem = `It must be at least ${MIN_FURNITURE_SIZE} cm wide and deep.`;
     else if (!(b.height > 0)) b.problem = 'Its height must be more than 0.';
     if (b.include && !b.problem) {
-      const turned = turn(o.center);
-      b.problem = placePiece(b, { x: turned.x - box.minX, y: turned.y - box.minY }, o.rotation + turnedBy);
+      const turned = turn(joined ? joined.center : o.center);
+      b.problem = placePiece(b, { x: turned.x - box.minX, y: turned.y - box.minY }, (joined ? joined.rotation : o.rotation) + turnedBy, joined);
     }
+    if (b.joinProblem) notes.push({ level: 'check', text: `The scanner linked this sofa’s short side to an L-shaped sofa, but they’re shown separately: ${b.joinProblem}.`, itemId: o.id });
     if (onCabinet) notes.push({ level: 'assumed', text: 'The basin sits on the cabinet below it, so the two are shown together as one vanity. Tick the basin to show it separately.', itemId: o.id });
     else if (unit) notes.push({ level: 'assumed', text: `The sink was measured as a basin ${round1(o.bottom)} cm off the floor, so it’s shown as a unit from the floor to the basin’s top (${round1(o.bottom + o.height)} cm). If it hangs on the wall, choose a plain box or change its height.`, itemId: o.id });
     else if (b.elevation > 0) notes.push({ level: 'info', text: `${categoryLabel(o.category)} is placed ${b.elevation} cm above the floor, as measured (on a wall, or standing on other furniture). It’s drawn dashed on the plan.`, itemId: o.id });
     builtObjects.push(b);
   }
   for (const a of review.addedPieces) {
-    const b: BuiltObject = { id: a.id, measured: null, category: a.category, section: null, suggestion: { as: a.as, reason: 'Added by you.' }, as: a.as, name: a.as === BOX ? `${categoryLabel(a.category)}` : (catalogueName(a.as) ?? categoryLabel(a.category)), width: a.width, depth: a.depth, height: a.height, elevation: 0, include: true, confidence: 'unknown', problem: null, added: true };
+    const b: BuiltObject = { id: a.id, measured: null, category: a.category, section: null, suggestion: { as: a.as, reason: 'Added by you.' }, as: a.as, name: a.as === BOX ? `${categoryLabel(a.category)}` : (catalogueName(a.as) ?? categoryLabel(a.category)), width: a.width, depth: a.depth, height: a.height, elevation: 0, include: true, confidence: 'unknown', problem: null, added: true, classification: null, joinedWith: null, joinedInto: null, joinProblem: null };
     b.problem = b.width >= MIN_FURNITURE_SIZE && b.depth >= MIN_FURNITURE_SIZE && b.height > 0 ? placePiece(b, centre, 0) : `It must be at least ${MIN_FURNITURE_SIZE} cm wide and deep, and more than 0 high.`;
     builtObjects.push(b);
   }
@@ -823,10 +880,13 @@ function objectRecords(objects: BuiltObject[], review: Review, merged: Map<strin
       category: m?.category ?? o.category,
       confidence: o.confidence,
       measured: m ? { width: round1(m.width), depth: round1(m.depth), height: round1(m.height), bottom: round1(m.bottom) } : null,
-      ...(o.added ? {} : { inferred: o.suggestion.as, inferredName: pieceName(o.suggestion.as, m?.category ?? o.category) }),
+      ...(o.added ? {} : { inferred: o.suggestion.as, inferredName: pieceName(o.suggestion.as, m?.category ?? o.category), ...(o.suggestion.basis ? { basis: o.suggestion.basis } : {}) }),
+      ...(m && Object.keys(m.attributes).length ? { attributes: { ...m.attributes } } : {}),
+      ...(m?.parentId ? { parent: m.parentId } : {}),
+      ...(o.joinedInto ? { joinedInto: o.joinedInto } : {}),
       corrections: o.added
         ? defined({ category: o.category, as: o.as, width: o.width, depth: o.depth, height: o.height })
-        : defined({ category: edit.category, as: edit.as, width: edit.width, depth: edit.depth, height: edit.height, include: edit.include !== undefined && edit.include !== !merged.has(o.id) ? edit.include : undefined }),
+        : defined({ category: edit.category, as: edit.as, width: edit.width, depth: edit.depth, height: edit.height, include: edit.include !== undefined && edit.include !== !merged.has(o.id) ? edit.include : undefined, join: edit.join }),
       excluded: !o.include || !!o.problem,
     };
   });

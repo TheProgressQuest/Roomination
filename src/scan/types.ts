@@ -59,6 +59,19 @@ export interface ScanObject {
   /** Clockwise degrees, 0 = front facing down the plan. */
   rotation: number;
   confidence: ScanConfidence;
+  /**
+   * The scanner's own classification details, exactly as written (RoomPlan iOS 17+), e.g.
+   * `{ SofaType: 'lShaped' }`, `{ TableShapeType: 'rectangular', TableType: 'dining' }`,
+   * `{ StorageType: 'shelf' }`, `{ ChairArmType: 'missing', ChairLegType: 'four' }`. Empty when
+   * the scanner gave none. Unknown keys and values are kept; Roomination uses the ones it knows.
+   */
+  attributes: Record<string, string>;
+  /**
+   * The object the scanner linked this one to (RoomPlan's `parentIdentifier`, as a `ScanObject.id`):
+   * an L-shaped sofa's extension → the sofa; chairs → their table. Null when unlinked, or when the
+   * link pointed at something that isn't an object in this scan.
+   */
+  parentId: string | null;
 }
 
 /** A labelled area of the scan (RoomPlan "sections", iOS 17+), e.g. "kitchen". */

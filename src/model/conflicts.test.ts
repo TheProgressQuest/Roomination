@@ -157,3 +157,35 @@ describe('checking one moving obstacle', () => {
     expect(only.every((c) => c.otherId === stair.id)).toBe(true);
   });
 });
+
+describe('chairs tucked under a table or desk', () => {
+  // A dining table at sitting height, and an armless chair half under its near edge, facing it.
+  const table = createFurniture({ name: 'Table', kind: 'diningTable', x: 200, y: 150, width: 140, depth: 90, height: 75 });
+  const chair = (fields: Partial<Furniture> = {}) => createFurniture({ name: 'Chair', kind: 'chair', x: 200, y: 205, width: 45, depth: 50, height: 90, rotation: 180, ...fields });
+
+  it('a chair pushed in, facing the table, is not an overlap', () => {
+    expect(findConflicts(project([table, chair()]))).toEqual([]);
+    // From any side: the chair at the table's left end, facing right.
+    expect(findConflicts(project([table, chair({ x: 140, y: 150, rotation: 270 })]))).toEqual([]);
+  });
+
+  it('still an overlap when it isn’t really tucked in', () => {
+    const collides = (...pieces: Furniture[]) => findConflicts(project(pieces)).some((c) => c.type === 'collision');
+    expect(collides(table, chair({ rotation: 0 }))).toBe(true); // turned away
+    expect(collides(table, chair({ y: 170 }))).toBe(true); // entirely underneath
+    expect(collides(table, chair({ kind: 'armchair' }))).toBe(true); // arms don't slide under
+    expect(collides({ ...table, kind: 'coffeeTable', height: 42 }, chair())).toBe(true); // too low
+    expect(collides({ ...table, elevation: 30 }, chair())).toBe(true);
+  });
+
+  it('keeps every other check on the chair: doors, walls and other furniture', () => {
+    const door = createFeature('door', { type: 'wall', wallId: leftWall, offset: 150 }, room, { width: 90 });
+    const nearDoor = { ...table, x: 110 };
+    const tucked = chair({ x: 40, y: 150, rotation: 270 });
+    const conflicts = findConflicts(project([nearDoor, tucked], [door]));
+    expect(conflicts.some((c) => c.otherId === door.id && c.itemId === tucked.id)).toBe(true);
+    expect(conflicts.some((c) => c.type === 'collision' && c.otherId === nearDoor.id)).toBe(false);
+    const shelf = createFurniture({ name: 'Shelf', kind: 'bookshelf', x: 200, y: 240, width: 80, depth: 35, height: 180 });
+    expect(findConflicts(project([table, chair(), shelf])).some((c) => c.type === 'collision' && [c.itemId, c.otherId].includes(shelf.id))).toBe(true);
+  });
+});

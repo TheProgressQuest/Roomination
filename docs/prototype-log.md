@@ -8,6 +8,7 @@ debt. Every item here is checked before a public release (see
 
 | Area | What's missing | Since |
 | --- | --- | --- |
+| Scan classification (Step 1) | A real iPhone/Safari import of a RoomSheet package with photos: HEIC photos (only JPEG/PNG were tested; HEIC opens only where the browser can decode it), memory with 7 full-size photos, and the review's join checkbox on touch. Other scanner exports' attributes (3D Model Anything rooms use the same RoomPlan JSON, untested with attributes) | S1 |
 | Photos & scans, Create furniture | Real iPhone and Safari: the two choosers, the *Shown in 3D* selector's disabled choices (VoiceOver reads them as dimmed), and *Photos for <piece>* in the stacked phone layout | UX |
 | Real-object test | The radio test in [real-object-test.md](real-object-test.md) on a real iPhone: import time, memory peak, frame rate, budget fallback, persistence and transfer. Prepared, not yet run | M8 |
 | Real-object test | iPhone file picker: whether .glb files are selectable with the importer's file-type filter (iOS may not know the GLB type and grey it out) | M8 |
@@ -28,17 +29,29 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **Scan classification (Step 1, 24 Oct 2026):** the scanner's object details (sofa, table,
+  storage and chair types) and links are now used, recorded and shown as the scanner's; a desk
+  is Roomination's inference from a chair linked to a cabinet. Still limited:
+  - RoomPlan has no "desk" or "ottoman" type: a desk without a linked chair stays storage, and
+    an ottoman may come in as a sofa or not at all;
+  - the joined sectional's height is the taller part's; its arm and back heights are the
+    catalogue's proportions, not measured;
+  - a sectional's "front" is where its short side reaches; a scan whose short side stands
+    behind the long side is turned round (the boxes stay as measured);
+  - chairs tucked under a table or desk are no longer overlap warnings when armless, facing it
+    and partly under a top at least 60 cm high; armchairs, chairs turned away and chairs entirely
+    underneath still are, and every other check (doors, vents, walkways) still applies.
 - **First real open-plan scan (RoomSheet, 24 Oct 2026):** fixed: when the scanned walls don't
   close (three walls meeting at a stair wall made the tracer give up), the floor outline is used,
   and the scanned walls along it were added again as interior walls (doubled lengths, false
   overlap warnings). Still as designed but confusing on a real room:
   - the scanner records labelled boxes only (sofa, table, storage, chair); its USDZ files hold
     boxes with no textures, so pieces get catalogue looks and default colours;
-  - "storage" is guessed from its size (a desk became a sideboard, a tall shelf a bookshelf);
-    a table measured with its chairs tucked in became a round table;
-  - dining chairs tucked under a table are flagged as overlaps;
-  - the package's reference photos aren't used by the import: colours and textures come from
-    Match my room, by hand.
+  - fixed in Step 1: "storage", tables, sofas and chairs were guessed from size alone (a desk
+    became a sideboard, a rectangular table a round one, an L-shaped sofa two sofas), and
+    dining chairs tucked under a table were flagged as overlaps;
+  - the package's reference photos can now be added to Match my room at import (Step 1), but
+    colours and textures still come from Match my room, by hand.
 - **Testing on another device (M8):** web apps can only store photos and models on https://
   (or localhost) pages: browsers withhold the hashing they use on plain http:// network
   addresses. `npm run phone-test` serves the build over HTTPS with a test certificate limited

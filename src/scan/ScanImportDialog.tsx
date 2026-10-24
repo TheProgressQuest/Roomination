@@ -3,11 +3,13 @@ import { Dialog } from '../components/Dialog';
 import { Icon } from '../components/Icon';
 import { NumberField } from '../components/NumberField';
 import { SegmentedControl } from '../components/SegmentedControl';
-import type { Project, UnitSystem } from '../model/types';
+import type { Project, ReferencePhoto, UnitSystem } from '../model/types';
+import { encodeImage, imageFromFile } from '../photo/imageIO';
+import { putAsset } from '../storage/assets';
 import { CM_PER_INCH, cmToInput, inputToCm, inputUnitLabel } from '../model/units';
 import { buildFromScan, initialReview, sectionLabel, type BuiltObject, type BuiltOpening, type BuildResult, type Note, type Review } from './convert';
 import { BOX, catalogueName, categoryLabel, choicesFor, SCAN_CATEGORIES, STAIRS, suggestPiece } from './furnitureMap';
-import { readScanFile, type ScanChoice } from './readScan';
+import { readScanFile, type ScanChoice, type ScanPhoto } from './readScan';
 import { ScanPreview } from './ScanPreview';
 import { SAMPLES, sampleToRoomPlan } from './samples';
 import { parseRoomPlan } from './roomPlan';
@@ -29,7 +31,7 @@ interface Props {
   onCreate: (project: Project) => Promise<void>;
 }
 
-type Stage = { step: 'choose' } | { step: 'pick'; choices: ScanChoice[]; skipped: string | null } | { step: 'review'; scan: ScanData; skipped: string | null };
+type Stage = { step: 'choose' } | { step: 'pick'; choices: ScanChoice[]; skipped: string | null } | { step: 'review'; scan: ScanData; skipped: string | null; photos: ScanPhoto[] };
 type Tab = 'room' | 'openings' | 'furniture' | 'notes';
 
 export default function ScanImportDialog({ open, units, onClose, onCreate }: Props) {
@@ -58,22 +60,22 @@ export default function ScanImportDialog({ open, units, onClose, onCreate }: Pro
       setShape(result.shape ?? null);
       return;
     }
-    if (result.choices.length === 1) setStage({ step: 'review', scan: result.choices[0].scan, skipped: result.skipped });
+    if (result.choices.length === 1) setStage({ step: 'review', scan: result.choices[0].scan, skipped: result.skipped, photos: result.choices[0].photos });
     else setStage({ step: 'pick', choices: result.choices, skipped: result.skipped });
   }
 
   function trySample(index: number) {
     setError(null);
     const sample = SAMPLES[index];
-    setStage({ step: 'review', scan: { ...parseRoomPlan(sampleToRoomPlan(sample), 'Synthetic sample, generated in this browser', sample.name), name: sample.name.replace(/^Sample /, 'Scanned ').replace(/ \(synthetic\)$/, '') }, skipped: null });
+    setStage({ step: 'review', scan: { ...parseRoomPlan(sampleToRoomPlan(sample), 'Synthetic sample, generated in this browser', sample.name), name: sample.name.replace(/^Sample /, 'Scanned ').replace(/ \(synthetic\)$/, '') }, skipped: null, photos: [] });
   }
 
   const title = stage.step === 'review' ? 'Review the scanned room' : 'Import a room scan';
   return (
     <Dialog open={open} title={title} onClose={onClose} className={`scan-dialog${stage.step === 'review' ? ' is-review' : ''}`}>
       {stage.step === 'choose' && <ChooseStep busy={busy} error={error} shape={shape} onFile={readFile} onSample={trySample} />}
-      {stage.step === 'pick' && <PickStep choices={stage.choices} onPick={(scan) => setStage({ step: 'review', scan, skipped: stage.skipped })} onBack={() => setStage({ step: 'choose' })} />}
-      {stage.step === 'review' && <ReviewStep key={stage.scan.source + stage.scan.name} scan={stage.scan} skipped={stage.skipped} units={units} onBack={() => setStage({ step: 'choose' })} onCancel={onClose} onCreate={onCreate} />}
+      {stage.step === 'pick' && <PickStep choices={stage.choices} onPick={(choice) => setStage({ step: 'review', scan: choice.scan, skipped: stage.skipped, photos: choice.photos })} onBack={() => setStage({ step: 'choose' })} />}
+      {stage.step === 'review' && <ReviewStep key={stage.scan.source + stage.scan.name} scan={stage.scan} skipped={stage.skipped} photos={stage.photos} units={units} onBack={() => setStage({ step: 'choose' })} onCancel={onClose} onCreate={onCreate} />}
     </Dialog>
   );
 }
@@ -195,7 +197,7 @@ function ShapeHelp({ shape }: { shape: string }) {
 // Step 2: the file holds several rooms
 // ---------------------------------------------------------------------------
 
-function PickStep({ choices, onPick, onBack }: { choices: ScanChoice[]; onPick: (scan: ScanData) => void; onBack: () => void }) {
+function PickStep({ choices, onPick, onBack }: { choices: ScanChoice[]; onPick: (choice: ScanChoice) => void; onBack: () => void }) {
   const [index, setIndex] = useState(0);
   const groupId = useId();
   return (
@@ -221,7 +223,7 @@ function PickStep({ choices, onPick, onBack }: { choices: ScanChoice[]; onPick: 
           <button type="button" className="secondary" onClick={onBack}>
             Back
           </button>
-          <button type="button" className="primary" onClick={() => onPick(choices[index].scan)}>
+          <button type="button" className="primary" onClick={() => onPick(choices[index])}>
             Review this room
           </button>
         </div>
@@ -254,8 +256,10 @@ function Confidence({ value }: { value: ScanConfidence }) {
 
 let addedCount = 0;
 
-function ReviewStep({ scan, skipped, units, onBack, onCancel, onCreate }: { scan: ScanData; skipped: string | null; units: UnitSystem; onBack: () => void; onCancel: () => void; onCreate: (p: Project) => Promise<void> }) {
+function ReviewStep({ scan, skipped, photos, units, onBack, onCancel, onCreate }: { scan: ScanData; skipped: string | null; photos: ScanPhoto[]; units: UnitSystem; onBack: () => void; onCancel: () => void; onCreate: (p: Project) => Promise<void> }) {
   const [review, setReview] = useState<Review>(() => initialReview(scan));
+  const [keepPhotos, setKeepPhotos] = useState(true);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('room');
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -283,8 +287,18 @@ function ReviewStep({ scan, skipped, units, onBack, onCancel, onCreate }: { scan
   async function create() {
     if (!result.project) return;
     setCreating(true);
+    setPhotoError(null);
     try {
-      await onCreate(result.project);
+      let referencePhotos: ReferencePhoto[] = [];
+      if (keepPhotos && photos.length) {
+        try {
+          referencePhotos = await storePhotos(photos);
+        } catch (error) {
+          setPhotoError(`The scan’s photos couldn’t be added: ${error instanceof Error ? error.message : 'unknown error'} Untick them to create the room without them.`);
+          return;
+        }
+      }
+      await onCreate(referencePhotos.length ? { ...result.project, referencePhotos } : result.project);
     } finally {
       setCreating(false);
     }
@@ -327,6 +341,17 @@ function ReviewStep({ scan, skipped, units, onBack, onCancel, onCreate }: { scan
         </div>
       </div>
       <div className="dialog-footer scan-footer">
+        {photos.length > 0 && (
+          <label className="toggle scan-photos">
+            <input type="checkbox" checked={keepPhotos} onChange={(e) => setKeepPhotos(e.target.checked)} />
+            Add the scan’s {photos.length === 1 ? 'photo' : `${photos.length} photos`} to Match my room (kept on this device)
+          </label>
+        )}
+        {photoError && (
+          <p className="form-error" role="alert">
+            {photoError}
+          </p>
+        )}
         <p className="hint">Creates a new project. Nothing you already have is changed.</p>
         <div className="button-row">
           <button type="button" className="secondary" onClick={onBack}>
@@ -584,7 +609,10 @@ function ObjectCard({ o, edit, setReview, units, unit, toInput, fromInput, selec
   const asId = useId();
   const m = o.measured;
   const section = sectionLabel(o.section);
-  const options = o.category === 'stairs' ? [STAIRS, BOX] : [...choicesFor(o.category, o.section), BOX];
+  const options = o.category === 'stairs' ? [STAIRS, BOX] : [...choicesFor(o.category, o.section, o.classification), BOX];
+  const said = o.classification?.basis === 'classified' && o.classification.said ? o.classification.said : null;
+  // An L-shaped sofa's short side that the scanner linked to its sofa (joined unless kept apart).
+  const extension = !!m && m.attributes.SofaType === 'lShapedExtension' && !!m.parentId;
   const set = (change: Review['objects'][string]) => {
     if (o.added) setReview((r) => ({ ...r, addedPieces: r.addedPieces.map((a) => (a.id === o.id ? { ...a, ...change } : a)) }));
     else edit(o.id, change);
@@ -614,13 +642,26 @@ function ObjectCard({ o, edit, setReview, units, unit, toInput, fromInput, selec
           <span className="scan-tag">Scanner</span> {categoryLabel(m.category)}
           {section ? ` in the ${section.toLowerCase()}` : ''}, {exact(m.width, units)} × {exact(m.depth, units)}, {exact(m.height, units)} high
           {m.bottom >= 5 ? `, ${exact(m.bottom, units)} off the floor` : ''}
+          {said ? `; classified as ${said}` : ''}
         </p>
       )}
-      {o.include && (
+      {o.include && extension && !o.added && (
+        <label className="toggle scan-join">
+          <input type="checkbox" checked={o.joinedInto !== null} disabled={o.joinedInto === null && o.joinProblem !== null} onChange={(e) => edit(o.id, { join: e.target.checked ? undefined : false })} />
+          Show as part of the L-shaped sofa it belongs to
+        </label>
+      )}
+      {o.include && o.joinedInto !== null && (
+        <p className="hint scan-says">
+          <span className="scan-tag">Scanner</span> {o.suggestion.reason} Its size and place are kept in the sectional’s outline.
+        </p>
+      )}
+      {o.include && o.joinedInto === null && (
         <>
           {!o.added && (
             <p className="hint scan-says">
-              <span className="scan-tag is-guess">Roomination’s guess</span> {o.as === o.suggestion.as ? `${o.suggestion.reason} Its look is a guess too: the scanner measures only size.` : 'You chose this.'}
+              <span className={`scan-tag ${o.suggestion.basis === 'classified' ? '' : 'is-guess'}`}>{o.suggestion.basis === 'classified' ? 'Scanner’s classification' : o.suggestion.basis === 'inferred' ? 'Roomination’s inference' : 'Roomination’s guess'}</span>{' '}
+              {o.as === o.suggestion.as ? `${o.suggestion.reason} Its look is a guess: the scanner records no colours or materials.` : 'You chose this.'}
             </p>
           )}
           {o.as === STAIRS && (
@@ -650,12 +691,18 @@ function ObjectCard({ o, edit, setReview, units, unit, toInput, fromInput, selec
               </select>
             </div>
           </div>
-          <div className="field-grid">
-            <NumberField label="Width" suffix={unit} value={toInput(o.width)} min={0} onCommit={(v) => set({ width: fromInput(v) })} />
-            <NumberField label="Depth" suffix={unit} value={toInput(o.depth)} min={0} onCommit={(v) => set({ depth: fromInput(v) })} />
-            <NumberField label="Height" suffix={unit} value={toInput(o.height)} min={0} onCommit={(v) => set({ height: fromInput(v) })} />
-          </div>
-          {sized && (
+          {o.joinedWith !== null ? (
+            <p className="hint">
+              {exact(o.width, units)} × {exact(o.depth, units)}, {exact(o.height, units)} high: the outline of its two measured parts. To change its size, first show the short side separately (on its card).
+            </p>
+          ) : (
+            <div className="field-grid">
+              <NumberField label="Width" suffix={unit} value={toInput(o.width)} min={0} onCommit={(v) => set({ width: fromInput(v) })} />
+              <NumberField label="Depth" suffix={unit} value={toInput(o.depth)} min={0} onCommit={(v) => set({ depth: fromInput(v) })} />
+              <NumberField label="Height" suffix={unit} value={toInput(o.height)} min={0} onCommit={(v) => set({ height: fromInput(v) })} />
+            </div>
+          )}
+          {sized && o.joinedWith === null && (
             <button type="button" className="link-button" onClick={() => edit(o.id, { width: undefined, depth: undefined, height: undefined })}>
               Reset to the measured size
             </button>
@@ -735,4 +782,16 @@ function NotesTab({ notes, onSelect }: { notes: Note[]; onSelect: (id: string) =
       })}
     </div>
   );
+}
+
+/** The package's photos, scaled and stored on this device like photos added in Match my room. */
+async function storePhotos(photos: ScanPhoto[]): Promise<ReferencePhoto[]> {
+  const stored: ReferencePhoto[] = [];
+  for (const photo of photos) {
+    const file = await photo.read();
+    const image = await imageFromFile(file);
+    const assetId = await putAsset(await encodeImage(image), { width: image.width, height: image.height });
+    if (!stored.some((p) => p.assetId === assetId)) stored.push({ assetId, name: file.name.slice(0, 80), addedAt: Date.now() });
+  }
+  return stored;
 }

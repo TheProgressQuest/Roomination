@@ -748,6 +748,17 @@ export interface ScanItemRecord {
   inferred?: string;
   /** That piece's name, e.g. "Queen bed". */
   inferredName?: string;
+  /**
+   * What the inferred piece rests on: the scanner's classification (`attributes`), Roomination's
+   * inference from the scanner's links (a cabinet with a chair at it taken for a desk), or size.
+   */
+  basis?: 'classified' | 'inferred' | 'size';
+  /** The scanner's own classification details, as written (e.g. { SofaType: 'lShaped' }). */
+  attributes?: Record<string, string>;
+  /** The item the scanner linked this one to (a chair's table, a sofa extension's sofa). */
+  parent?: string;
+  /** Shown as part of another piece (an L-shaped sofa's short side, part of the sofa). */
+  joinedInto?: string;
   /** The person's corrections during review (only what they changed). */
   corrections: Record<string, string | number | boolean>;
   /** Left out of the plan (by the person, or because it couldn't be placed). */

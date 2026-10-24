@@ -1,5 +1,5 @@
 import type { Point } from '../model/types';
-import { SCAN_LIMITS, ScanFormatError, stableId } from './roomPlan';
+import { attributesOf, SCAN_LIMITS, ScanFormatError, stableId } from './roomPlan';
 import type { ScanConfidence, ScanData, ScanObject, ScanOpening, ScanOpeningKind, ScanWall } from './types';
 
 /**
@@ -20,7 +20,9 @@ import type { ScanConfidence, ScanData, ScanObject, ScanOpening, ScanOpeningKind
  *
  * `confidence`, `bottom`, `rotation`, `wallId`, `floor` and `name` are optional. Object
  * categories use RoomPlan's words (bed, sofa, storage, …); anything else is kept as-is and
- * imported as a plain box.
+ * imported as a plain box. Objects may also carry RoomPlan's classification details,
+ * `"attributes": { "SofaType": "lShapedExtension" }`, and `"parent": "o1"` (the id of the object
+ * the scanner linked it to: a sofa's extension to the sofa, a chair to its table).
  */
 
 export const SCAN_FORMAT = 'roomination-scan';
@@ -90,13 +92,18 @@ export function parseScanFile(data: unknown, source = 'Roomination scan file'): 
     };
   });
 
+  const objectIds = new Map<string, string>();
+  const parents: (string | null)[] = [];
   const objects: ScanObject[] = items(data, 'objects', SCAN_LIMITS.objects).map((raw, i) => {
     const label = `Object ${i + 1}`;
     if (!isRecord(raw)) throw new ScanFormatError(`${label} is damaged.`);
     const rotation = raw.rotation === undefined ? 0 : finite(raw.rotation) ? ((raw.rotation % 360) + 360) % 360 : NaN;
     if (!Number.isFinite(rotation)) throw new ScanFormatError(`${label} has an invalid rotation.`);
+    const id = stableId('scan-object', raw.id, i, used);
+    if (typeof raw.id === 'string') objectIds.set(raw.id, id);
+    parents.push(typeof raw.parent === 'string' ? raw.parent : null);
     return {
-      id: stableId('scan-object', raw.id, i, used),
+      id,
       category: typeof raw.category === 'string' ? raw.category.replace(/[^A-Za-z]/g, '').slice(0, 30) || 'unknown' : 'unknown',
       center: point(raw.center, label),
       width: size(raw.width, label),
@@ -105,7 +112,13 @@ export function parseScanFile(data: unknown, source = 'Roomination scan file'): 
       bottom: raw.bottom === undefined ? 0 : size(raw.bottom, label, true),
       rotation,
       confidence: confidence(raw.confidence),
+      attributes: attributesOf(raw.attributes),
+      parentId: null,
     };
+  });
+  objects.forEach((o, i) => {
+    const parent = parents[i] === null ? undefined : objectIds.get(parents[i]!);
+    if (parent && parent !== o.id) o.parentId = parent;
   });
 
   let floor: Point[] | null = null;

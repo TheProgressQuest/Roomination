@@ -15,6 +15,9 @@ import { partitionSegments, pointAlong } from './walls';
  *       room features (door swings, vent grilles, outlet access, radiators, columns),
  *       staircases (kept clear as circulation space) and interior walls (solid).
  *
+ * One overlap is expected and not reported: a chair tucked under a table or desk (see
+ * `isTuckedChair`). Its clearance checks (doors, vents, walkways, other furniture) still apply.
+ *
  * A conflict is a warning, not a ban. The user may accept a specific one; that
  * acceptance is stored under a key naming that exact pair and constraint type.
  * (The outer walls are different: furniture is kept inside them by placement rules.)
@@ -171,7 +174,7 @@ export function findConflicts(project: Project, onlyItemId?: string, onlyObstacl
       // A mirror above a vanity, or a wall cabinet above a worktop, doesn't collide with it.
       if (!overlapsVertically(item, other)) continue;
       const area = footprintOverlap(itemPrint.parts, otherPrint.parts);
-      if (area > MIN_OVERLAP_AREA) {
+      if (area > MIN_OVERLAP_AREA && !isTuckedChair(item, other, area, footprintArea(itemPrint)) && !isTuckedChair(other, item, area, footprintArea(otherPrint))) {
         const smaller = Math.min(footprintArea(itemPrint), footprintArea(otherPrint));
         add(item.id, other.id, 'furniture', 'collision', area / smaller);
       }
@@ -214,6 +217,26 @@ function worstIntrusion(item: Furniture, itemParts: Polygon[], zones: Zone[]): {
     }
   }
   return null;
+}
+
+/** Pieces a chair's seat slides under: tables and desks at sitting height (not coffee or side tables). */
+const TUCK_UNDER: Furniture['kind'][] = ['diningTable', 'desk', 'table'];
+const MIN_TUCK_HEIGHT = 60;
+/** A tucked chair's back stays out: at most this share of its footprint is under the top. */
+const MAX_TUCKED_SHARE = 0.75;
+
+/**
+ * Whether `chair` is tucked under `table`, as dining and desk chairs are: an armless chair (or
+ * stool) on the floor, facing the table, partly under a top at sitting height. Armchairs, sofas,
+ * chairs turned away and chairs entirely underneath still count as collisions.
+ */
+export function isTuckedChair(chair: Furniture, table: Furniture, overlap: number, chairArea: number): boolean {
+  if (chair.kind !== 'chair' || !TUCK_UNDER.includes(table.kind)) return false;
+  if ((chair.elevation ?? 0) > 0 || (table.elevation ?? 0) > 0 || table.height < MIN_TUCK_HEIGHT) return false;
+  if (chairArea <= 0 || overlap / chairArea > MAX_TUCKED_SHARE) return false;
+  // Facing it: the chair's front, (−sin θ, cos θ), points towards the table's centre.
+  const r = (chair.rotation * Math.PI) / 180;
+  return -Math.sin(r) * (table.x - chair.x) + Math.cos(r) * (table.y - chair.y) > 0;
 }
 
 /** Whether two pieces' height ranges (bottom to top) overlap. */

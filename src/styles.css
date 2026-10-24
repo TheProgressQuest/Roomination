@@ -3019,6 +3019,20 @@ select {
   justify-content: flex-end;
 }
 
+/* An L-shaped sofa's short side: "Show as part of the L-shaped sofa it belongs to". */
+.scan-join {
+  margin: 6px 0 2px;
+}
+
+/* "Add the scan's photos…": its own line when space is short. */
+.scan-footer .scan-photos {
+  flex: 1 1 260px;
+}
+
+.scan-footer .form-error {
+  flex: 1 1 100%;
+}
+
 .beta-badge {
   display: inline-block;
   padding: 1px 6px;
@@ -4811,6 +4825,9 @@ select {
   }
   .scan-footer .hint {
     display: none;
+  }
+  .scan-footer .scan-photos {
+    flex-basis: 100%;
   }
   .scan-footer .button-row {
     width: 100%;

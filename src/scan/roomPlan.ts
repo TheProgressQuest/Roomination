@@ -56,6 +56,26 @@ export function enumCase(v: unknown): string | null {
   return null;
 }
 
+/** Classification details: no more than this many, each key and value a short plain word. */
+const MAX_ATTRIBUTES = 16;
+const ATTRIBUTE_WORD = /^[A-Za-z][A-Za-z0-9]{0,39}$/;
+
+/**
+ * RoomPlan's object `attributes` (iOS 17+), written by Codable as `{"SofaType":"lShaped"}`; an
+ * array of such one-key objects, or values written as enum objects (`{"lShaped":{}}`), are read
+ * too. Anything else is ignored, so a malformed or unfamiliar file still imports.
+ */
+export function attributesOf(v: unknown): Record<string, string> {
+  const pairs: [string, unknown][] = isRecord(v) ? Object.entries(v) : Array.isArray(v) ? v.filter(isRecord).flatMap((e) => Object.entries(e)) : [];
+  const out: Record<string, string> = {};
+  for (const [key, raw] of pairs) {
+    const value = enumCase(raw);
+    if (Object.keys(out).length >= MAX_ATTRIBUTES) break;
+    if (ATTRIBUTE_WORD.test(key) && value !== null && ATTRIBUTE_WORD.test(value)) out[key] = value;
+  }
+  return out;
+}
+
 function confidenceOf(v: unknown): ScanConfidence {
   const c = enumCase(v);
   return c === 'high' || c === 'medium' || c === 'low' ? c : 'unknown';
@@ -227,6 +247,9 @@ export function parseRoomPlan(data: unknown, source: string, name = 'Scanned roo
   if (badOpenings) notes.push(`${plural(badOpenings, 'door or window')} had missing or invalid measurements and ${badOpenings === 1 ? 'was' : 'were'} left out.`);
 
   const objects: ScanObject[] = [];
+  // Scanner identifier → object id, to resolve the links between objects afterwards.
+  const objectIds = new Map<string, string>();
+  const parents: (string | null)[] = [];
   let badObjects = 0;
   rawObjects.forEach((raw, i) => {
     if (!isRecord(raw) || !onStory(raw)) return;
@@ -240,8 +263,11 @@ export function parseRoomPlan(data: unknown, source: string, name = 'Scanned roo
     const front = { x: pose.z[0], y: pose.z[2] };
     const rotation = Math.hypot(front.x, front.y) < 0.2 ? 0 : (((Math.atan2(-front.x, front.y) * 180) / Math.PI) % 360 + 360) % 360;
     const category = (enumCase(raw.category) ?? 'unknown').replace(/[^A-Za-z]/g, '').slice(0, 30) || 'unknown';
+    const id = stableId('scan-object', raw.identifier, i, used);
+    if (typeof raw.identifier === 'string') objectIds.set(raw.identifier, id);
+    parents.push(typeof raw.parentIdentifier === 'string' ? raw.parentIdentifier : null);
     objects.push({
-      id: stableId('scan-object', raw.identifier, i, used),
+      id,
       category,
       center: plan(pose.t[0], pose.t[2]),
       width: dims[0] * 100,
@@ -250,7 +276,14 @@ export function parseRoomPlan(data: unknown, source: string, name = 'Scanned roo
       bottom: Math.max(0, (pose.t[1] - dims[1] / 2 - fy) * 100),
       rotation,
       confidence: confidenceOf(raw.confidence),
+      attributes: attributesOf(raw.attributes),
+      parentId: null,
     });
+  });
+  // Links to walls, to other stories or to unknown identifiers are dropped (never guessed).
+  objects.forEach((o, i) => {
+    const parent = parents[i] === null ? undefined : objectIds.get(parents[i]!);
+    if (parent && parent !== o.id) o.parentId = parent;
   });
   if (badObjects) notes.push(`${plural(badObjects, 'object')} had missing or invalid measurements and ${badObjects === 1 ? 'was' : 'were'} left out.`);
 

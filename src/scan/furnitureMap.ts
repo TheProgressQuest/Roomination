@@ -1,16 +1,19 @@
+import { buildPreset } from '../builder/furniturePresets';
 import { fitTemplate } from '../catalogue/fit';
 import { CATALOGUE } from '../catalogue/items';
 import { MIN_FURNITURE_SIZE } from '../model/geometry';
-import type { FurnitureKind } from '../model/types';
+import type { FurnitureKind, FurnitureShape } from '../model/types';
 import type { FurnitureTemplate } from '../storage/projectFile';
+import type { Classification, ClassificationBasis } from './classify';
 
 /**
  * How scanned objects become Roomination furniture.
  *
  * RoomPlan recognises 16 kinds of object and measures each as a box (no shape, colour or
- * style). Each category has a list of catalogue pieces it could be; the one closest in size
- * to the measured box is suggested, then stretched to exactly the measured width, depth and
- * height. This is ROOMINATION'S GUESS, shown separately from what the scanner reported, and
+ * style); on iOS 17+ it also classifies some of them further (see classify.ts). Each category
+ * has a list of catalogue pieces it could be; the scanner's classification narrows that list
+ * first, then the one closest in size to the measured box is suggested and stretched to exactly
+ * the measured width, depth and height. This is ROOMINATION'S GUESS, shown separately from what the scanner reported, and
  * the person can choose another piece, a plain box, or another category.
  */
 
@@ -108,20 +111,31 @@ export interface Suggestion {
   /** A catalogue id, `box` or `stairs`. */
   as: string;
   reason: string;
+  /**
+   * What the suggestion rests on: the scanner's classification, Roomination's inference (from the
+   * scanner's links between objects), or size alone. Absent on suggestions made before this existed.
+   */
+  basis?: ClassificationBasis;
 }
 
-/** The pieces offered for a category (in the review's "Shown as" menu), section-specific ones first. */
-export function choicesFor(category: string, section: string | null): string[] {
+/**
+ * The pieces offered for a category (in the review's "Shown as" menu): those that fit the
+ * scanner's classification first, then the section's, then the rest (any can be chosen).
+ */
+export function choicesFor(category: string, section: string | null, classification: Classification | null = null): string[] {
   const info = SCAN_CATEGORIES[category];
   if (!info) return [];
   const preferred = (section && info.bySection?.[section]) || [];
-  return [...new Set([...preferred, ...info.candidates])].filter((id) => byId.has(id));
+  const fitting = classification?.pool ?? [];
+  return [...new Set([...fitting.filter((id) => preferred.includes(id)), ...fitting, ...preferred, ...info.candidates])].filter((id) => byId.has(id));
 }
 
-export function suggestPiece(category: string, measured: Measured, section: string | null): Suggestion {
+export function suggestPiece(category: string, measured: Measured, section: string | null, classification: Classification | null = null): Suggestion {
   if (category === 'stairs') return { as: STAIRS, reason: 'Scanned stairs become a straight staircase of the measured size.' };
   const info = SCAN_CATEGORIES[category];
   if (!info) return { as: BOX, reason: 'Roomination doesn’t know this kind of object, so it’s shown as a plain box of the measured size.' };
+  const narrowed = classification?.pool?.filter((id) => byId.has(id)) ?? [];
+  if (classification && narrowed.length) return suggestClassified(info, measured, section, classification, narrowed);
   const preferred = section ? info.bySection?.[section] : undefined;
   const pool = [...new Set([...(preferred ?? []), ...info.candidates])].filter((id) => byId.has(id));
   let best: { id: string; d: number; size: number; preferred: boolean } | null = null;
@@ -137,7 +151,32 @@ export function suggestPiece(category: string, measured: Measured, section: stri
   if (!best) return { as: BOX, reason: `There’s no ${info.label.toLowerCase()} in the catalogue, so it’s shown as a plain box of the measured size.` };
   if (best.size > MAX_DISTANCE) return { as: BOX, reason: `No catalogue ${info.label.toLowerCase()} is close to the measured size, so it’s shown as a plain box.` };
   const where = best.preferred ? ` for a ${section!.replace(/([A-Z])/g, ' $1').toLowerCase()} (the area the scan labelled)` : '';
-  return { as: best.id, reason: `Closest catalogue ${info.label.toLowerCase()} to the measured size${where}.` };
+  return { as: best.id, reason: `Closest catalogue ${info.label.toLowerCase()} to the measured size${where}.`, basis: 'size' };
+}
+
+/**
+ * Among the pieces the classification allows, the closest in size (preferring the section's,
+ * as above). The classification is kept even when every allowed piece is far from the measured
+ * size: the piece is stretched to the measurements, and the review says so.
+ */
+function suggestClassified(info: ScanCategory, measured: Measured, section: string | null, classification: Classification, allowed: string[]): Suggestion {
+  // Pieces that belong to particular areas (kitchen units, bathroom cabinets) only where the scan
+  // places the object in one of them, unless nothing else is allowed.
+  const local = new Set(Object.values(info.bySection ?? {}).flat().filter((id) => !info.candidates.includes(id)));
+  const here = new Set((section && info.bySection?.[section]) || []);
+  const fitting = allowed.filter((id) => !local.has(id) || here.has(id));
+  const pool = fitting.length ? fitting : allowed;
+  const preferred = section ? info.bySection?.[section]?.filter((id) => pool.includes(id)) : undefined;
+  let best: { id: string; d: number; size: number } | null = null;
+  for (const id of pool) {
+    const size = sizeDistance(measured, catalogueTemplate(id)!);
+    const d = size + (preferred?.length && !preferred.includes(id) ? SECTION_PREFERENCE : 0);
+    if (!best || d < best.d) best = { id, d, size };
+  }
+  const said = classification.basis === 'inferred' ? `The scanner recorded ${classification.said}, so Roomination takes it for a desk` : `The scanner classified it as ${classification.said}`;
+  const fit = best!.size > MAX_DISTANCE ? '; none of those is close to the measured size, so this one is stretched to it' : '; this is the closest of those to the measured size';
+  const conflict = classification.conflict ? ` ${classification.conflict}` : '';
+  return { as: best!.id, reason: `${said}${fit}.${conflict}`, basis: classification.basis };
 }
 
 /**
@@ -162,4 +201,13 @@ export function pieceFor(as: string, category: string, size: Measured): Furnitur
     };
   }
   return fitTemplate(t, { width, depth, height });
+}
+
+/**
+ * A scanned L-shaped sofa as one catalogue sectional, upholstered for its own L outline (see
+ * sectional.ts): the back along the long side, arms at both ends.
+ */
+export function sectionalPiece(size: Measured, shape: FurnitureShape): FurnitureTemplate {
+  const p = buildPreset('sectional', { width: size.width, depth: size.depth, height: size.height, shape });
+  return { name: catalogueName('sectional') ?? p.name, category: 'furniture', kind: p.kind, width: p.width, depth: p.depth, height: p.height, color: p.color, texture: 'plain', shape, appearance: { material: p.material, finish: 'matte' }, components: p.components };
 }

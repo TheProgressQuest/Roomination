@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
-import { SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, sampleToRoomPlan } from '../src/scan/samples';
+import { SAMPLE_BEDROOM, SAMPLE_LIVING, SAMPLE_STUDIO, sampleToRoomPlan, type SampleRoom } from '../src/scan/samples';
 import { writeFileSync } from 'node:fs';
+import { makePng } from './png';
 import { exportProject, importProject, lightweight3D, openApp, props, saveAndReload, selectInList, setPlanStyle } from './helpers';
 
 /**
@@ -44,6 +45,62 @@ function sideLengths(outline: { x: number; y: number }[]) {
 }
 
 test.beforeEach(async ({ page }) => lightweight3D(page));
+
+/** Small PNGs, for a package's reference photos (synthetic; different, as identical photos are stored once). */
+const png = (shade: number) => makePng(8, 6, (x) => [shade + x * 10, 90, 70, 255]);
+
+test('uses the scanner’s classification and links, and the package’s own photos', async ({ page }) => {
+  const errors = await openApp(page);
+  const outside = watchRequests(page);
+  // SYNTHETIC: an L-shaped sofa in two linked parts, a rectangular dining table with two armless chairs tucked in.
+  const room: SampleRoom = {
+    ...SAMPLE_BEDROOM,
+    name: 'Synthetic classified living room',
+    walls: { corners: [[0, 0], [620, 0], [620, 480], [0, 480]] },
+    openings: [{ kind: 'door', wall: 3, at: 400, width: 85, height: 205 }],
+    objects: [
+      { category: 'sofa', x: 300, y: 50, width: 240, depth: 95, height: 85, attributes: { SofaType: 'lShaped' } },
+      { category: 'sofa', x: 225, y: 140, width: 90, depth: 160, height: 85, attributes: { SofaType: 'lShapedExtension' }, parent: 0 },
+      { category: 'table', x: 450, y: 330, width: 120, depth: 112, height: 75, attributes: { TableShapeType: 'rectangular', TableType: 'dining' } },
+      { category: 'chair', x: 450, y: 395, width: 45, depth: 50, height: 90, rotation: 180, parent: 2, attributes: { ChairType: 'dining', ChairArmType: 'missing' } },
+      { category: 'chair', x: 450, y: 265, width: 45, depth: 50, height: 90, rotation: 0, parent: 2, attributes: { ChairType: 'dining', ChairArmType: 'missing' } },
+    ],
+  };
+  const zip = zipSync({
+    'Living/captured-room.json': strToU8(JSON.stringify(sampleToRoomPlan(room))),
+    'Living/metadata.json': strToU8('{}'),
+    'Living/photos/photo-01.png': new Uint8Array(png(100)),
+    'Living/photos/photo-02.png': new Uint8Array(png(140)),
+  });
+  await openImporter(page);
+  await chooseFile(page, { name: 'Living.zip', mimeType: 'application/zip', buffer: Buffer.from(zip) });
+  const review = dialog(page);
+  await review.getByRole('radio', { name: /^Furniture/ }).click({ force: true });
+  await expect(review.getByText(/classified as a rectangular dining table/)).toBeVisible();
+  await expect(review.getByText(/the two are shown as one sectional/)).toBeVisible();
+  const join = review.getByRole('checkbox', { name: 'Show as part of the L-shaped sofa it belongs to' });
+  await expect(join).toBeChecked();
+  // Kept apart, then joined again: the person's choice, never changing the scan evidence.
+  await join.uncheck();
+  await expect(review.getByText(/the two are shown as one sectional/)).toBeHidden();
+  await join.check();
+  const photos = review.getByRole('checkbox', { name: /Add the scan’s 2 photos to Match my room/ });
+  await expect(photos).toBeChecked();
+  await review.getByRole('button', { name: 'Create new project' }).click();
+  await expect(review).toBeHidden();
+
+  const project = (await exportProject(page)) as Exported & { referencePhotos?: { name: string }[] };
+  const names = project.furniture.map((f) => f.name);
+  expect(names).toHaveLength(4);
+  expect(names.filter((n) => n === 'Sectional sofa')).toHaveLength(1);
+  expect(names.filter((n) => /^Dining table/.test(n))).toHaveLength(1);
+  expect(names.filter((n) => /dining chair/i.test(n))).toHaveLength(2);
+  expect(project.referencePhotos?.map((p) => p.name)).toEqual(['photo-01.png', 'photo-02.png']);
+  // Chairs tucked under the table aren't reported as overlaps.
+  await expect(page.getByText('No overlaps. Doorways, vents and outlets are clear.')).toBeVisible();
+  expect(outside).toEqual([]);
+  expect(errors).toEqual([]);
+});
 
 test('imports a RoomPlan JSON scan as a new project, with the measured sizes and the person’s corrections', async ({ page }) => {
   const errors = await openApp(page);

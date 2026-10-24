@@ -895,10 +895,18 @@ function parseStair(raw: unknown, index: number, uniqueId: (id: unknown) => stri
 const MAX_SCAN_ITEMS = 5000;
 const MAX_SCAN_NOTES = 200;
 const MAX_SCAN_TEXT = 400;
-const CORRECTION_KEYS = ['length', 'width', 'depth', 'height', 'bottom', 'kind', 'category', 'as', 'include'] as const;
+const CORRECTION_KEYS = ['length', 'width', 'depth', 'height', 'bottom', 'kind', 'category', 'as', 'include', 'join'] as const;
 
 const text = (v: unknown, max = MAX_SCAN_TEXT) => (typeof v === 'string' ? v.slice(0, max) : '');
 const scanNumber = (v: unknown) => (finite(v) && Math.abs(v) <= 1e7 ? v : null);
+
+/** A scanned item's classification details: short plain words only (anything else is dropped). */
+function scanAttributes(raw: unknown): { attributes?: Record<string, string> } {
+  if (!isRecord(raw)) return {};
+  const word = /^[A-Za-z][A-Za-z0-9]{0,39}$/;
+  const pairs = Object.entries(raw).filter((e): e is [string, string] => word.test(e[0]) && typeof e[1] === 'string' && word.test(e[1])).slice(0, 16);
+  return pairs.length ? { attributes: Object.fromEntries(pairs) } : {};
+}
 
 function parseScanRecord(raw: unknown): ScanRecord | null {
   if (!isRecord(raw) || !isRecord(raw.transform) || !Array.isArray(raw.items)) return null;
@@ -942,6 +950,10 @@ function parseScanRecord(raw: unknown): ScanRecord | null {
       measured,
       ...(typeof item.inferred === 'string' ? { inferred: item.inferred.slice(0, 60) } : {}),
       ...(typeof item.inferredName === 'string' ? { inferredName: item.inferredName.slice(0, 80) } : {}),
+      ...(item.basis === 'classified' || item.basis === 'inferred' || item.basis === 'size' ? { basis: item.basis } : {}),
+      ...scanAttributes(item.attributes),
+      ...(typeof item.parent === 'string' && item.parent && item.parent.length <= 100 ? { parent: item.parent } : {}),
+      ...(typeof item.joinedInto === 'string' && item.joinedInto && item.joinedInto.length <= 100 ? { joinedInto: item.joinedInto } : {}),
       corrections,
       excluded: item.excluded === true,
     });

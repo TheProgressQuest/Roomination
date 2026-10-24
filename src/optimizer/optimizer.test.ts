@@ -126,6 +126,19 @@ describe('hard constraints (never traded for score)', () => {
   it('rejects blocking a door swing', () => expect(check(at(120, 100, 90))).toBe(false)); // in front of the hall door
   it('accepts a clear spot', () => expect(check(at(360, 300))).toBe(true));
 
+  it('lets a dining chair tuck under its table, but not overlap it any other way', () => {
+    const table = project.furniture.find((f) => f.kind === 'diningTable')!;
+    const chair = project.furniture.find((f) => f.kind === 'chair')!;
+    const place = (fields: Partial<typeof chair>) => {
+      const item = { ...chair, ...fields };
+      return fitsHard({ ...project, furniture: project.furniture.map((f) => (f.id === chair.id ? item : f)) }, item, context);
+    };
+    const front = table.y + table.depth / 2; // the table's near long edge
+    expect(place({ x: table.x, y: front + 5, rotation: 180 })).toBe(true); // pushed in, facing it
+    expect(place({ x: table.x, y: front + 5, rotation: 0 })).toBe(false); // backed into it
+    expect(place({ x: table.x, y: table.y, rotation: 180 })).toBe(false); // entirely underneath
+  });
+
   it('rejects standing on stairs or overlapping an interior wall', () => {
     const stairsRoom = withStairs();
     const stairsContext = createContext(stairsRoom, new Set(movableIds(stairsRoom)), quick);

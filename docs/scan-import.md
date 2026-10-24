@@ -80,8 +80,35 @@ measurement.
    - Openings that overlap on the same wall are reported; the later one is left out until you
      adjust it.
 6. **Furniture.**
-   - Each object becomes the catalogue piece of its category closest in size to the measured box
-     (labelled "Roomination's guess"), stretched to exactly the measured width, depth and height.
+   - **The scanner's classification comes first** (`classify.ts`). iOS 17+ scans add details
+     to some objects, and each known detail narrows the catalogue pieces the object may be:
+     - sofas: `SofaType` rectangular (a straight sofa), singleSeat, lShaped (the long side of an
+       L), lShapedExtension (its short side);
+     - tables: `TableShapeType` rectangular, circularElliptic or lShaped, and `TableType` dining
+       or coffee (a rectangular dining table is never shown round, whatever its size);
+     - storage: `StorageType` shelf (open shelving) or cabinet;
+     - chairs: `ChairType` dining, stool or swivel; `ChairArmType`, `ChairBackType` existing or
+       missing; `ChairLegType` four or star.
+   - Missing, `unidentified` and unknown values narrow nothing (unknown ones are still kept in
+     the record). When details contradict each other (a "stool" with arms), the type wins and
+     the review says what was set aside.
+   - Among the pieces the details allow, the one closest in size is suggested, labelled
+     *Scanner's classification*. Without details, the closest in size in the whole category is
+     suggested, labelled *Roomination's guess*.
+   - **L-shaped sofas.** RoomPlan measures one as two boxes and links the short side to the long
+     side (`parentIdentifier`). Only that explicit pair is joined, into one *Sectional sofa*
+     whose outline is the two measured boxes together; two sofas that are merely close are
+     never joined. The boxes must form an L (square to each other, touching, the short side at
+     one end reaching forward); a short side within 25 cm of the end is lined up with it and the
+     review says by how much. Otherwise they stay separate and the review says why. *Show as
+     part of the L-shaped sofa* on the short side's card keeps them apart if you prefer.
+   - **Desks (an inference, labelled *Roomination's inference*).** Storage the scanner calls a
+     cabinet (or doesn't classify), with a chair the scanner linked to it, 65–110 cm high and at
+     least 70 cm wide, outside a kitchen or bathroom, is suggested as a desk.
+   - Kitchen units and bathroom cabinets are suggested only for objects the scan places in a
+     kitchen or bathroom.
+   - The piece is stretched to exactly the measured width, depth and height: measurements always
+     win over the catalogue's sizes.
    - The room labels in iOS 17 scans (kitchen, dining room…) make suitable pieces preferred: a
      sink in the kitchen is a kitchen sink, and one in the bathroom is a vanity.
    - If nothing in the catalogue is close, or the category is unknown, the object is imported as
@@ -111,6 +138,11 @@ The record holds:
 - **every wall, opening and object**, with what the scanner measured, its category and
   confidence, where it came from (*scanned*, *reconstructed* by Roomination, or *added* by
   you), Roomination's inferred piece, your corrections, and whether it was left out;
+- **for objects, kept apart:** the scanner's classification details exactly as written
+  (`attributes`), the object it linked this one to (`parent`), what the inferred piece rests on
+  (`basis`: the scanner's *classified* details, Roomination's *inferred* conclusion, or *size*
+  alone), and for an L-shaped sofa's short side, the sofa it's shown as part of (`joinedInto`).
+  Projects imported before these fields existed open unchanged;
 - **notes:** what Roomination assumed or asked you to check.
 
 Selecting a scanned piece, door or window shows this under *From the room scan*. Editing the
@@ -142,9 +174,12 @@ plan afterwards doesn't change the record: it's the history of the import.
   - add ones the scan missed.
 - **Furniture:**
   - include or leave out each object;
-  - see what the scanner reported (its category, room and measured box) separately from
-    Roomination's guess;
-  - change the category or the piece it's shown as, or resize it;
+  - see what the scanner reported (its category, room, measured box and classification)
+    separately from what Roomination made of it, labelled *Scanner's classification*,
+    *Roomination's inference* or *Roomination's guess*;
+  - change the category or the piece it's shown as, or resize it (your choice is stored as a
+    correction; the scan's own record never changes);
+  - keep an L-shaped sofa's short side separate from its sofa;
   - add pieces the scan missed.
 - **Check:** everything to look at, grouped as *Please check*, *Assumed (not measured)* and *For
   your information*. *Show* jumps to the item.
@@ -154,7 +189,8 @@ percentages. Low-confidence items are dashed in orange on the preview and edged 
 the lists.
 
 **Creating:** *Create new project* always makes a new project. Nothing you already have is
-changed or overwritten.
+changed or overwritten. For a RoomSheet package with photos, *Add the scan's photos to Match my
+room* (ticked by default) adds them to the new project.
 
 ## Limitations
 
@@ -184,9 +220,14 @@ changed or overwritten.
 - **Everything is local.** The scan is read in your browser. Nothing is uploaded, no server or
   AI service is involved, and the browser tests check that importing makes **no** requests
   outside the app.
-- **Only geometry is read.** Photos, meshes, depth data and world maps inside a ZIP are never
-  read, let alone decoded or stored. Only the resulting project is saved, in this browser like
-  any other.
+- **Only geometry is read**, with one exception. Meshes, depth data, world maps and other
+  photos inside a ZIP are never read, let alone decoded or stored. The exception: a RoomSheet
+  package's own reference photos (the image files in its `photos/` folder, beside
+  `captured-room.json`, at most 40) are offered as *Add the scan's photos to Match my room*.
+  Only if that stays ticked are they read, scaled down and stored in this browser, exactly
+  like photos you add in Match my room; if one can't be opened, the review says so and you can
+  untick them. A RoomPlan JSON on its own has no photos, and none are invented. Only the
+  resulting project (and those photos) is saved, in this browser like any other.
 - **Limits:**
   - **JSON files:** 25 MB at most.
   - **ZIP files:** up to 4 GB, never loaded whole.
@@ -236,7 +277,9 @@ A small file a scanner app can write for Roomination directly. It uses plan term
   - `kind` is `door`, `window` or `opening`;
   - categories use RoomPlan's words: bathtub, bed, chair, dishwasher, fireplace, oven,
     refrigerator, sink, sofa, stairs, storage, stove, table, television, toilet, washerDryer;
-  - `confidence`, `bottom`, `rotation`, `wallId`, `floor` and `name` are optional.
+  - `confidence`, `bottom`, `rotation`, `wallId`, `floor` and `name` are optional;
+  - objects may carry RoomPlan's classification details, `"attributes": { "SofaType":
+    "lShapedExtension" }`, and `"parent": "o1"`, the id of the object the scanner linked it to.
 - **Naming:** save it as `*.roomination-scan.json` (or put it in a ZIP).
 
 ## Future iPhone integration (not built yet)

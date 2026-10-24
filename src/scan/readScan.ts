@@ -11,7 +11,10 @@ import { listZip, readZipEntry, ZipError, type ZipEntry } from './zip';
  *     `roomination-scan` file.
  *   - A `.zip` file: a 3D Model Anything room or session export (`house-capture/5`), or any
  *     ZIP holding one of the JSON files above. Only the geometry JSON inside is read; photos,
- *     meshes, depth recordings and AR world maps are listed but never opened.
+ *     meshes, depth recordings and AR world maps are listed but never opened. The one exception
+ *     is a RoomSheet package's own reference photos (its `photos/` folder, beside
+ *     `captured-room.json`): they're offered for Match my room and read only if the person
+ *     keeps them, still entirely in this browser.
  */
 
 /** Bigger than any room-scan JSON; RoomPlan JSON is typically under 1 MB. */
@@ -27,7 +30,22 @@ export interface ScanChoice {
   /** e.g. "Room 2", "All rooms merged". */
   label: string;
   scan: ScanData;
+  /** Reference photos the package itself contains for this room (RoomSheet's photos/ folder). */
+  photos: ScanPhoto[];
 }
+
+/** A photo inside the chosen package, read only if the person adds it. */
+export interface ScanPhoto {
+  name: string;
+  /** Its size in the package, in bytes. */
+  size: number;
+  read: () => Promise<File>;
+}
+
+/** Photos offered from one package, at most (RoomSheet keeps a handful). */
+export const MAX_PACKAGE_PHOTOS = 40;
+const PACKAGE_PHOTO = /\.(jpe?g|png|heic)$/i;
+const PHOTO_TYPES: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic' };
 
 export type ReadScanResult =
   | { ok: true; choices: ScanChoice[]; /** Plain-words list of what was skipped unread. */ skipped: string | null }
@@ -88,7 +106,7 @@ async function readJson(file: Blob, fileName: string): Promise<ReadScanResult> {
   const source = looksLikeScanFile(data) ? 'Roomination scan file' : 'Apple RoomPlan JSON';
   try {
     const scan = interpret(data, source, /^room \d+$/i.test(base) || !base ? 'Scanned room' : base.slice(0, 60));
-    return { ok: true, choices: [{ label: scan.name, scan }], skipped: null };
+    return { ok: true, choices: [{ label: scan.name, scan, photos: [] }], skipped: null };
   } catch (error) {
     if (error instanceof ScanFormatError) return { ok: false, error: error.message, shape: describeShape(data) };
     throw error;
@@ -135,13 +153,13 @@ async function readZip(file: Blob): Promise<ReadScanResult> {
   const problems: string[] = [];
   let shape: string | undefined;
   const source = bundle ? '3D Model Anything scan (house-capture)' : 'Apple RoomPlan JSON (in a ZIP)';
-  const add = async (entry: ZipEntry, label: string, from = source) => {
+  const add = async (entry: ZipEntry, label: string, from = source, photos: ScanPhoto[] = []) => {
     if (choices.length >= MAX_ROOMS) return;
     try {
       const data = parseJsonText(await readText(entry));
       shape ??= describeShape(data);
       const scan = interpret(data, `${from}, ${entry.name.split('/').slice(-2).join('/')}`, label);
-      choices.push({ label, scan: { ...scan, format: bundle ? 'house-capture' : scan.format } });
+      choices.push({ label, scan: { ...scan, format: bundle ? 'house-capture' : scan.format }, photos });
     } catch (error) {
       if (error instanceof ZipError && /too large|ZIP bomb/.test(error.message)) throw error;
       problems.push(`${label}: ${error instanceof Error ? error.message : 'unreadable'}`);
@@ -154,7 +172,7 @@ async function readZip(file: Blob): Promise<ReadScanResult> {
   for (const e of structures) await add(e, structures.length > 1 ? `All rooms merged (${e.name.split('/').slice(-2, -1)[0] ?? ''})` : 'All rooms merged');
   for (const e of roomSheet) {
     const folder = e.name.split('/').slice(-2, -1)[0];
-    await add(e, roomSheet.length > 1 && folder ? folder : 'Scanned room', 'RoomSheet package (RoomPlan CapturedRoom)');
+    await add(e, roomSheet.length > 1 && folder ? folder : 'Scanned room', 'RoomSheet package (RoomPlan CapturedRoom)', packagePhotos(file, entries, e.name.slice(0, -'captured-room.json'.length)));
   }
   for (const e of [...scanFiles, ...loose]) await add(e, e.name.split('/').pop()!.replace(/\.(roomination-scan\.)?json$/i, ''));
   if (roomSheet.length && entries.some((e) => ROOMSHEET_EDITS.test(e.name))) {
@@ -166,13 +184,35 @@ async function readZip(file: Blob): Promise<ReadScanResult> {
     return { ok: false, error: 'That ZIP file doesn’t contain a room scan (no rooms/room-N.json, structure.json or RoomPlan JSON).' };
   }
   for (const p of problems) choices[0].scan.notes.push(`Skipped ${p}`);
-  return { ok: true, choices, skipped: describeSkipped(entries) };
+  const offered = new Set(choices.flatMap((c) => c.photos.map((p) => p.name)));
+  return { ok: true, choices, skipped: describeSkipped(entries.filter((e) => !offered.has(e.name))) };
 }
+
+/** The photos in a RoomSheet package's photos/ folder (`folder` ends with "/" or is ""), in name order. */
+function packagePhotos(file: Blob, entries: ZipEntry[], folder: string): ScanPhoto[] {
+  return entries
+    .filter((e) => e.name.startsWith(`${folder}photos/`) && !e.name.slice(folder.length + 7).includes('/') && PACKAGE_PHOTO.test(e.name) && e.size > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
+    .slice(0, MAX_PACKAGE_PHOTOS)
+    .map((entry) => ({
+      name: entry.name,
+      size: entry.size,
+      read: async () => {
+        const bytes = await readZipEntry(file, entry, MAX_PHOTO_BYTES);
+        const extension = entry.name.split('.').pop()!.toLowerCase();
+        return new File([bytes as Uint8Array<ArrayBuffer>], entry.name.split('/').pop()!, { type: PHOTO_TYPES[extension] ?? '' });
+      },
+    }));
+}
+
+/** Larger than any phone photo; Match my room refuses photos over 30 MB anyway. */
+const MAX_PHOTO_BYTES = 40 * 1024 * 1024;
 
 /** "412 photos, 1,830 depth frames, a 3D mesh and an AR world map" — what stays unopened. */
 function describeSkipped(entries: ZipEntry[]): string | null {
   const count = (re: RegExp) => entries.filter((e) => re.test(e.name)).length;
-  const photos = count(/\.(jpe?g|heic|png)$/i) - count(/(?:^|\/)depth\/[^/]+\.jpe?g$/i) - count(/(?:^|\/)plan\.png$/i);
+  const previews = count(/(?:^|\/)(?:scan-preview[^/]*|plan-preview)\.png$/i);
+  const photos = count(/\.(jpe?g|heic|png)$/i) - count(/(?:^|\/)depth\/[^/]+\.jpe?g$/i) - count(/(?:^|\/)plan\.png$/i) - previews;
   const plans = count(/(?:^|\/)plan\.(pdf|png|svg|csv)$|\.sh3d$/i);
   const metadata = count(/(?:^|\/)metadata\.json$/i) > 0;
   const edits = count(/(?:^|\/)model-edits\.json$/i) > 0;
@@ -187,6 +227,7 @@ function describeSkipped(entries: ZipEntry[]): string | null {
     maps > 0 && `${maps === 1 ? 'an AR world map' : `${maps} AR world maps`}`,
     raw > 0 && `${raw} raw capture file${raw === 1 ? '' : 's'}`,
     plans > 0 && `${plans} floor-plan export${plans === 1 ? '' : 's'}`,
+    previews > 0 && `${previews} preview image${previews === 1 ? '' : 's'}`,
     (metadata || edits) && `the scanning app’s ${metadata && edits ? 'metadata and edits' : metadata ? 'metadata' : 'edits'}`,
   ].filter((p): p is string => typeof p === 'string');
   if (parts.length === 0) return null;
