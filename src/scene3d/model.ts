@@ -301,6 +301,12 @@ function wallTrim(segment: WallSegment, features: RoomFeature[], trim: NonNullab
     const { height, depth } = trim.baseboard;
     // Broken at doorways (and where casing meets the floor).
     const gaps = openings.filter((f) => f.kind === 'door').map((f) => ({ ...span(f), pad: trim.casing?.width ?? 0 }));
+    // Low wall vents (return-air grilles) are set into the baseboard, as in most homes.
+    for (const f of features) {
+      if (f.kind === 'vent' && f.ventMount === 'wall' && f.placement.type === 'wall' && f.elevation < height) {
+        gaps.push({ start: f.placement.offset - f.width / 2, end: f.placement.offset + f.width / 2, bottom: 0, top: 0, pad: 0 });
+      }
+    }
     let cursor = 0;
     for (const g of [...gaps].sort((a, b) => a.start - b.start)) {
       if (g.start - g.pad > cursor) blocks.push(localBlock(frame, cursor, g.start - g.pad, 0, depth, 0, height, trim.color));
@@ -373,28 +379,62 @@ function addWallFeature(wall: SceneWall, segment: WallSegment, feature: RoomFeat
       const mid = (faces.inner + faces.outer) / 2;
       add('glass', localBlock(frame, -half + f, half - f, mid - 0.5, mid + 0.5, bottom + f, top - f, GLASS_COLOR));
     } else {
-      doorPanels(feature, frame, faces, f, top - f).forEach((block) => add('door', block));
+      doorPanels(feature, frame, faces, f, top - f).forEach(({ material, block }) => add(material, block));
     }
     return;
   }
   // Things mounted on the wall's room side: outlets, switches, radiators, wall vents.
   const depth = Math.max(feature.depth, 1);
   const height = Math.max(feature.height, 1);
+  if (feature.kind === 'vent') {
+    wall.fixtures.push(...wallGrille(frame, faces.inner, half, feature.elevation, height));
+    return;
+  }
   wall.fixtures.push(localBlock(frame, -half, half, faces.inner, faces.inner + depth, feature.elevation, feature.elevation + height, FIXTURE_COLOR));
 }
 
+const GRILLE_COLOR = '#f3f1ec';
+
+/**
+ * A wall vent's grille: a white face frame around close vertical louvres in a dark opening,
+ * split into sections by dividers about every 25 cm (like a return-air grille).
+ */
+function wallGrille(frame: Frame, face: number, half: number, z0: number, height: number): Block[] {
+  const blocks: Block[] = [];
+  const border = Math.min(2.2, height / 5, half / 4);
+  const front = face + 1.6;
+  const z1 = z0 + height;
+  blocks.push(localBlock(frame, -half, half, face, face + 0.3, z0, z1, '#2e3032'));
+  for (const [a, b, c, d] of [
+    [-half, half, z0, z0 + border],
+    [-half, half, z1 - border, z1],
+    [-half, -half + border, z0 + border, z1 - border],
+    [half - border, half, z0 + border, z1 - border],
+  ]) blocks.push(localBlock(frame, a, b, face, front, c, d, GRILLE_COLOR));
+  const inner = { x0: -half + border, x1: half - border, z0: z0 + border, z1: z1 - border };
+  const sections = Math.max(1, Math.round((inner.x1 - inner.x0) / 25));
+  const span = (inner.x1 - inner.x0) / sections;
+  for (let s = 0; s < sections; s++) {
+    const a = inner.x0 + s * span;
+    if (s > 0) blocks.push(localBlock(frame, a - 0.6, a + 0.6, face, front, inner.z0, inner.z1, GRILLE_COLOR));
+    for (let x = a + 1.2; x < a + span - 0.6; x += 1.3) blocks.push(localBlock(frame, x, x + 0.35, face + 0.3, front - 0.3, inner.z0, inner.z1, GRILLE_COLOR));
+  }
+  return blocks;
+}
+
 /** Door leaves: hinged leaves shown a little open on their swing side; sliding panels in the wall. */
-function doorPanels(door: RoomFeature, frame: Frame, faces: { inner: number; outer: number }, f: number, top: number): Block[] {
+function doorPanels(door: RoomFeature, frame: Frame, faces: { inner: number; outer: number }, f: number, top: number): { material: OpeningMaterial; block: Block }[] {
   const half = door.width / 2 - f;
   if (door.doorType === 'opening') return [];
   if (door.doorType === 'sliding') {
     const panel = half + 2;
     const mid = (faces.inner + faces.outer) / 2;
+    if (door.glazed) return glazedSlidingPanels(frame, half, mid, top);
     // One panel fixed on the right, the other slid part-way across, so the door reads as sliding.
     return [
       localBlock(frame, half - panel, half, mid - LEAF / 2 - 0.5, mid - 0.5, 0, top, DOOR_COLOR),
       localBlock(frame, -half + door.width * 0.25, -half + door.width * 0.25 + panel, mid + 0.5, mid + LEAF / 2 + 0.5, 0, top, DOOR_COLOR),
-    ];
+    ].map((block) => ({ material: 'door' as const, block }));
   }
   // Inward doors hang on the room-side face; outward ones on the outside face.
   const hingeY = door.swing === 'out' ? faces.outer : faces.inner;
@@ -406,8 +446,34 @@ function doorPanels(door: RoomFeature, frame: Frame, faces: { inner: number; out
     const hinge = { x: leaf.hinge.x, y: hingeY };
     const centre = { x: hinge.x + (Math.cos(rad) * leaf.radius) / 2, y: hinge.y + (Math.sin(rad) * leaf.radius) / 2 };
     const room = toRoom(frame, centre);
-    return { ...room, z: 0, width: leaf.radius, depth: LEAF, height: top, rotation: frame.angle + angle, color: DOOR_COLOR };
+    return { material: 'door' as const, block: { ...room, z: 0, width: leaf.radius, depth: LEAF, height: top, rotation: frame.angle + angle, color: DOOR_COLOR } };
   });
+}
+
+/**
+ * A sliding patio door, closed: two framed glass panels in two tracks, overlapping a little at
+ * the middle (the room-side panel on the left, as most patio doors are), with a latch on the
+ * meeting stile.
+ */
+function glazedSlidingPanels(frame: Frame, half: number, mid: number, top: number): { material: OpeningMaterial; block: Block }[] {
+  const parts: { material: OpeningMaterial; block: Block }[] = [];
+  const stile = Math.min(6, half / 6);
+  const panels = [
+    { x0: -half, x1: 2.5, y0: mid + 0.5, y1: mid + LEAF / 2 + 0.5 },
+    { x0: -2.5, x1: half, y0: mid - LEAF / 2 - 0.5, y1: mid - 0.5 },
+  ];
+  for (const { x0, x1, y0, y1 } of panels) {
+    const piece = (a: number, b: number, z0: number, z1: number) => parts.push({ material: 'frame', block: localBlock(frame, a, b, y0, y1, z0, z1, FRAME_COLOR) });
+    piece(x0, x0 + stile, 0, top);
+    piece(x1 - stile, x1, 0, top);
+    piece(x0 + stile, x1 - stile, top - stile, top);
+    piece(x0 + stile, x1 - stile, 0, stile * 1.5);
+    const glassY = (y0 + y1) / 2;
+    parts.push({ material: 'glass', block: localBlock(frame, x0 + stile, x1 - stile, glassY - 0.4, glassY + 0.4, stile * 1.5, top - stile, GLASS_COLOR) });
+  }
+  // The latch, on the room side of the room-side panel's meeting stile.
+  parts.push({ material: 'frame', block: localBlock(frame, 0, 2, mid + LEAF / 2 + 0.5, mid + LEAF / 2 + 2.5, top * 0.45, top * 0.45 + 10, FRAME_COLOR) });
+  return parts;
 }
 
 // ---------------------------------------------------------------------------

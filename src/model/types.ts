@@ -594,6 +594,8 @@ export interface RoomFeature {
    * the swing kept clear on the plan is always the full swing. Missing = shown ajar (27°).
    */
   openAngle?: number;
+  /** door (sliding): framed glass panels, like a patio door, instead of solid ones */
+  glazed?: boolean;
   /** vent */
   ventMount?: VentMount;
   /** outlet */

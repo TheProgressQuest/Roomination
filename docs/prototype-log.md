@@ -30,6 +30,14 @@ debt. Every item here is checked before a public release (see
 
 ## Known limitations
 
+- **New pieces from the person's own room (27 Oct 2026):** a vertical garden cabinet (Just
+  Vertical AEVA: 91.5 × 20 × 177 cm, from its product page), a 6-cube shelf (IKEA KALLAX 2×3, about
+  77 × 39 × 112 cm, from IKEA's module sizes), an open display shelf (IKEA LAIVA, 62 × 24 × 165 cm),
+  a 1937 console radio (Stromberg-Carlson 240-M; no published size: about 66 × 33 × 104 cm,
+  estimated from a photo and the room scan), and three floor lamps (a three-head tree lamp, a
+  torchiere, an uplighter). Names are generic; brand words are only search tags. Sliding doors
+  can now have framed glass panels (a patio door), and wall vents are drawn as a louvred grille
+  (set into the baseboard when low) with a height field. Checked by eye in Chromium renders only.
 - **Select an area (Step 2A, 24 Oct 2026, beta, optional):** MobileSAM instead of the approved
   SlimSAM (SlimSAM needed about 2 GB per photo; see docs/segmentation-investigation.md). Limits:
   - one photo at a time; the selection resets when the photo changes;

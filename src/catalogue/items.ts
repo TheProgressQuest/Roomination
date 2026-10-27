@@ -387,6 +387,145 @@ function shelfUnit(k: Kit, b: Base, shelves: number) {
   }
 }
 
+/**
+ * A cube shelf: an outer frame of thick boards and thinner dividers into equal square cubbies
+ * (the familiar 33 cm cubes), open at the front and back.
+ */
+function cubeShelf(k: Kit, b: Base, cols: number, rows: number) {
+  const { width: w, depth: d, height: h } = b;
+  const wood = { material: 'wood' as MaterialKind, color: b.color, finish: 'satin' as SurfaceFinish, radius: 0.3 };
+  const outer = 3.8;
+  const inner = 1.6;
+  k.span('support', 'Side', -w / 2, -w / 2 + outer, -d / 2, d / 2, 0, h, wood);
+  k.span('support', 'Side', w / 2 - outer, w / 2, -d / 2, d / 2, 0, h, wood);
+  k.span('base', 'Bottom', -w / 2 + outer, w / 2 - outer, -d / 2, d / 2, 0, outer, wood);
+  k.span('tabletop', 'Top', -w / 2 + outer, w / 2 - outer, -d / 2, d / 2, h - outer, h, wood);
+  const cellW = (w - 2 * outer - (cols - 1) * inner) / cols;
+  const cellH = (h - 2 * outer - (rows - 1) * inner) / rows;
+  for (let c = 1; c < cols; c++) {
+    const x = -w / 2 + outer + c * cellW + (c - 1) * inner;
+    k.span('support', 'Divider', x, x + inner, -d / 2, d / 2, outer, h - outer, wood);
+  }
+  for (let r = 1; r < rows; r++) {
+    const z = outer + r * cellH + (r - 1) * inner;
+    k.span('shelf', 'Shelf', -w / 2 + outer, w / 2 - outer, -d / 2, d / 2, z, z + inner, wood);
+  }
+}
+
+/**
+ * An open display shelf: two side frames (front and back posts joined by rails), open shelves,
+ * and a back panel behind the top tier only.
+ */
+function displayShelf(k: Kit, b: Base, tiers: number[]) {
+  const { width: w, depth: d, height: h } = b;
+  const wood = { material: 'wood' as MaterialKind, color: b.color, finish: 'satin' as SurfaceFinish, radius: 0.3 };
+  const post = 3.4;
+  for (const sx of [-1, 1]) {
+    const x0 = sx < 0 ? -w / 2 : w / 2 - post;
+    for (const sy of [-1, 1]) {
+      const y0 = sy < 0 ? -d / 2 : d / 2 - post;
+      k.span('leg', 'Post', x0, x0 + post, y0, y0 + post, 0, h, wood);
+    }
+    // Side rails under each shelf (they carry it), and one near the floor.
+    for (const z of [6, ...tiers.slice(1)]) k.span('support', 'Side rail', x0 + 0.4, x0 + post - 0.4, -d / 2 + post, d / 2 - post, z - 4, z, wood);
+  }
+  tiers.forEach((z, i) => k.span('shelf', i === tiers.length - 1 ? 'Top' : 'Shelf', -w / 2 + post, w / 2 - post, -d / 2 + 0.5, d / 2 - 0.5, z - 1.8, z, wood));
+  const [below, top] = tiers.slice(-2);
+  k.span('detail', 'Back panel', -w / 2 + post, w / 2 - post, -d / 2, -d / 2 + 0.8, below, top - 1.8, { ...wood, radius: 0 });
+  // Back rails between the rear posts, at each open tier.
+  tiers.slice(0, -2).forEach((z) => k.span('support', 'Back rail', -w / 2 + post, w / 2 - post, -d / 2, -d / 2 + 2, z + 14, z + 18, wood));
+}
+
+/**
+ * An indoor vertical garden: a two-door cabinet on short metal legs, under a framed growing
+ * enclosure with a dark back, two columns of plant pockets, a vertical grow light in the middle
+ * and the plants themselves.
+ */
+function verticalGarden(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  const walnut = { material: 'wood' as MaterialKind, color: '#5d3a26', finish: 'satin' as SurfaceFinish, radius: 0.4 };
+  const frame = { material: 'wood' as MaterialKind, color: '#f1eee8', finish: 'satin' as SurfaceFinish };
+  const legH = 8;
+  const cabinetTop = 52;
+  k.legs(w - 6, d - 2, legH, 2.6, 1.5, { material: 'metal', color: '#c9ccd0', finish: 'gloss' });
+  k.span('base', 'Cabinet', -w / 2, w / 2, -d / 2, d / 2 - 1.8, legH, cabinetTop, walnut);
+  k.fronts('door', w, d, legH + 0.6, cabinetTop - 0.6, 2, { ...walnut, handle: 'none' });
+  // The enclosure: a frame with rounded corners around a dark back panel.
+  const z0 = cabinetTop;
+  const rail = 4.5;
+  k.span('support', 'Frame side', -w / 2, -w / 2 + rail, -d / 2, d / 2, z0, h, { ...frame, radius: 2 });
+  k.span('support', 'Frame side', w / 2 - rail, w / 2, -d / 2, d / 2, z0, h, { ...frame, radius: 2 });
+  k.span('tabletop', 'Frame top', -w / 2 + rail, w / 2 - rail, -d / 2, d / 2, h - rail, h, { ...frame, radius: 1.5 });
+  k.span('shelf', 'Frame base', -w / 2 + rail, w / 2 - rail, -d / 2, d / 2, z0, z0 + 2.5, { ...frame, radius: 0.5 });
+  const back = { material: 'metal' as MaterialKind, color: '#2b2d30', finish: 'matte' as SurfaceFinish };
+  k.span('detail', 'Back panel', -w / 2 + rail, w / 2 - rail, -d / 2, -d / 2 + 1.2, z0 + 2.5, h - rail, back);
+  // Two columns of eight plant pockets, angled panels down each side of the back.
+  const inner = h - rail - (z0 + 2.5);
+  for (const sx of [-1, 1]) {
+    const x = sx * (w / 2 - rail - 9);
+    k.span('detail', 'Growing column', x - 6, x + 6, -d / 2 + 1.2, -d / 2 + 5, z0 + 2.5, h - rail, back);
+    for (let i = 0; i < 8; i++) {
+      const z = z0 + 8 + (i * (inner - 14)) / 7;
+      k.cyl('detail', 'Plant pocket', x, -d / 2 + 5.5, z, 5, 3, 3, { material: 'plastic', color: '#151618' });
+      // The plant in the pocket: a few leaves fanning out from it and trailing down a little.
+      const greens = ['#5f8f4e', '#78a85b', '#4f7d45', '#8bbd64'];
+      [
+        { dx: 0, dz: 0, s: 9 },
+        { dx: -sx * 6, dz: -4, s: 7 },
+        { dx: sx * 4, dz: -7, s: 6 },
+        { dx: -sx * 3, dz: 5, s: 6 },
+      ].forEach(({ dx, dz, s: size }, j) => k.soft('detail', 'Leaves', x + dx, -d / 2 + 8 + (j % 2) * 2, z + dz - size * 0.3, size * (i % 2 ? 0.9 : 1.1), Math.min(d - 9, 7), size * 0.7, { material: 'custom', color: greens[(i + j) % greens.length] }));
+    }
+  }
+  // Trailing stems hanging across the middle, and a low clump at the bottom.
+  for (const [dx, dz, size, color] of [
+    [-12, 0.62, 8, '#6c9c50'],
+    [-9, 0.5, 7, '#86b35d'],
+    [-14, 0.4, 6, '#5f8f4e'],
+    [12, 0.35, 7, '#78a85b'],
+    [10, 0.24, 6, '#6c9c50'],
+  ] as const) k.soft('detail', 'Leaves', dx, -d / 2 + 9, z0 + inner * dz, size, 6, size * 0.8, { material: 'custom', color });
+  k.soft('detail', 'Leaves', -10, -d / 2 + 9, z0 + 2.5, 18, 10, 12, { material: 'custom', color: '#5f8f4e' });
+  k.soft('detail', 'Leaves', 11, -d / 2 + 9, z0 + 2.5, 15, 10, 10, { material: 'custom', color: '#78a85b' });
+  // The grow light: a white tube standing in the middle of the enclosure.
+  k.cyl('detail', 'Diffuser', 0, -d / 2 + 8, z0 + 2.5, 5, 5, inner, { material: 'plastic', color: '#fbf6ea', finish: 'satin' });
+}
+
+/**
+ * A 1930s floor-standing console radio: a walnut cabinet with fluted, stepped pilasters at the
+ * front corners, a figured veneer panel with a bronze dial escutcheon and tuning eye, a row of
+ * knobs, and a cloth speaker grille behind wooden bars.
+ */
+function consoleRadio(k: Kit, b: Base) {
+  const { width: w, depth: d, height: h } = b;
+  const walnut = { material: 'wood' as MaterialKind, color: b.color, finish: 'satin' as SurfaceFinish };
+  const dark = { ...walnut, color: '#3a2216' };
+  const veneer = { ...walnut, color: '#8a4f2b' };
+  const fy = d / 2;
+  k.span('base', 'Plinth', -w / 2 + 1, w / 2 - 1, -d / 2 + 1, d / 2 - 1, 0, 6, dark);
+  k.span('base', 'Cabinet', -w / 2 + 2, w / 2 - 2, -d / 2, d / 2 - 2.5, 6, h - 2.5, walnut);
+  k.span('tabletop', 'Top', -w / 2, w / 2, -d / 2, d / 2, h - 2.5, h, { ...dark, radius: 0.8 });
+  // Stepped, fluted pilasters down each front corner.
+  for (const sx of [-1, 1]) {
+    const x = sx * (w / 2 - 7);
+    k.box('support', 'Pilaster', x, fy - 4, 6, 14, 8, h - 8.5, { ...walnut, radius: 1.5 });
+    for (const f of [-4, 0, 4]) k.box('detail', 'Flute', x + f, fy - 0.4, 6, 1.6, 1, h - 8.5, { ...dark, radius: 0.6 });
+  }
+  const panelX = w / 2 - 14;
+  // The upper panel: figured walnut, with the dial escutcheon and tuning eye.
+  k.span('detail', 'Veneer panel', -panelX, panelX, fy - 3, fy - 2.2, 58, h - 4, { ...veneer, radius: 0.4 });
+  k.box('detail', 'Escutcheon', 0, fy - 2.2, h - 34, 22, 1.2, 18, { material: 'custom', color: '#9a7d52', finish: 'satin', radius: 1.2 });
+  k.box('detail', 'Dial', 0, fy - 1, h - 31, 9, 0.4, 11, { material: 'custom', color: '#d8c38f', radius: 0.6 });
+  k.cyl('detail', 'Tuning eye', 0, fy - 1.2, h - 19, 3, 1.2, 3, { material: 'glass', color: '#3e7a52', finish: 'gloss' });
+  // Five knobs in a row.
+  for (const x of [-16, -8, 0, 8, 16].map((v) => (v * (w - 28)) / 40)) k.soft('detail', 'Knob', x, fy - 1.2, 62, 4, 2.4, 4, { material: 'wood', color: '#6d4a33', finish: 'gloss' });
+  // The speaker: grille cloth behind three wooden bars, under a carved rail.
+  k.span('detail', 'Grille cloth', -panelX, panelX, fy - 3.2, fy - 2.6, 9, 55, { material: 'fabric', color: '#b09a6c' });
+  k.span('detail', 'Grille rail', -panelX, panelX, fy - 3, fy - 1.6, 52, 58, { ...walnut, radius: 0.5 });
+  for (const x of [-panelX * 0.42, 0, panelX * 0.42]) k.box('detail', 'Grille bar', x, fy - 2.2, 9, 3, 1.6, 43, { ...walnut, radius: 0.5 });
+  for (const z of [16, 22]) k.span('detail', 'Grille slat', -panelX * 0.42, panelX * 0.42, fy - 2.4, fy - 1.6, z, z + 1.2, { ...walnut, radius: 0.3 });
+}
+
 /** A floating wall shelf. */
 function wallShelf(k: Kit, b: Base) {
   const { width: w, depth: d, height: h } = b;
@@ -741,6 +880,47 @@ function tripodLamp(k: Kit, b: Base) {
   k.cyl('detail', 'Shade', 0, 0, h - 42, w * 0.9, w * 0.9, 40, { material: 'linen', color: LINEN, taper: 0.9 });
 }
 
+/** A round weighted base and a slim pole, for the modern floor lamps below. */
+function lampPole(k: Kit, b: Base, poleTop: number) {
+  const metal = { material: 'metal' as MaterialKind, color: b.color, finish: 'satin' as SurfaceFinish };
+  k.cyl('foot', 'Base', 0, 0, 0, 26, 26, 2.5, { ...metal, taper: 0.9 });
+  k.cyl('support', 'Pole', 0, 0, 2.5, 2.2, 2.2, poleTop - 2.5, metal);
+}
+
+/** A "tree" lamp: a pole with three spot heads on short arms at different heights. */
+function treeLamp(k: Kit, b: Base) {
+  const { height: h } = b;
+  lampPole(k, b, h - 4);
+  const metal = { material: 'metal' as MaterialKind, color: b.color, finish: 'satin' as SurfaceFinish };
+  [
+    { side: -1, z: h - 58 },
+    { side: 1, z: h - 34 },
+    { side: -1, z: h - 12 },
+  ].forEach(({ side, z }) => {
+    k.box('support', 'Arm', side * 4, 0, z + 3, 7, 1.6, 1.6, { ...metal, radius: 0.6 });
+    const head = k.box('detail', 'Spot head', side * 11, 0, z, 9, 9, 12, { ...metal, radius: 2 });
+    k.box('detail', 'Diffuser', 0, 4.6, 2.5, 6.5, 0.4, 7, { parent: head, material: 'plastic', color: '#fff6e2', radius: 1.5 });
+  });
+}
+
+/** A torchiere: a pole topped by a shallow dish that throws light up onto the ceiling. */
+function torchiere(k: Kit, b: Base) {
+  const { width: w, height: h } = b;
+  lampPole(k, b, h - 9);
+  k.cyl('detail', 'Bowl', 0, 0, h - 9, w * 0.95, w * 0.95, 9, { material: 'metal', color: b.color, finish: 'satin', taper: 1.9 });
+  k.cyl('detail', 'Diffuser', 0, 0, h - 1.5, w * 0.8, w * 0.8, 0.6, { material: 'plastic', color: '#fff4dc' });
+}
+
+/** An uplighter: a slim pole under a curved clear capsule with the light inside. */
+function uplighter(k: Kit, b: Base) {
+  const { height: h } = b;
+  const head = 34;
+  lampPole(k, b, h - head);
+  k.box('support', 'Head base', 0, 0, h - head - 2, 12, 10, 6, { material: 'metal', color: b.color, finish: 'satin', radius: 3 });
+  k.soft('detail', 'Shell', 0, 0, h - head + 2, 18, 13, head - 2, { material: 'glass', color: '#3c4148', finish: 'gloss' });
+  k.soft('detail', 'Diffuser', 0, 0.5, h - head + 9, 11, 7, head - 14, { material: 'plastic', color: '#fff8ea' });
+}
+
 function pouf(k: Kit, b: Base) {
   const { width: w, depth: d, height: h } = b;
   k.cyl('cushion', 'Pouf', 0, 0, 0, w, d, h, { material: 'cotton', color: b.color, seams: 'stitched', taper: 0.92 });
@@ -849,6 +1029,11 @@ export const CATALOGUE: CatalogueItem[] = [
   simple('bookshelf', 'Bookshelf', 'living', 'bookcase shelving', { kind: 'bookshelf', width: 80, depth: 35, height: 180, color: OAK, material: 'wood' }),
   simple('bookshelf-wide', 'Wide bookshelf', 'living', 'bookcase shelving', { kind: 'bookshelf', width: 120, depth: 35, height: 200, color: WHITE, material: 'wood' }),
   simple('low-shelf', 'Low shelf', 'living', 'bookcase sideboard', { kind: 'bookshelf', width: 140, depth: 35, height: 75, color: WALNUT, material: 'wood' }),
+  built('cube-shelf-6', 'Cube shelf, 6 cubes', 'living', 'kallax ikea cube bookcase cubby shelving 2x3', { kind: 'bookshelf', width: 77, depth: 39, height: 112, color: '#2f2724' }, (k, b) => cubeShelf(k, b, 2, 3)),
+  built('cube-shelf-6-white', 'Cube shelf, 6 cubes, white', 'living', 'kallax ikea cube bookcase cubby shelving 2x3', { kind: 'bookshelf', width: 77, depth: 39, height: 112, color: WHITE }, (k, b) => cubeShelf(k, b, 2, 3)),
+  built('display-shelf', 'Open display shelf', 'living', 'laiva ikea etagere display shelving bookcase black-brown tiers', { kind: 'bookshelf', width: 62, depth: 24, height: 165, color: '#2c2522' }, (k, b) => displayShelf(k, b, [9, 42, 78, 118, 165])),
+  built('vertical-garden', 'Vertical garden cabinet', 'living', 'aeva just vertical indoor garden hydroponic plants grow light planter', { kind: 'cabinet', width: 91.5, depth: 20, height: 177, color: '#5d3a26', light: { on: true, lumens: 1500, kelvin: 5000, direction: 'all' } }, verticalGarden),
+  built('console-radio', 'Vintage console radio', 'living', 'stromberg-carlson 240-m 1937 antique radio cabinet floor wireless', { kind: 'cabinet', width: 66, depth: 33, height: 104, color: '#6a3a20' }, consoleRadio),
   // Dining -----------------------------------------------------------------
   simple('dining-4', 'Dining table, 4 seats', 'dining', 'kitchen table', { kind: 'diningTable', width: 120, depth: 80, height: 75, color: OAK, material: 'wood' }),
   simple('dining-6', 'Dining table, 6 seats', 'dining', 'kitchen table', { kind: 'diningTable', width: 180, depth: 90, height: 75, color: OAK, material: 'wood' }),
@@ -991,6 +1176,9 @@ export const CATALOGUE: CatalogueItem[] = [
   simple('reading-lamp', 'Reading lamp', 'lighting', 'floor lamp light', { kind: 'decor', category: 'decoration', width: 30, depth: 30, height: 140, color: LINEN, light: lamp(600, 'down') }),
   built('arc-lamp', 'Arc floor lamp', 'lighting', 'arching lamp light', { kind: 'decor', category: 'decoration', width: 150, depth: 40, height: 200, color: BRASS, light: lamp(800, 'down') }, arcLamp),
   built('tripod-lamp', 'Tripod lamp', 'lighting', 'floor lamp light', { kind: 'decor', category: 'decoration', width: 50, depth: 50, height: 150, color: LINEN, light: lamp(800) }, tripodLamp),
+  built('tree-lamp', 'Tree floor lamp, three heads', 'lighting', 'govee tree lamp multi head spotlight floor lamp rgb', { kind: 'decor', category: 'decoration', width: 30, depth: 26, height: 165, color: '#26282b', light: lamp(1200) }, treeLamp),
+  built('torchiere', 'Torchiere floor lamp', 'lighting', 'uplight bowl dish floor lamp ceiling', { kind: 'decor', category: 'decoration', width: 34, depth: 34, height: 180, color: '#26282b', light: lamp(1600, 'up') }, torchiere),
+  built('uplighter', 'Uplighter floor lamp', 'lighting', 'govee uplight corner floor lamp rgb', { kind: 'decor', category: 'decoration', width: 26, depth: 26, height: 160, color: '#26282b', light: lamp(1200, 'up') }, uplighter),
   simple('table-lamp', 'Table lamp', 'lighting', 'desk lamp bedside light', { kind: 'decor', category: 'decoration', width: 25, depth: 25, height: 45, color: '#f3ead8', light: lamp(450) }),
   // Décor and plants -------------------------------------------------------------------
   simple('plant-small', 'Small plant', 'decor', 'pot houseplant', plantSize(30, 50)),

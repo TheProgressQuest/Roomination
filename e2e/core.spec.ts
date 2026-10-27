@@ -109,6 +109,24 @@ test.describe('Phase 1 & 2 features still work', () => {
     await expect(toast(page)).toContainText('overlap');
   });
 
+  test('a sliding door can be a glass patio door; a wall vent gets a height', async ({ page }) => {
+    await openApp(page);
+    await tools(page).getByRole('button', { name: 'Door', exact: true }).click();
+    const p = props(page);
+    await radio(p, 'Style', 'Sliding').click();
+    await p.getByRole('checkbox', { name: 'Glass panels (a patio door)' }).check();
+    let project = await exportProject(page);
+    expect(project.features.filter((f: { kind: string }) => f.kind === 'door').at(-1)).toMatchObject({ doorType: 'sliding', glazed: true });
+    await tools(page).getByRole('button', { name: 'Vent', exact: true }).click();
+    await radio(p, 'Mounted on', 'Wall').click();
+    // A floor vent's 2 cm becomes a wall grille's size, and its height can be set.
+    expect(await num(p, 'Height')).toBe(15);
+    await setNum(p, 'Height', 20);
+    await setNum(p, 'Height above floor', 2);
+    project = await exportProject(page);
+    expect(project.features.filter((f: { kind: string }) => f.kind === 'vent').at(-1)).toMatchObject({ ventMount: 'wall', height: 20, elevation: 2 });
+  });
+
   test('windows slide along a wall and hop to another wall when dragged', async ({ page }) => {
     await openApp(page);
     await tools(page).getByRole('button', { name: 'Window', exact: true }).click();

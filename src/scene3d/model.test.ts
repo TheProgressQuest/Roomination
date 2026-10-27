@@ -156,6 +156,41 @@ describe('doors and windows', () => {
     }
   });
 
+  it('draws a glass sliding (patio) door as two framed glass panels, closed', () => {
+    const project = withOpenings();
+    project.features[0] = { ...project.features[0], doorType: 'sliding', width: 180, glazed: true };
+    const openings = buildSceneModel(project).walls[2].openings;
+    expect(openings.filter((o) => o.material === 'door')).toHaveLength(0);
+    expect(openings.filter((o) => o.material === 'glass')).toHaveLength(2);
+    // Each panel's four frame pieces, the latch, and the door's own frame.
+    expect(openings.filter((o) => o.material === 'frame').length).toBeGreaterThanOrEqual(4 * 2 + 1 + 3);
+    // Solid sliding doors are unchanged.
+    project.features[0] = { ...project.features[0], glazed: undefined };
+    expect(buildSceneModel(project).walls[2].openings.filter((o) => o.material === 'door')).toHaveLength(2);
+  });
+
+  it('draws a wall vent as a louvred grille, set into the baseboard when it sits low', () => {
+    const room = { ...createRectangularRoom(500, 400, 250), trim: { baseboard: { height: 10, depth: 1.5 }, color: '#ffffff' } };
+    const vent = createFeature('vent', { type: 'wall', wallId: room.outline[0].id, offset: 200 }, room, { ventMount: 'wall', width: 76, height: 20, depth: 2, elevation: 2 });
+    const wall = buildSceneModel({ ...createEmptyProject(room), features: [vent] }).walls[0];
+    // A dark back, four frame bars, section dividers and dozens of louvres.
+    expect(wall.fixtures.length).toBeGreaterThan(40);
+    expect(wall.fixtures.some((b) => b.color === '#2e3032')).toBe(true);
+    // The baseboard stops either side of the grille (two pieces instead of one).
+    expect(wall.trim).toHaveLength(2);
+    // A vent higher up the wall leaves the baseboard whole.
+    const high = { ...vent, elevation: 150 };
+    expect(buildSceneModel({ ...createEmptyProject(room), features: [high] }).walls[0].trim).toHaveLength(1);
+  });
+
+  it('keeps a patio door’s glass through saving and opening', () => {
+    const project = withOpenings();
+    project.features[0] = { ...project.features[0], doorType: 'sliding', glazed: true };
+    const reopened = parseProjectFile(serializeProject(project));
+    if (!reopened.ok) throw new Error(reopened.error);
+    expect(reopened.project.features[0].glazed).toBe(true);
+  });
+
   it('falls back to sensible heights for openings without one', () => {
     const project = withOpenings();
     project.features[1] = { ...project.features[1], height: 0 };

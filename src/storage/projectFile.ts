@@ -814,6 +814,7 @@ function parseFeature(raw: unknown, index: number, uniqueId: (id: unknown) => st
     feature.swing = oneOf(raw.swing, ['in', 'out'] as const, 'in');
     feature.hinge = oneOf(raw.hinge, ['left', 'right'] as const, 'left');
     if (finite(raw.openAngle) && raw.openAngle >= 0 && raw.openAngle <= 180) feature.openAngle = raw.openAngle;
+    if (raw.glazed === true) feature.glazed = true;
   }
   if (kind === 'vent') feature.ventMount = oneOf(raw.ventMount, ['wall', 'floor', 'ceiling'] as const, 'floor');
   if (kind === 'outlet') feature.outletType = oneOf(raw.outletType, ['standard', 'usb', 'gfci', 'highVoltage'] as const, 'standard');

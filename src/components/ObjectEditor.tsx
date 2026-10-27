@@ -518,6 +518,12 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
             {lengthField('Width', 'width')}
             {lengthField('Height', 'height')}
           </div>
+          {feature.doorType === 'sliding' && (
+            <label className="toggle">
+              <input type="checkbox" checked={!!feature.glazed} onChange={(e) => change({ glazed: e.target.checked || undefined })} />
+              Glass panels (a patio door)
+            </label>
+          )}
           {(feature.doorType === 'sliding' || feature.doorType === 'opening' || feature.swing === 'out') && (
             <div className="field-grid two">{lengthField('Walkway to keep clear', 'clearance')}</div>
           )}
@@ -544,10 +550,15 @@ function FeatureEditor({ project, feature, conflicts, dispatch, onDelete }: Obje
               { value: 'floor', label: 'Floor' },
               { value: 'ceiling', label: 'Ceiling' },
             ]}
-            onChange={(ventMount) => change({ ventMount })}
+            onChange={(ventMount) =>
+              // A floor vent's 2 cm "height" would make a sliver of a wall grille: start it at a
+              // typical wall grille's size instead.
+              change(ventMount === 'wall' && feature.height < 8 ? { ventMount, height: 15, depth: 2, elevation: 30 } : { ventMount })
+            }
           />
           <div className="field-grid">
             {lengthField('Width', 'width')}
+            {feature.ventMount === 'wall' && lengthField('Height', 'height')}
             {feature.ventMount === 'wall' ? lengthField('Height above floor', 'elevation') : lengthField('Depth', 'depth')}
             {feature.ventMount !== 'ceiling' && lengthField('Clearance', 'clearance')}
           </div>
